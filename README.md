@@ -53,7 +53,7 @@ bun run dev:self
 | Ctrl-H C | Inspect commands |
 | Ctrl-H K | Inspect keymap |
 | Ctrl-C Ctrl-L | Load plugin file via minibuffer |
-| Ctrl-C Ctrl-Q | Quit |
+| Ctrl-X Ctrl-C or Ctrl-C Ctrl-Q | Quit |
 
 ## Self-editing demo
 

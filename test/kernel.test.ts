@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { BufferModel } from "../src/kernel/buffer"
-import { Keymap } from "../src/kernel/keymap"
+import { isPrintable, Keymap } from "../src/kernel/keymap"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultCommands } from "../src/init/default-commands"
 
@@ -20,6 +20,11 @@ test("keymap handles multi-key command sequences", () => {
   km.bind("C-x C-s", "save-buffer")
   expect(km.feed({ name: "x", ctrl: true }).status).toBe("pending")
   expect(km.feed({ name: "s", ctrl: true })).toEqual({ status: "matched", command: "save-buffer" })
+})
+
+test("space key is printable", () => {
+  expect(isPrintable({ name: "space", sequence: " " })).toBe(true)
+  expect(isPrintable({ name: "space", sequence: " ", ctrl: true })).toBe(false)
 })
 
 test("editor command registry runs commands", async () => {
@@ -60,6 +65,9 @@ test("default emacs keybindings are registered and runnable", async () => {
   expect(editor.currentBuffer.text).toBe("abcdef")
   await editor.run("yank")
   expect(editor.currentBuffer.text).toBe("abc\ndef")
+
+  expect(editor.keymap.feed({ name: "x", ctrl: true }).status).toBe("pending")
+  expect(editor.keymap.feed({ name: "c", ctrl: true })).toEqual({ status: "matched", command: "quit" })
 })
 
 test("help keybindings keep C-h as a prefix", () => {

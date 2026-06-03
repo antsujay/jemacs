@@ -113,6 +113,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("C-x C-f", "open-file")
   editor.key("C-x C-b", "next-buffer")
   editor.key("C-x C-e", "eval-selection")
+  editor.key("C-x C-c", "quit")
   editor.key("C-space", "set-mark")
   editor.key("C-g", "keyboard-quit")
   editor.key("C-f", "forward-char")

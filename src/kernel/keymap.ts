@@ -68,5 +68,5 @@ export function keyToken(key: KeyEventLike): string {
 }
 
 export function isPrintable(key: KeyEventLike): boolean {
-  return !key.ctrl && !key.meta && typeof key.sequence === "string" && key.sequence.length > 0 && key.name.length === 1
+  return !key.ctrl && !key.meta && typeof key.sequence === "string" && key.sequence.length > 0 && (key.name.length === 1 || key.sequence === " ")
 }
