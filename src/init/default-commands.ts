@@ -1,4 +1,7 @@
+import { dirname } from "node:path"
 import type { Editor } from "../kernel/editor"
+import { diredEntryAtPoint, refreshDiredBuffer } from "../modes/dired"
+import { pythonBeginningOfDefun, pythonEndOfDefun } from "../modes/python"
 import { Evaluator } from "../runtime/evaluator"
 import { inspectValue } from "../runtime/inspect"
 
@@ -12,7 +15,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   }, "Save the current buffer to disk.")
 
   editor.command("open-file", async ({ editor, args }) => {
-    const path = args[0] ?? await editor.prompt("Find file: ")
+    const path = args[0] ?? await editor.completingRead("Find file: ", { collection: [], history: "file" })
     if (!path) return
     await editor.openFile(path)
     editor.message(`Opened ${path}`)
@@ -25,7 +28,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
 
   editor.command("switch-to-buffer", async ({ editor, args }) => {
     const current = editor.currentBuffer.name
-    const name = args[0] ?? await editor.prompt("Switch to buffer: ", current)
+    const name = args[0] ?? await editor.completingRead("Switch to buffer: ", { collection: [...editor.buffers.values()].map(b => b.name), history: "buffer", initialValue: current })
     if (!name) return
     const buffer = editor.switchToBuffer(name)
     editor.message(`Switched to ${buffer.name}`)
@@ -53,6 +56,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
 
   editor.command("keyboard-quit", ({ buffer, editor }) => {
     editor.keymap.clearPending()
+    editor.keymaps.clearPending()
     if (editor.minibuffer) editor.minibufferCancel()
     buffer.clearMark()
     editor.message("Quit")
@@ -104,14 +108,14 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   }, "Evaluate the selection, or the whole buffer if no selection is active.")
 
   editor.command("eval-expression", async ({ editor, args }) => {
-    const expression = args.join(" ") || await editor.prompt("Eval expression: ")
+    const expression = args.join(" ") || await editor.prompt("Eval expression: ", "", "eval-expression")
     if (!expression) return
     const result = await evaluator.evalExpression(expression)
     editor.scratch("*eval-result*", inspectValue(result), "text")
   }, "Evaluate a JavaScript expression and display its result.")
 
   editor.command("run-command", async ({ editor, args }) => {
-    const name = args[0] ?? await editor.prompt("M-x ")
+    const name = args[0] ?? await editor.completingRead("M-x ", { collection: editor.commands.names(), history: "command" })
     if (!name) return
     const rest = args.length > 1 ? args.slice(1) : []
     await editor.run(name, rest)
@@ -131,8 +135,56 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     editor.scratch("*keymap*", lines.join("\n"), "text")
   }, "List keybindings.")
 
+  editor.command("describe-key", async ({ editor, args }) => {
+    const sequence = args.join(" ") || await editor.prompt("Describe key: ", "", "describe-key")
+    if (!sequence) return
+    editor.scratch("*Help*", editor.describeKey(sequence), "text")
+  }, "Describe the command bound to a key sequence.")
+
+  editor.command("minibuffer-complete", ({ editor }) => editor.minibufferComplete(), "Complete the current minibuffer input.")
+  editor.command("minibuffer-submit", ({ editor }) => editor.minibufferSubmit(), "Submit the minibuffer.")
+  editor.command("minibuffer-cancel", ({ editor }) => editor.minibufferCancel(), "Cancel the minibuffer.")
+  editor.command("minibuffer-backspace", ({ editor }) => editor.minibufferBackspace(), "Delete one character in the minibuffer.")
+
+  editor.command("indent-for-tab-command", ({ editor, buffer }) => {
+    if (!editor.completeAtPoint(buffer)) editor.indentLine(buffer)
+  }, "Complete the symbol at point, or indent the current line.")
+
+  editor.command("python-beginning-of-defun", ({ buffer }) => pythonBeginningOfDefun(buffer), "Move to the beginning of the current Python def or class.")
+  editor.command("python-end-of-defun", ({ buffer }) => pythonEndOfDefun(buffer), "Move to the end of the current Python def or class.")
+  editor.command("python-shell-switch-to-shell", ({ editor }) => {
+    editor.scratch("*Python*", "Python shell integration is not implemented yet.\n", "text")
+  }, "Switch to the Python shell buffer placeholder.")
+
+  editor.command("dired", async ({ editor, args }) => {
+    const path = args[0] ?? await editor.completingRead("Dired: ", { collection: [], history: "file", initialValue: editor.currentBuffer.directory() ?? process.cwd() })
+    if (!path) return
+    await editor.openDirectory(path)
+  }, "Open a directory in Dired.")
+  editor.command("dired-revert", async ({ buffer, editor }) => {
+    await refreshDiredBuffer(buffer)
+    editor.message(`Reverted ${buffer.path}`)
+  }, "Refresh the current Dired buffer.")
+  editor.command("dired-find-file", async ({ buffer, editor }) => {
+    const entry = diredEntryAtPoint(buffer)
+    if (!entry) return
+    await editor.openFile(entry.path)
+  }, "Visit the file or directory on the current Dired line.")
+  editor.command("dired-up-directory", async ({ buffer, editor }) => {
+    if (!buffer.path) return
+    await editor.openDirectory(dirname(buffer.path))
+  }, "Open the parent directory in Dired.")
+  editor.command("quit-window", ({ editor }) => {
+    editor.nextBuffer()
+  }, "Bury the current special buffer and select another buffer.")
+
+  editor.command("load-theme", ({ editor }) => {
+    editor.setTheme(editor.theme)
+    editor.message(`Loaded theme ${editor.theme.name}`)
+  }, "Reload the active theme.")
+
   editor.command("load-plugin", async ({ editor, args }) => {
-    const path = args[0] ?? await editor.prompt("Load plugin: ", "plugins/demo-plugin.ts")
+    const path = args[0] ?? await editor.prompt("Load plugin: ", "plugins/demo-plugin.ts", "file")
     if (!path) return
     await evaluator.loadPlugin(path)
     editor.message(`Loaded plugin ${path}`)
@@ -185,6 +237,8 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("esc b", "backward-word")
   editor.key("C-m", "newline")
   editor.key("C-j", "newline")
+  editor.key("tab", "indent-for-tab-command")
+  editor.key("C-i", "indent-for-tab-command")
   editor.key("C-d", "delete-char")
   editor.key("C-k", "kill-line")
   editor.key("C-w", "kill-region")
@@ -195,10 +249,17 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("esc x", "run-command")
   editor.key("C-h e", "inspect-editor")
   editor.key("C-h c", "inspect-commands")
-  editor.key("C-h k", "inspect-keymap")
+  editor.key("C-h k", "describe-key")
+  editor.key("C-x d", "dired")
   editor.key("C-c C-l", "load-plugin")
   editor.key("C-c C-r", "reload-current-file")
   editor.key("C-c C-q", "quit")
+  editor.defineKey("minibuffer", "tab", "minibuffer-complete")
+  editor.defineKey("minibuffer", "C-i", "minibuffer-complete")
+  editor.defineKey("minibuffer", "enter", "minibuffer-submit")
+  editor.defineKey("minibuffer", "C-m", "minibuffer-submit")
+  editor.defineKey("minibuffer", "esc", "minibuffer-cancel")
+  editor.defineKey("minibuffer", "backspace", "minibuffer-backspace")
 
   return evaluator
 }

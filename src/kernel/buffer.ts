@@ -1,6 +1,6 @@
 import { dirname, basename } from "node:path"
 
-export type BufferKind = "file" | "scratch" | "messages" | "inspector" | "minibuffer"
+export type BufferKind = "file" | "directory" | "scratch" | "messages" | "inspector" | "minibuffer"
 
 export class BufferModel {
   readonly id: string
@@ -11,6 +11,7 @@ export class BufferModel {
   point = 0
   mark: number | null = null
   dirty = false
+  readOnly = false
   mode = "text"
   private undoStack: string[] = []
   private redoStack: string[] = []
@@ -41,6 +42,7 @@ export class BufferModel {
   }
 
   setText(text: string, markDirty = true): void {
+    this.assertWritable(markDirty)
     this.snapshot()
     this.text = text
     this.point = Math.min(this.point, this.text.length)
@@ -49,6 +51,7 @@ export class BufferModel {
 
   insert(s: string): void {
     if (!s) return
+    this.assertWritable(true)
     this.snapshot()
     this.text = this.text.slice(0, this.point) + s + this.text.slice(this.point)
     this.point += s.length
@@ -57,6 +60,7 @@ export class BufferModel {
 
   deleteBackward(): void {
     if (this.point <= 0) return
+    this.assertWritable(true)
     this.snapshot()
     this.text = this.text.slice(0, this.point - 1) + this.text.slice(this.point)
     this.point--
@@ -65,6 +69,7 @@ export class BufferModel {
 
   deleteForward(): void {
     if (this.point >= this.text.length) return
+    this.assertWritable(true)
     this.snapshot()
     this.text = this.text.slice(0, this.point) + this.text.slice(this.point + 1)
     this.dirty = true
@@ -74,6 +79,7 @@ export class BufferModel {
     const from = clamp(Math.min(start, end), 0, this.text.length)
     const to = clamp(Math.max(start, end), 0, this.text.length)
     if (from === to) return ""
+    this.assertWritable(true)
     this.snapshot()
     const removed = this.text.slice(from, to)
     this.text = this.text.slice(0, from) + this.text.slice(to)
@@ -160,6 +166,36 @@ export class BufferModel {
     this.dirty = true
   }
 
+  replaceRange(start: number, end: number, replacement: string): void {
+    const from = clamp(Math.min(start, end), 0, this.text.length)
+    const to = clamp(Math.max(start, end), 0, this.text.length)
+    this.assertWritable(true)
+    this.snapshot()
+    this.text = this.text.slice(0, from) + replacement + this.text.slice(to)
+    this.point = from + replacement.length
+    this.dirty = true
+  }
+
+  lineBoundsAt(point = this.point): { start: number; end: number; text: string } {
+    const start = point <= 0 ? 0 : this.text.lastIndexOf("\n", point - 1) + 1
+    const newline = this.text.indexOf("\n", point)
+    const end = newline === -1 ? this.text.length : newline
+    return { start, end, text: this.text.slice(start, end) }
+  }
+
+  symbolBoundsAt(point = this.point): { start: number; end: number; text: string } {
+    const isSymbol = (ch: string) => /[A-Za-z0-9_]/.test(ch)
+    let start = clamp(point, 0, this.text.length)
+    let end = start
+    while (start > 0 && isSymbol(this.text[start - 1]!)) start--
+    while (end < this.text.length && isSymbol(this.text[end]!)) end++
+    return { start, end, text: this.text.slice(start, end) }
+  }
+
+  private assertWritable(markDirty: boolean): void {
+    if (markDirty && this.readOnly) throw new Error(`Buffer ${this.name} is read-only`)
+  }
+
   private snapshot(): void {
     this.undoStack.push(this.text)
     if (this.undoStack.length > 200) this.undoStack.shift()
@@ -172,6 +208,7 @@ export function inferMode(path: string): string {
   if (/\.(ts|mts|cts|tsx)$/.test(path)) return "typescript"
   if (/\.json$/.test(path)) return "json"
   if (/\.md$/.test(path)) return "markdown"
+  if (/\.py$/.test(path)) return "python"
   return "text"
 }
 
