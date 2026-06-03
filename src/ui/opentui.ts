@@ -111,6 +111,14 @@ class EditorUi {
       return
     }
 
+    if (this.editor.keymap.pendingSequence()) {
+      const fed = this.editor.keymap.feed(key)
+      if (fed.status === "matched") await this.editor.run(fed.command)
+      else if (fed.status === "pending") await this.editor.changed("key-prefix")
+      else this.editor.message(`Unbound key: ${keyToken(key)}`)
+      return
+    }
+
     if (key.ctrl && key.name === "c") {
       const fed = this.editor.keymap.feed(key)
       if (fed.status === "matched") await this.editor.run(fed.command)
@@ -145,6 +153,9 @@ class EditorUi {
         break
       case "delete":
         buffer.deleteForward()
+        break
+      case "return":
+        buffer.insert("\n")
         break
       case "escape":
         this.editor.keymap.clearPending()

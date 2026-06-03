@@ -21,10 +21,14 @@ export class Evaluator {
     return await this.eval(`return (${expression})`, filename)
   }
 
-  async loadPlugin(path: string): Promise<unknown> {
+  async loadModule(path: string): Promise<Record<string, unknown>> {
     const full = resolve(path)
     const url = `${pathToFileURL(full).href}?t=${Date.now()}`
-    const mod = await import(url)
+    return await import(url)
+  }
+
+  async loadPlugin(path: string): Promise<unknown> {
+    const mod = await this.loadModule(path)
     if (typeof mod.install !== "function") {
       throw new Error(`Plugin ${path} does not export install(editor)`)
     }

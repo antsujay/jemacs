@@ -70,10 +70,50 @@ test("default emacs keybindings are registered and runnable", async () => {
   expect(editor.keymap.feed({ name: "c", ctrl: true })).toEqual({ status: "matched", command: "quit" })
 })
 
+test("default commands support buffer listing, switching, newline, and regions", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.scratch("notes", "hello world", "text")
+
+  await editor.run("switch-to-buffer", ["*scratch*"])
+  expect(editor.currentBuffer.name).toBe("*scratch*")
+
+  expect(editor.keymap.feed({ name: "x", ctrl: true }).status).toBe("pending")
+  expect(editor.keymap.feed({ name: "b", ctrl: true })).toEqual({ status: "matched", command: "list-buffers" })
+  await editor.run("list-buffers")
+  expect(editor.currentBuffer.name).toBe("*Buffer List*")
+  expect(editor.currentBuffer.text).toContain("notes")
+
+  await editor.run("switch-to-buffer", ["notes"])
+  editor.currentBuffer.point = 5
+  await editor.run("newline")
+  expect(editor.currentBuffer.text).toBe("hello\n world")
+
+  editor.currentBuffer.mark = 0
+  editor.currentBuffer.point = 5
+  await editor.run("copy-region")
+  editor.currentBuffer.point = editor.currentBuffer.text.length
+  await editor.run("yank")
+  expect(editor.currentBuffer.text.endsWith("hello")).toBe(true)
+
+  editor.currentBuffer.mark = 0
+  editor.currentBuffer.point = 5
+  await editor.run("kill-region")
+  expect(editor.currentBuffer.text.startsWith("\n world")).toBe(true)
+})
+
 test("help keybindings keep C-h as a prefix", () => {
   const editor = new Editor()
   installDefaultCommands(editor)
 
   expect(editor.keymap.feed({ name: "h", ctrl: true }).status).toBe("pending")
   expect(editor.keymap.feed({ name: "k" })).toEqual({ status: "matched", command: "inspect-keymap" })
+})
+
+test("live reload keybinding is registered", () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+
+  expect(editor.keymap.feed({ name: "c", ctrl: true }).status).toBe("pending")
+  expect(editor.keymap.feed({ name: "r", ctrl: true })).toEqual({ status: "matched", command: "reload-current-file" })
 })

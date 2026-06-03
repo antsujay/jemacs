@@ -35,6 +35,7 @@ bun run dev:self
 | Key | Action |
 | --- | --- |
 | Type printable keys | Insert text |
+| Return or Ctrl-J/Ctrl-M | Insert newline |
 | Backspace | Delete backward |
 | Left/Right or Ctrl-B/Ctrl-F | Move backward/forward one character |
 | Up/Down or Ctrl-P/Ctrl-N | Move to previous/next line |
@@ -42,9 +43,11 @@ bun run dev:self
 | Meta-B / Meta-F | Move backward/forward one word |
 | Ctrl-D | Delete forward |
 | Ctrl-K / Ctrl-Y | Kill line / yank |
+| Ctrl-W / Meta-W | Kill region / copy region |
 | Ctrl-X Ctrl-S | Save current buffer |
 | Ctrl-X Ctrl-E | Eval selection, or current buffer if no mark |
-| Ctrl-X Ctrl-B | Switch to next buffer |
+| Ctrl-X B | Switch to buffer |
+| Ctrl-X Ctrl-B | List buffers |
 | Ctrl-X Ctrl-F | Open file via minibuffer |
 | Ctrl-Space | Set mark |
 | Ctrl-G | Cancel minibuffer / clear key sequence |
@@ -53,6 +56,7 @@ bun run dev:self
 | Ctrl-H C | Inspect commands |
 | Ctrl-H K | Inspect keymap |
 | Ctrl-C Ctrl-L | Load plugin file via minibuffer |
+| Ctrl-C Ctrl-R | Save and reload current file |
 | Ctrl-X Ctrl-C or Ctrl-C Ctrl-Q | Quit |
 
 ## Self-editing demo
@@ -75,6 +79,8 @@ plugins/demo-plugin.ts
 ```
 
 The plugin's `install(editor)` function runs against the live editor object.
+
+When visiting a TypeScript or JavaScript file, `Ctrl-C Ctrl-R` saves and cache-bust imports the current file. If the module exports `install(editor)` it is run as a plugin; if it exports `installDefaultCommands(editor)` those commands and keybindings are reinstalled in the running editor.
 
 ## Design notes
 
