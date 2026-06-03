@@ -4,9 +4,11 @@ import {
   createCliRenderer,
   type KeyEvent,
   type CliRenderer,
+  type StyledText,
 } from "@opentui/core"
 import type { Editor } from "../kernel/editor"
-import { isMetaKey, isPrintable, keyToken } from "../kernel/keymap"
+import { applyTheme, type Theme } from "../display/theme"
+import type { TextSpan } from "../modes/mode"
 
 export async function startOpenTui(editor: Editor): Promise<void> {
   const renderer = await createCliRenderer({
@@ -101,122 +103,41 @@ class EditorUi {
   }
 
   async handleKey(key: KeyEvent): Promise<void> {
-    if (key.ctrl && key.name === "g") {
-      await this.editor.run("keyboard-quit")
-      return
-    }
-
-    if (this.editor.minibuffer) {
-      await this.handleMinibufferKey(key)
-      return
-    }
-
-    if (this.editor.keymap.pendingSequence()) {
-      const fed = this.editor.keymap.feed(key)
-      if (fed.status === "matched") await this.editor.run(fed.command)
-      else if (fed.status === "pending") await this.editor.changed("key-prefix")
-      else this.editor.message(`Unbound key: ${keyToken(key)}`)
-      return
-    }
-
-    if (key.ctrl && key.name === "c") {
-      const fed = this.editor.keymap.feed(key)
-      if (fed.status === "matched") await this.editor.run(fed.command)
-      else await this.editor.changed("key-prefix")
-      return
-    }
-
-    if (key.ctrl || isMetaKey(key)) {
-      const fed = this.editor.keymap.feed(key)
-      if (fed.status === "matched") await this.editor.run(fed.command)
-      else if (fed.status === "pending") await this.editor.changed("key-prefix")
-      else this.editor.message(`Unbound key: ${keyToken(key)}`)
-      return
-    }
-
-    const buffer = this.editor.currentBuffer
-    switch (key.name) {
-      case "left":
-        buffer.move(-1)
-        break
-      case "right":
-        buffer.move(1)
-        break
-      case "up":
-        buffer.moveLine(-1)
-        break
-      case "down":
-        buffer.moveLine(1)
-        break
-      case "backspace":
-        buffer.deleteBackward()
-        break
-      case "delete":
-        buffer.deleteForward()
-        break
-      case "return":
-        buffer.insert("\n")
-        break
-      case "escape":
-        {
-          const fed = this.editor.keymap.feed(key)
-          if (fed.status === "matched") await this.editor.run(fed.command)
-          else if (fed.status === "pending") await this.editor.changed("key-prefix")
-          else {
-            this.editor.keymap.clearPending()
-            buffer.clearMark()
-            this.editor.message("Canceled")
-          }
-          return
-        }
-      default:
-        if (isPrintable(key)) buffer.insert(key.sequence ?? "")
-        else return
-    }
-
-    await this.editor.changed(`key:${key.name}`)
-  }
-
-  private async handleMinibufferKey(key: KeyEvent): Promise<void> {
-    if (key.ctrl && key.name === "g") {
-      await this.editor.run("keyboard-quit")
-      return
-    }
-
-    switch (key.name) {
-      case "return":
-        this.editor.minibufferSubmit()
-        break
-      case "escape":
-        this.editor.minibufferCancel()
-        break
-      case "backspace":
-        this.editor.minibufferBackspace()
-        break
-      default:
-        if (isPrintable(key)) this.editor.minibufferInsert(key.sequence ?? "")
-    }
-    await this.editor.changed("minibuffer-key")
+    await this.editor.handleKey(key)
   }
 
   render(): void {
     const buffer = this.editor.currentBuffer
     const { line, col } = buffer.lineCol()
-    const pending = this.editor.keymap.pendingSequence()
+    const pending = this.editor.keymaps.pendingSequence()
     const mark = buffer.mark == null ? "" : ` mark=${buffer.mark}`
     const dirty = buffer.dirty ? "*" : ""
 
     this.title.content = ` Jemacs OpenTUI — ${buffer.name}${dirty}`
-    this.body.content = visibleText(buffer.text, buffer.point)
+    this.body.content = visibleStyledText(buffer.text, buffer.point, this.editor.fontLock(buffer), this.editor.theme)
     this.modeline.content = ` ${buffer.mode}  ${buffer.name}${dirty}  line ${line}, col ${col}  point ${buffer.point}${mark}${pending ? `  [${pending}]` : ""}`
     this.minibuffer.content = this.editor.minibuffer
-      ? ` ${this.editor.minibuffer.prompt}${this.editor.minibuffer.value}█`
+      ? ` ${this.editor.minibuffer.prompt}${this.editor.activeBuffer.text}█`
       : " "
     this.echo.content = ` ${this.lastMessage}`
   }
 }
 
 export function visibleText(text: string, point: number): string {
+  return visibleTextRegion(text, point).visible
+}
+
+export function visibleStyledText(text: string, point: number, spans: TextSpan[] = [], theme: Theme): StyledText {
+  const region = visibleTextRegion(text, point)
+  const visibleEnd = region.visibleStart + region.visible.length
+  const visibleSpans = spans
+    .map(span => shiftSpanForCursor(span, region.cursorPoint))
+    .filter(span => span.end > region.visibleStart && span.start < visibleEnd)
+    .map(span => ({ ...span, start: Math.max(0, span.start - region.visibleStart), end: Math.min(region.visible.length, span.end - region.visibleStart) }))
+  return applyTheme(region.visible, visibleSpans, theme)
+}
+
+function visibleTextRegion(text: string, point: number): { visible: string, visibleStart: number, cursorPoint: number } {
   const cursorPoint = Math.max(0, Math.min(point, text.length))
   const underCursor = text[cursorPoint]
   const withCursor = underCursor && underCursor !== "\n"
@@ -227,5 +148,15 @@ export function visibleText(text: string, point: number): string {
   const maxLines = Math.max(1, rows - 6)
   const cursorLine = withCursor.slice(0, cursorPoint).split("\n").length - 1
   const start = Math.max(0, Math.min(cursorLine - Math.floor(maxLines / 2), lines.length - maxLines))
-  return lines.slice(start, start + maxLines).join("\n")
+  const visibleStart = lines.slice(0, start).join("\n").length + (start > 0 ? 1 : 0)
+  const visible = lines.slice(start, start + maxLines).join("\n")
+  return { visible, visibleStart, cursorPoint }
+}
+
+function shiftSpanForCursor(span: TextSpan, cursorPoint: number): TextSpan {
+  return {
+    ...span,
+    start: span.start >= cursorPoint ? span.start + 1 : span.start,
+    end: span.end > cursorPoint ? span.end + 1 : span.end,
+  }
 }

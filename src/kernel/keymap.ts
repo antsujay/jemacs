@@ -8,12 +8,28 @@ export type KeyEventLike = {
   shift?: boolean
 }
 
+export type KeyLookupResult =
+  | { status: "matched"; command: string; mapName: string }
+  | { status: "pending"; mapName: string }
+  | { status: "unmatched" }
+
 export class Keymap {
   private bindings = new Map<string, string>()
   private pending: string[] = []
 
+  constructor(readonly name = "keymap") {}
+
   bind(sequence: string, commandName: string): void {
     this.bindings.set(normalizeSequence(sequence), commandName)
+  }
+
+  get(sequence: string): string | undefined {
+    return this.bindings.get(normalizeSequence(sequence))
+  }
+
+  hasPrefix(sequence: string): boolean {
+    const normalized = normalizeSequence(sequence)
+    return [...this.bindings.keys()].some(k => k.startsWith(normalized + " "))
   }
 
   all(): Array<[string, string]> {
@@ -31,8 +47,7 @@ export class Keymap {
       return { status: "matched", command: exact }
     }
 
-    const hasPrefix = [...this.bindings.keys()].some(k => k.startsWith(seq + " "))
-    if (hasPrefix) return { status: "pending" }
+    if (this.hasPrefix(seq)) return { status: "pending" }
 
     this.pending = []
     return { status: "unmatched" }
@@ -47,8 +62,58 @@ export class Keymap {
   }
 }
 
+export class KeymapStack {
+  private pending: string[] = []
+
+  constructor(private readonly maps: () => Array<{ name: string; keymap: Keymap }>) {}
+
+  feed(key: KeyEventLike): KeyLookupResult {
+    this.pending.push(keyToken(key))
+    const sequence = this.pending.join(" ")
+    const result = this.lookup(sequence)
+
+    if (result.status === "matched") {
+      this.pending = []
+      return result
+    }
+
+    if (result.status === "pending") return result
+
+    this.pending = []
+    return result
+  }
+
+  lookup(sequence: string): KeyLookupResult {
+    const normalized = normalizeSequence(sequence)
+    let pendingMap: string | null = null
+
+    for (const { name, keymap } of this.maps()) {
+      const command = keymap.get(normalized)
+      if (command) return { status: "matched", command, mapName: name }
+      if (!pendingMap && keymap.hasPrefix(normalized)) pendingMap = name
+    }
+
+    return pendingMap ? { status: "pending", mapName: pendingMap } : { status: "unmatched" }
+  }
+
+  describe(sequence: string): { sequence: string; command: string; mapName: string } | null {
+    const normalized = normalizeSequence(sequence)
+    const result = this.lookup(normalized)
+    if (result.status !== "matched") return null
+    return { sequence: normalized, command: result.command, mapName: result.mapName }
+  }
+
+  clearPending(): void {
+    this.pending = []
+  }
+
+  pendingSequence(): string {
+    return this.pending.join(" ")
+  }
+}
+
 export function normalizeSequence(sequence: string): string {
-  return sequence.trim().split(/\s+/).map(normalizeToken).join(" ")
+  return sequence.trim().split(/\s+/).filter(Boolean).map(normalizeToken).join(" ")
 }
 
 export function normalizeToken(token: string): string {
