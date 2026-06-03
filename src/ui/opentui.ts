@@ -6,7 +6,7 @@ import {
   type CliRenderer,
 } from "@opentui/core"
 import type { Editor } from "../kernel/editor"
-import { isPrintable, keyToken } from "../kernel/keymap"
+import { isMetaKey, isPrintable, keyToken } from "../kernel/keymap"
 
 export async function startOpenTui(editor: Editor): Promise<void> {
   const renderer = await createCliRenderer({
@@ -126,7 +126,7 @@ class EditorUi {
       return
     }
 
-    if (key.ctrl || key.meta) {
+    if (key.ctrl || isMetaKey(key)) {
       const fed = this.editor.keymap.feed(key)
       if (fed.status === "matched") await this.editor.run(fed.command)
       else if (fed.status === "pending") await this.editor.changed("key-prefix")
@@ -158,10 +158,17 @@ class EditorUi {
         buffer.insert("\n")
         break
       case "escape":
-        this.editor.keymap.clearPending()
-        buffer.clearMark()
-        this.editor.message("Canceled")
-        break
+        {
+          const fed = this.editor.keymap.feed(key)
+          if (fed.status === "matched") await this.editor.run(fed.command)
+          else if (fed.status === "pending") await this.editor.changed("key-prefix")
+          else {
+            this.editor.keymap.clearPending()
+            buffer.clearMark()
+            this.editor.message("Canceled")
+          }
+          return
+        }
       default:
         if (isPrintable(key)) buffer.insert(key.sequence ?? "")
         else return
@@ -209,11 +216,16 @@ class EditorUi {
   }
 }
 
-function visibleText(text: string, point: number): string {
-  const withCursor = text.slice(0, point) + "█" + text.slice(point)
+export function visibleText(text: string, point: number): string {
+  const cursorPoint = Math.max(0, Math.min(point, text.length))
+  const underCursor = text[cursorPoint]
+  const withCursor = underCursor && underCursor !== "\n"
+    ? text.slice(0, cursorPoint) + "█" + text.slice(cursorPoint + 1)
+    : text.slice(0, cursorPoint) + "█" + text.slice(cursorPoint)
   const lines = withCursor.split("\n")
-  const maxLines = Math.max(1, process.stdout.rows - 6)
-  const cursorLine = withCursor.slice(0, point).split("\n").length - 1
+  const rows = process.stdout.rows ?? 30
+  const maxLines = Math.max(1, rows - 6)
+  const cursorLine = withCursor.slice(0, cursorPoint).split("\n").length - 1
   const start = Math.max(0, Math.min(cursorLine - Math.floor(maxLines / 2), lines.length - maxLines))
   return lines.slice(start, start + maxLines).join("\n")
 }

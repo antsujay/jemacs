@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test"
 import { BufferModel } from "../src/kernel/buffer"
-import { isPrintable, Keymap } from "../src/kernel/keymap"
+import { isPrintable, keyToken, Keymap } from "../src/kernel/keymap"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultCommands } from "../src/init/default-commands"
+import { visibleText } from "../src/ui/opentui"
 
 test("buffer insert/delete/undo", () => {
   const b = new BufferModel({ name: "x", text: "abc" })
@@ -25,6 +26,18 @@ test("keymap handles multi-key command sequences", () => {
 test("space key is printable", () => {
   expect(isPrintable({ name: "space", sequence: " " })).toBe(true)
   expect(isPrintable({ name: "space", sequence: " ", ctrl: true })).toBe(false)
+})
+
+test("mac option key sequences map to meta bindings", () => {
+  expect(keyToken({ name: "≈", sequence: "≈" })).toBe("M-x")
+  expect(keyToken({ name: "ƒ", sequence: "ƒ" })).toBe("M-f")
+  expect(keyToken({ name: "∫", sequence: "∫" })).toBe("M-b")
+  expect(isPrintable({ name: "≈", sequence: "≈" })).toBe(false)
+})
+
+test("visible text cursor does not shift the character under point", () => {
+  expect(visibleText("abc", 1)).toBe("a█c")
+  expect(visibleText("abc", 3)).toBe("abc█")
 })
 
 test("editor command registry runs commands", async () => {
@@ -68,6 +81,9 @@ test("default emacs keybindings are registered and runnable", async () => {
 
   expect(editor.keymap.feed({ name: "x", ctrl: true }).status).toBe("pending")
   expect(editor.keymap.feed({ name: "c", ctrl: true })).toEqual({ status: "matched", command: "quit" })
+  expect(editor.keymap.feed({ name: "≈", sequence: "≈" })).toEqual({ status: "matched", command: "run-command" })
+  expect(editor.keymap.feed({ name: "escape" }).status).toBe("pending")
+  expect(editor.keymap.feed({ name: "x" })).toEqual({ status: "matched", command: "run-command" })
 })
 
 test("default commands support buffer listing, switching, newline, and regions", async () => {

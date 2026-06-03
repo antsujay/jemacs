@@ -51,7 +51,7 @@ bun run dev:self
 | Ctrl-X Ctrl-F | Open file via minibuffer |
 | Ctrl-Space | Set mark |
 | Ctrl-G | Cancel minibuffer / clear key sequence |
-| Meta-X / Alt-X | Run command by name |
+| Meta-X / Alt-X / Esc X | Run command by name |
 | Ctrl-H E | Inspect editor |
 | Ctrl-H C | Inspect commands |
 | Ctrl-H K | Inspect keymap |
@@ -81,6 +81,8 @@ plugins/demo-plugin.ts
 The plugin's `install(editor)` function runs against the live editor object.
 
 When visiting a TypeScript or JavaScript file, `Ctrl-C Ctrl-R` saves and cache-bust imports the current file. If the module exports `install(editor)` it is run as a plugin; if it exports `installDefaultCommands(editor)` those commands and keybindings are reinstalled in the running editor.
+
+On macOS, some terminals send Option-key characters instead of Meta events, for example Option-X as `≈`. Jemacs maps the common Option encodings for `M-x`, `M-f`, and `M-b`, and `Esc x` works as the terminal-portable Meta-X fallback.
 
 ## Design notes
 
