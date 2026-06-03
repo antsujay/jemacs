@@ -70,6 +70,18 @@ export class BufferModel {
     this.dirty = true
   }
 
+  deleteRange(start: number, end: number): string {
+    const from = clamp(Math.min(start, end), 0, this.text.length)
+    const to = clamp(Math.max(start, end), 0, this.text.length)
+    if (from === to) return ""
+    this.snapshot()
+    const removed = this.text.slice(from, to)
+    this.text = this.text.slice(0, from) + this.text.slice(to)
+    this.point = from
+    this.dirty = true
+    return removed
+  }
+
   move(delta: number): void {
     this.point = clamp(this.point + delta, 0, this.text.length)
   }
@@ -81,6 +93,29 @@ export class BufferModel {
     let offset = 0
     for (let i = 0; i < nextLine; i++) offset += lines[i]!.length + 1
     this.point = clamp(offset + Math.min(col - 1, lines[nextLine]!.length), 0, this.text.length)
+  }
+
+  moveToLineStart(): void {
+    const previousNewline = this.point <= 0 ? -1 : this.text.lastIndexOf("\n", this.point - 1)
+    this.point = previousNewline + 1
+  }
+
+  moveToLineEnd(): void {
+    const nextNewline = this.text.indexOf("\n", this.point)
+    this.point = nextNewline === -1 ? this.text.length : nextNewline
+  }
+
+  moveWord(delta: number): void {
+    if (delta > 0) {
+      const match = /\W*\w+/.exec(this.text.slice(this.point))
+      this.point = match ? this.point + match.index + match[0].length : this.text.length
+      return
+    }
+
+    const before = this.text.slice(0, this.point)
+    const matches = [...before.matchAll(/\w+/g)]
+    const previous = matches.at(-1)
+    this.point = previous?.index ?? 0
   }
 
   setMark(): void {

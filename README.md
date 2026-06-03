@@ -36,8 +36,12 @@ bun run dev:self
 | --- | --- |
 | Type printable keys | Insert text |
 | Backspace | Delete backward |
-| Left/Right | Move cursor |
-| Up/Down | Move cursor by visual line-ish offset |
+| Left/Right or Ctrl-B/Ctrl-F | Move backward/forward one character |
+| Up/Down or Ctrl-P/Ctrl-N | Move to previous/next line |
+| Ctrl-A / Ctrl-E | Move to beginning/end of line |
+| Meta-B / Meta-F | Move backward/forward one word |
+| Ctrl-D | Delete forward |
+| Ctrl-K / Ctrl-Y | Kill line / yank |
 | Ctrl-X Ctrl-S | Save current buffer |
 | Ctrl-X Ctrl-E | Eval selection, or current buffer if no mark |
 | Ctrl-X Ctrl-B | Switch to next buffer |
@@ -47,6 +51,7 @@ bun run dev:self
 | Meta-X / Alt-X | Run command by name |
 | Ctrl-H E | Inspect editor |
 | Ctrl-H C | Inspect commands |
+| Ctrl-H K | Inspect keymap |
 | Ctrl-C Ctrl-L | Load plugin file via minibuffer |
 | Ctrl-C Ctrl-Q | Quit |
 

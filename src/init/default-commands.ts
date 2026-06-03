@@ -4,6 +4,7 @@ import { inspectValue } from "../runtime/inspect"
 
 export function installDefaultCommands(editor: Editor): Evaluator {
   const evaluator = new Evaluator(editor)
+  let killRing = ""
 
   editor.command("save-buffer", async ({ buffer, editor }) => {
     await buffer.save()
@@ -31,6 +32,30 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     buffer.clearMark()
     editor.message("Mark cleared")
   }, "Clear mark.")
+
+  editor.command("keyboard-quit", ({ buffer, editor }) => {
+    editor.keymap.clearPending()
+    if (editor.minibuffer) editor.minibufferCancel()
+    buffer.clearMark()
+    editor.message("Quit")
+  }, "Cancel the active key sequence, minibuffer, or mark.")
+
+  editor.command("forward-char", ({ buffer }) => buffer.move(1), "Move point forward one character.")
+  editor.command("backward-char", ({ buffer }) => buffer.move(-1), "Move point backward one character.")
+  editor.command("next-line", ({ buffer }) => buffer.moveLine(1), "Move point down one line.")
+  editor.command("previous-line", ({ buffer }) => buffer.moveLine(-1), "Move point up one line.")
+  editor.command("beginning-of-line", ({ buffer }) => buffer.moveToLineStart(), "Move point to the beginning of the line.")
+  editor.command("end-of-line", ({ buffer }) => buffer.moveToLineEnd(), "Move point to the end of the line.")
+  editor.command("forward-word", ({ buffer }) => buffer.moveWord(1), "Move point forward one word.")
+  editor.command("backward-word", ({ buffer }) => buffer.moveWord(-1), "Move point backward one word.")
+  editor.command("delete-char", ({ buffer }) => buffer.deleteForward(), "Delete the character after point.")
+  editor.command("delete-backward-char", ({ buffer }) => buffer.deleteBackward(), "Delete the character before point.")
+  editor.command("kill-line", ({ buffer }) => {
+    const lineEnd = buffer.text.indexOf("\n", buffer.point)
+    const end = lineEnd === -1 ? buffer.text.length : lineEnd + (lineEnd === buffer.point ? 1 : 0)
+    killRing = buffer.deleteRange(buffer.point, end)
+  }, "Kill text from point to end of line.")
+  editor.command("yank", ({ buffer }) => buffer.insert(killRing), "Insert the last killed text at point.")
 
   editor.command("undo", ({ buffer }) => buffer.undo(), "Undo the last text edit.")
   editor.command("redo", ({ buffer }) => buffer.redo(), "Redo the last undone text edit.")
@@ -89,6 +114,18 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("C-x C-b", "next-buffer")
   editor.key("C-x C-e", "eval-selection")
   editor.key("C-space", "set-mark")
+  editor.key("C-g", "keyboard-quit")
+  editor.key("C-f", "forward-char")
+  editor.key("C-b", "backward-char")
+  editor.key("C-n", "next-line")
+  editor.key("C-p", "previous-line")
+  editor.key("C-a", "beginning-of-line")
+  editor.key("C-e", "end-of-line")
+  editor.key("M-f", "forward-word")
+  editor.key("M-b", "backward-word")
+  editor.key("C-d", "delete-char")
+  editor.key("C-k", "kill-line")
+  editor.key("C-y", "yank")
   editor.key("C-_", "undo")
   editor.key("M-x", "run-command")
   editor.key("C-h e", "inspect-editor")

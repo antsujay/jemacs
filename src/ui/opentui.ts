@@ -101,6 +101,11 @@ class EditorUi {
   }
 
   async handleKey(key: KeyEvent): Promise<void> {
+    if (key.ctrl && key.name === "g") {
+      await this.editor.run("keyboard-quit")
+      return
+    }
+
     if (this.editor.minibuffer) {
       await this.handleMinibufferKey(key)
       return
@@ -155,6 +160,11 @@ class EditorUi {
   }
 
   private async handleMinibufferKey(key: KeyEvent): Promise<void> {
+    if (key.ctrl && key.name === "g") {
+      await this.editor.run("keyboard-quit")
+      return
+    }
+
     switch (key.name) {
       case "return":
         this.editor.minibufferSubmit()
