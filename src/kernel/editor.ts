@@ -49,6 +49,7 @@ export class Editor {
   running = true
   overridingTerminalLocalMap: Keymap | null = null
   overridingMap: Keymap | null = null
+  prefixArgument: number | null = null
   private minibufferDepth = 0
 
   constructor() {
@@ -159,7 +160,8 @@ export class Editor {
   async run(name: string, args: string[] = []): Promise<unknown> {
     const spec = this.commands.get(name)
     if (!spec) throw new Error(`Unknown command: ${name}`)
-    const result = await spec.fn({ editor: this, buffer: this.activeBuffer, args })
+    const prefixArgument = name === "universal-argument" ? null : this.consumePrefixArgument()
+    const result = await spec.fn({ editor: this, buffer: this.activeBuffer, args, prefixArgument })
     await this.changed(`command:${name}`)
     return result
   }
@@ -214,7 +216,7 @@ export class Editor {
         return { status: "command", command: "keyboard-quit" }
       default:
         if (isPrintable(key)) {
-          buffer.insert(key.sequence ?? "")
+          buffer.insert((key.sequence ?? "").repeat(this.consumePrefixArgument() ?? 1))
           await this.changed(`key:${key.name}`)
           return { status: "inserted" }
         }
@@ -279,6 +281,17 @@ export class Editor {
   setTheme(theme: Theme): void {
     this.theme = theme
     void this.changed("theme")
+  }
+
+  universalArgument(): void {
+    this.prefixArgument = (this.prefixArgument ?? 1) * 4
+    this.message(`C-u ${this.prefixArgument}`)
+  }
+
+  consumePrefixArgument(): number | null {
+    const value = this.prefixArgument
+    this.prefixArgument = null
+    return value
   }
 
   minibufferInsert(s: string): void {

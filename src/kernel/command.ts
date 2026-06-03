@@ -5,6 +5,7 @@ export type CommandContext = {
   editor: Editor
   buffer: BufferModel
   args: string[]
+  prefixArgument: number | null
 }
 
 export type CommandFn = (ctx: CommandContext) => unknown | Promise<unknown>

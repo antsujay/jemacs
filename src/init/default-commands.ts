@@ -57,22 +57,33 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.command("keyboard-quit", ({ buffer, editor }) => {
     editor.keymap.clearPending()
     editor.keymaps.clearPending()
+    editor.prefixArgument = null
     if (editor.minibuffer) editor.minibufferCancel()
     buffer.clearMark()
     editor.message("Quit")
   }, "Cancel the active key sequence, minibuffer, or mark.")
 
-  editor.command("forward-char", ({ buffer }) => buffer.move(1), "Move point forward one character.")
-  editor.command("backward-char", ({ buffer }) => buffer.move(-1), "Move point backward one character.")
-  editor.command("next-line", ({ buffer }) => buffer.moveLine(1), "Move point down one line.")
-  editor.command("previous-line", ({ buffer }) => buffer.moveLine(-1), "Move point up one line.")
+  editor.command("universal-argument", ({ editor }) => editor.universalArgument(), "Begin or multiply the numeric prefix argument.")
+  editor.command("forward-char", ({ buffer, prefixArgument }) => buffer.move(prefixArgument ?? 1), "Move point forward one character.")
+  editor.command("backward-char", ({ buffer, prefixArgument }) => buffer.move(-(prefixArgument ?? 1)), "Move point backward one character.")
+  editor.command("next-line", ({ buffer, prefixArgument }) => buffer.moveLine(prefixArgument ?? 1), "Move point down one line.")
+  editor.command("previous-line", ({ buffer, prefixArgument }) => buffer.moveLine(-(prefixArgument ?? 1)), "Move point up one line.")
   editor.command("beginning-of-line", ({ buffer }) => buffer.moveToLineStart(), "Move point to the beginning of the line.")
   editor.command("end-of-line", ({ buffer }) => buffer.moveToLineEnd(), "Move point to the end of the line.")
-  editor.command("forward-word", ({ buffer }) => buffer.moveWord(1), "Move point forward one word.")
-  editor.command("backward-word", ({ buffer }) => buffer.moveWord(-1), "Move point backward one word.")
+  editor.command("forward-word", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.moveWord(1)), "Move point forward one word.")
+  editor.command("backward-word", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.moveWord(-1)), "Move point backward one word.")
   editor.command("newline", ({ buffer }) => buffer.insert("\n"), "Insert a newline at point.")
-  editor.command("delete-char", ({ buffer }) => buffer.deleteForward(), "Delete the character after point.")
-  editor.command("delete-backward-char", ({ buffer }) => buffer.deleteBackward(), "Delete the character before point.")
+  editor.command("delete-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteForward()), "Delete the character after point.")
+  editor.command("delete-backward-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteBackward()), "Delete the character before point.")
+  editor.command("backward-kill-word", ({ buffer, prefixArgument }) => {
+    let killed = ""
+    repeat(prefixArgument, () => {
+      const end = buffer.point
+      buffer.moveWord(-1)
+      killed = buffer.deleteRange(buffer.point, end) + killed
+    })
+    killRing = killed
+  }, "Kill the word before point.")
   editor.command("kill-line", ({ buffer }) => {
     const lineEnd = buffer.text.indexOf("\n", buffer.point)
     const end = lineEnd === -1 ? buffer.text.length : lineEnd + (lineEnd === buffer.point ? 1 : 0)
@@ -224,6 +235,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("C-x C-e", "eval-selection")
   editor.key("C-x C-c", "quit")
   editor.key("C-space", "set-mark")
+  editor.key("C-u", "universal-argument")
   editor.key("C-g", "keyboard-quit")
   editor.key("C-f", "forward-char")
   editor.key("C-b", "backward-char")
@@ -233,8 +245,10 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("C-e", "end-of-line")
   editor.key("M-f", "forward-word")
   editor.key("M-b", "backward-word")
+  editor.key("M-backspace", "backward-kill-word")
   editor.key("esc f", "forward-word")
   editor.key("esc b", "backward-word")
+  editor.key("esc backspace", "backward-kill-word")
   editor.key("C-m", "newline")
   editor.key("C-j", "newline")
   editor.key("tab", "indent-for-tab-command")
@@ -262,6 +276,11 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.defineKey("minibuffer", "backspace", "minibuffer-backspace")
 
   return evaluator
+}
+
+function repeat(prefixArgument: number | null, fn: () => void): void {
+  const count = Math.max(1, prefixArgument ?? 1)
+  for (let i = 0; i < count; i++) fn()
 }
 
 function summarize(value: unknown): string {

@@ -94,6 +94,25 @@ test("default emacs keybindings are registered and runnable", async () => {
   expect(editor.keymap.feed({ name: "x" })).toEqual({ status: "matched", command: "run-command" })
 })
 
+test("universal argument repeats motion, insertion, and deletion commands", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("abcdef", false)
+  editor.currentBuffer.point = 0
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "f", ctrl: true })
+  expect(editor.currentBuffer.point).toBe(4)
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "Z", sequence: "Z" })
+  expect(editor.currentBuffer.text).toBe("abcdZZZZef")
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "backspace", meta: true })
+  expect(editor.currentBuffer.text).toBe("ef")
+})
+
 test("default commands support buffer listing, switching, newline, and regions", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
@@ -277,4 +296,16 @@ test("theme support renders font-lock spans as styled TUI chunks", async () => {
   expect(rendered.chunks.length).toBeGreaterThan(1)
   expect(rendered.chunks.some(chunk => chunk.text === "def" && chunk.attributes)).toBe(true)
   expect(rendered.chunks.map(chunk => chunk.text).join("")).not.toContain("\x1b[")
+})
+
+test("styled TUI chunks keep font-lock aligned when point covers highlighted text", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  const buffer = editor.scratch("cursor.py", "print('hello world')\n", "python")
+  buffer.point = 0
+
+  const rendered = visibleStyledText(buffer.text, buffer.point, editor.fontLock(buffer), editor.theme)
+  expect(rendered.chunks.some(chunk => chunk.text === "█rint" && chunk.fg)).toBe(true)
+  expect(rendered.chunks.some(chunk => chunk.text === "'hello world'" && chunk.fg)).toBe(true)
 })

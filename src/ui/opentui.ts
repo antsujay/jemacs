@@ -131,13 +131,12 @@ export function visibleStyledText(text: string, point: number, spans: TextSpan[]
   const region = visibleTextRegion(text, point)
   const visibleEnd = region.visibleStart + region.visible.length
   const visibleSpans = spans
-    .map(span => shiftSpanForCursor(span, region.cursorPoint))
     .filter(span => span.end > region.visibleStart && span.start < visibleEnd)
     .map(span => ({ ...span, start: Math.max(0, span.start - region.visibleStart), end: Math.min(region.visible.length, span.end - region.visibleStart) }))
   return applyTheme(region.visible, visibleSpans, theme)
 }
 
-function visibleTextRegion(text: string, point: number): { visible: string, visibleStart: number, cursorPoint: number } {
+function visibleTextRegion(text: string, point: number): { visible: string, visibleStart: number } {
   const cursorPoint = Math.max(0, Math.min(point, text.length))
   const underCursor = text[cursorPoint]
   const withCursor = underCursor && underCursor !== "\n"
@@ -150,13 +149,5 @@ function visibleTextRegion(text: string, point: number): { visible: string, visi
   const start = Math.max(0, Math.min(cursorLine - Math.floor(maxLines / 2), lines.length - maxLines))
   const visibleStart = lines.slice(0, start).join("\n").length + (start > 0 ? 1 : 0)
   const visible = lines.slice(start, start + maxLines).join("\n")
-  return { visible, visibleStart, cursorPoint }
-}
-
-function shiftSpanForCursor(span: TextSpan, cursorPoint: number): TextSpan {
-  return {
-    ...span,
-    start: span.start >= cursorPoint ? span.start + 1 : span.start,
-    end: span.end > cursorPoint ? span.end + 1 : span.end,
-  }
+  return { visible, visibleStart }
 }
