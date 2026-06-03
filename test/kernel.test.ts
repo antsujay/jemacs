@@ -47,6 +47,14 @@ test("editor command registry runs commands", async () => {
   expect(editor.currentBuffer.text).toContain("hi")
 })
 
+test("editor messages return their text for eval feedback", async () => {
+  const editor = new Editor()
+  const evaluator = installDefaultCommands(editor)
+
+  await expect(evaluator.evalExpression('editor.message("hello")')).resolves.toBe("hello")
+  expect([...editor.buffers.values()].find(b => b.name === "*messages*")?.text).toContain("hello")
+})
+
 test("buffer supports emacs-style movement primitives", () => {
   const b = new BufferModel({ name: "x", text: "one two\nthree" })
   b.point = 4

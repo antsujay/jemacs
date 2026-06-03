@@ -139,7 +139,7 @@ export class Editor {
     void this.changed("minibuffer-cancel")
   }
 
-  message(text: string): void {
+  message(text: string): string {
     const msg = [...this.buffers.values()].find(b => b.name === "*messages*")
     if (msg) {
       msg.text += `${new Date().toISOString()}  ${text}\n`
@@ -147,6 +147,7 @@ export class Editor {
     }
     void this.events.emit("message", { text })
     void this.changed("message")
+    return text
   }
 
   async changed(reason: string): Promise<void> {
