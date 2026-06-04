@@ -2,60 +2,92 @@
 
 A self-editable Emacs-like editor where JavaScript replaces Emacs Lisp and **pluggable frontends** render the UI: **OpenTUI** (terminal) and **Electron** (GUI). See [PLAN.md](PLAN.md) for architecture and roadmap.
 
-This is intentionally a starter repo, not a mature editor. The kernel is written so that buffers, commands, keymaps, modes, and the evaluator are ordinary JavaScript/TypeScript objects that can be inspected and modified from inside the editor.
+The kernel is ordinary TypeScript: buffers, commands, keymaps, modes, and the evaluator can be inspected and modified from inside the editor.
 
-## Runtime and libraries checked
+## Architecture (short)
 
-- `@opentui/core` is the only runtime dependency. OpenTUI's current docs describe it as a native Zig terminal UI core with TypeScript bindings and a component/renderable architecture.
-- OpenTUI's getting-started docs currently say the TypeScript/JavaScript package is Bun-exclusive, with Node and Deno support in progress, so this repo is Bun-first.
-- The OpenTUI docs show `createCliRenderer`, `Box`, `Text`, and `renderer.keyInput.on("keypress", ...)` as the core APIs used here.
-- `@types/bun` is included only for TypeScript checking of Bun globals.
-- `typescript` is included only for `bun x tsc --noEmit`.
+| Layer | Path | Notes |
+| --- | --- | --- |
+| Kernel | `src/kernel/` | No OpenTUI, no DOM |
+| Display | `src/display/` | `DisplayModel`, `ThemedText`, `build-display-model.ts` |
+| Bootstrap | `src/run-core.ts`, `src/run.ts` | `runJemacsCore` (all hosts); `runJemacs` adds TUI input wiring |
+| Terminal host | `src/ui/opentui-host.ts` | `OpenTuiHost` |
+| GUI host | `src/ui/electron-host.ts` | `ElectronHost` + `src/electron/*` renderer |
+| Platform I/O | `src/platform/runtime.ts` | Node-compatible fs/spawn when not under Bun |
+
+Workspace packages under `packages/` re-export modules for a future split; **entrypoints stay at the repo root** (`src/main.ts`, `src/main-electron.ts`).
+
+## Runtime
+
+- **Terminal (`bun run dev`):** Runs on **Bun**. Uses `@opentui/core` (native Zig + TS bindings). OpenTUI is Bun-first upstream; this repo matches that.
+- **GUI (`bun run dev:gui`):** Builds with Bun, runs on **Electron (Node)**. The main process does **not** have `Bun` globals — file I/O and subprocesses go through `src/platform/runtime.ts`. **Tree-sitter** grammars stay **external** in the Electron bundle so font-lock works.
+
+Other deps: `tree-sitter` + language grammars (font-lock), `electron` (GUI), LSP protocol types.
 
 ## Install
-
-Use **Bun** (required to run the editor):
 
 ```bash
 bun install
 ```
 
-`npm install` also works (`.npmrc` sets `legacy-peer-deps` for tree-sitter peer versions) but you still need Bun for `bun run dev`.
+`postinstall` downloads the Electron binary and builds tree-sitter natives. You need **Bun** to run the TUI and build scripts; **Node** is used inside Electron at runtime.
 
-If OpenTUI's native package build complains, install Zig. The upstream repo notes that Zig is required to build the packages when native code is involved.
+If native builds fail, install **Zig** (OpenTUI / tree-sitter).
 
 ## Run
 
-**Terminal (default):**
+### Terminal (default)
 
 ```bash
 bun run dev
-# or open a file
 bun run src/main.ts README.md
-# or self-edit the editor
-bun run dev:self
+bun run dev:self          # edit src/main.ts in place
 ```
 
-**GUI (Electron):**
+### GUI (Electron)
 
 ```bash
-bun run build:gui   # once, or before first GUI launch
-bun run dev:gui
-# same as: JEMACS_UI=electron bun run dev
-# or: bun run src/main.ts --gui
+bun run dev:gui           # build + launch (recommended)
+# equivalents:
+bun run build:gui && npx electron dist/main-electron.js
+JEMACS_UI=electron bun run dev
+bun run src/main.ts --gui
 ```
 
-Both hosts share the same kernel (`src/kernel/`), display model (`src/display/`), and bootstrap (`src/run.ts`).
+`dev:gui` rebuilds `dist/main-electron.js` and `dist/electron/` (preload, renderer, HTML/CSS) every time.
 
-Optional: native OpenTUI editor surface for the selected window (no font-lock in that pane):
+**Verify GUI without clicking:**
+
+```bash
+bun run smoke:gui         # opens window briefly; open-file, font-lock, splits
+```
+
+**Browser-only DOM preview** (sample frame, no kernel/IPC):
+
+```bash
+bun run preview:gui       # http://localhost:5173/gui-preview.html
+```
+
+### Optional: OpenTUI Textarea (terminal)
+
+Native editor surface for the **selected** window only (`JEMACS_USE_TEXTAREA=1`). Uses OpenTUI `TextareaRenderable` with font-lock via `syncSpans` / `opentui-textarea-sync.ts`.
 
 ```bash
 JEMACS_USE_TEXTAREA=1 bun run dev
 ```
 
+## Development
+
+```bash
+bun run check             # tsc --noEmit
+bun test                  # kernel + host + smoke tests
+```
+
+Agent/contributor notes: [AGENTS.md](AGENTS.md).
+
 ## Keybindings
 
-Commands use **GNU Emacs function names** (`find-file`, `kill-region`, `execute-extended-command`, …). Full tables with implementation status: [DEFAULT_KEYBINDINGS.md](DEFAULT_KEYBINDINGS.md).
+Commands use **GNU Emacs function names** (`find-file`, `kill-region`, `execute-extended-command`, …). Full tables: [DEFAULT_KEYBINDINGS.md](DEFAULT_KEYBINDINGS.md).
 
 | Key | Emacs command |
 | --- | --- |
@@ -101,44 +133,44 @@ Commands use **GNU Emacs function names** (`find-file`, `kill-region`, `execute-
 4. Press `Ctrl-X Ctrl-E`.
 5. Open `*messages*` or inspect the editor with `Ctrl-H E`.
 
-For module-style plugin reloads, use `Ctrl-C Ctrl-L` and enter a plugin path, e.g.:
+Plugin reload: `Ctrl-C Ctrl-L` → path such as `plugins/demo-plugin.ts` (`install(editor)`).
 
-```text
-plugins/demo-plugin.ts
-```
+`Ctrl-C Ctrl-R` on a TS/JS buffer saves and cache-bust-imports the file (plugin or `installDefaultCommands`).
 
-The plugin's `install(editor)` function runs against the live editor object.
-
-When visiting a TypeScript or JavaScript file, `Ctrl-C Ctrl-R` saves and cache-bust imports the current file. If the module exports `install(editor)` it is run as a plugin; if it exports `installDefaultCommands(editor)` those commands and keybindings are reinstalled in the running editor.
-
-On macOS, some terminals send Option-key characters instead of Meta events, for example Option-X as `≈` and Option-. as `≥`. Jemacs maps the common Option encodings for `M-x`, `M-f`, `M-b`, `M-.`, and `M-,`; `Esc` plus the key (e.g. `Esc .` for xref) works as a terminal-portable Meta fallback.
+On macOS, Option-key encodings map to Meta where possible (`≈` → `M-x`, etc.); `Esc` + key works everywhere.
 
 ### Kitty and Ctrl+Tab
 
-`C-tab` / `C-S-tab` run GNU `other-window` and `other-window-backward` (cycle Emacs windows). Jemacs enables Kitty’s keyboard protocol when OpenTUI supports it.
-
-**Kitty binds Ctrl+Tab to its own tab bar by default**, so the keys may never reach Jemacs. Add to `~/.config/kitty/kitty.conf`:
+`C-tab` / `C-S-tab` → `other-window` / `other-window-backward`. In Kitty, clear default tab bindings so keys reach the app:
 
 ```
 map ctrl+tab
 map ctrl+shift+tab
 ```
 
-(Empty `map` lines remove Kitty’s binding.) Restart Kitty, then split a window in Jemacs (`C-x 2`) and try again. Fallback: `C-x o` (forward) — always works.
+Fallback: `C-x o`. Unbound keys show the resolved token in the echo area.
 
-If a key still fails, check the echo area after pressing it: unbound keys show the resolved token and raw escape sequence.
+## GUI troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| Window is empty (background only) | Stale build or renderer loaded before IPC; run `bun run dev:gui` again |
+| `window.jemacs` / preload errors | Preload must be **CJS** (`dist/electron/preload.js`); rebuild with `build:gui` |
+| `Bun is not defined` in GUI | Code path still uses `Bun.*` in Electron main — use `src/platform/runtime.ts` |
+| No syntax colors in GUI | Tree-sitter bundled into main; rebuild so grammars stay external (see `scripts/build-electron.ts`) |
+| `find-file` fails in GUI | Same as above — `BufferModel.fromFile` uses platform I/O |
+
+Debug font-lock in GUI: `JEMACS_DEBUG_FONT_LOCK=1 bun run dev:gui` (logs tree-sitter errors to the terminal).
 
 ## Design notes
 
-The editor kernel deliberately avoids OpenTUI and Electron imports. Display output is built in `src/display/build-display-model.ts` as a host-agnostic `DisplayModel`; hosts only paint it:
+The kernel never imports `@opentui/*` or Electron. Hosts consume `DisplayModel` from `build-display-model.ts`:
 
-| Host | Module |
-| --- | --- |
-| Terminal | `src/ui/opentui-host.ts` (`OpenTuiHost`) |
-| GUI | `src/ui/electron-host.ts` (`ElectronHost`) |
+- **TUI:** `themedTextToStyledText` in `src/ui/opentui-styled.ts`
+- **GUI:** `serialize.ts` → IPC → `src/display/dom-frame.ts` in the renderer
 
-OpenTUI key translation stays in `src/ui/opentui-key.ts`. Entry: `src/main.ts` (TUI or `--gui`) / `src/main-electron.ts` (GUI-only).
+OpenTUI keys: `src/ui/opentui-key.ts` only.
 
-**Core vs config:** Interactive commands live in `src/core/commands.ts` (no key bindings). Default GNU keybindings are in `src/config/default-bindings.ts` using the same `editor.key()` / `editor.defineKey()` API as plugins and user config. Startup calls `installDefaultConfig(editor)` from `src/config/index.ts`. Override keys in a plugin or `~/.jemacs/init.ts` by calling `editor.key(...)` after defaults load.
+**Core vs config:** Commands in `src/core/commands.ts`; default keys in `src/config/default-bindings.ts`. Startup: `installDefaultConfig(editor)` from `src/config/index.ts`.
 
-The evaluator uses Bun's dynamic `Function` constructor rather than a hard security sandbox. Treat evaluated code and plugins as trusted user config, like Emacs Lisp. Do not run hostile plugins.
+The evaluator uses dynamic `Function` (trusted config, like Elisp). In GUI, `eval` receives a minimal `Bun` shim from `runtimeBun()` when the real runtime is absent.
