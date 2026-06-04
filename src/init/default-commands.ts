@@ -134,7 +134,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     editor.prefixArgument = null
     if (editor.isearch) editor.cancelIsearch()
     if (editor.minibuffer) editor.minibufferCancel()
-    editor.currentBuffer.deactivateMark()
+    editor.currentBuffer.clearMark()
     editor.message("Quit")
   }, "Cancel the active key sequence, minibuffer, isearch, or mark.")
 
@@ -232,20 +232,71 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.command("point-to-register", async ({ buffer, editor, args }) => {
     const register = args[0] ?? await editor.prompt("Point to register: ", "f", "register")
     if (!register) return
-    editor.registers.set(register, buffer.point)
+    editor.registers.set(register, { kind: "point", point: buffer.point })
     editor.message(`Saved point ${buffer.point} to register ${register}`)
   }, "Save point to a register.")
 
-  editor.command("jump-to-register", async ({ buffer, editor, args }) => {
+  editor.command("jump-to-register", async ({ editor, args }) => {
     const register = args[0] ?? await editor.prompt("Jump to register: ", "f", "register")
     if (!register) return
-    const point = editor.registers.get(register)
-    if (point == null) {
-      editor.message(`Register ${register} is empty`)
-      return
-    }
-    buffer.point = Math.max(0, Math.min(point, buffer.text.length))
-  }, "Jump to a saved point register.")
+    if (!editor.jumpToRegister(register)) editor.message(`Register ${register} is empty`)
+  }, "Jump to a saved point or window configuration register.")
+
+  editor.command("window-configuration-to-register", async ({ editor, args }) => {
+    const register = args[0] ?? await editor.prompt("Window configuration to register: ", "w", "register")
+    if (!register) return
+    editor.windowConfigurationToRegister(register)
+  }, "Save the current window configuration to a register.")
+
+  editor.command("scroll-other-window", ({ editor, prefixArgument }) => {
+    if (!editor.scrollOtherWindow(prefixArgument ?? 1)) editor.message("No other window to scroll")
+  }, "Scroll the next window forward without selecting it.")
+
+  editor.command("scroll-other-window-down", ({ editor, prefixArgument }) => {
+    if (!editor.scrollOtherWindow(-(prefixArgument ?? 1))) editor.message("No other window to scroll")
+  }, "Scroll the next window backward without selecting it.")
+
+  editor.command("switch-to-buffer-other-window", async ({ editor, args }) => {
+    const current = editor.currentBuffer.name
+    const name = args[0] ?? await editor.completingRead("Switch to buffer in other window: ", {
+      collection: [...editor.buffers.values()].map(b => b.name),
+      history: "buffer",
+      initialValue: current,
+    })
+    if (!name) return
+    editor.displayBufferInOtherWindow(name)
+    editor.message(`Switched to ${editor.currentBuffer.name} in other window`)
+  }, "Switch to a buffer in another window.")
+
+  editor.command("find-file-other-window", async ({ editor, args }) => {
+    const path = args[0] ?? await editor.completingRead("Find file in other window: ", {
+      completion: "file",
+      history: "file",
+      initialValue: editor.currentBuffer.directory() ?? process.cwd(),
+    })
+    if (!path) return
+    editor.ensureOtherWindowSelected()
+    const buffer = await editor.openFile(path)
+    editor.message(`Now visiting ${buffer.name} in other window`)
+  }, "Find a file in another window.")
+
+  editor.command("display-buffer-other-window", async ({ editor, args }) => {
+    const name = args[0] ?? await editor.completingRead("Display buffer in other window: ", {
+      collection: [...editor.buffers.values()].map(b => b.name),
+      history: "buffer",
+      initialValue: editor.currentBuffer.name,
+    })
+    if (!name) return
+    editor.displayBufferInOtherWindow(name)
+    editor.message(`Displayed ${editor.currentBuffer.name} in other window`)
+  }, "Display a buffer in another window and select it.")
+
+  editor.command("toggle-window-dedicated", ({ editor }) => {
+    const leaf = editor.selectedWindowLeaf()
+    const dedicated = !(leaf?.dedicated ?? false)
+    editor.setSelectedWindowDedicated(dedicated)
+    editor.message(dedicated ? "Window is now dedicated" : "Window is no longer dedicated")
+  }, "Toggle whether the selected window is dedicated.")
 
   editor.command("replace-string", async ({ buffer, editor, args }) => {
     const from = args[0] ?? await editor.prompt("Replace string: ", "", "replace")
@@ -534,6 +585,12 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("C-x C-r", "revert-buffer")
   editor.key("C-x f", "fzf-git")
   editor.key("C-x o", "other-window")
+  editor.key("C-x 4 C-f", "find-file-other-window")
+  editor.key("C-x 4 f", "find-file-other-window")
+  editor.key("C-x 4 b", "switch-to-buffer-other-window")
+  editor.key("C-x 4 C-o", "display-buffer-other-window")
+  editor.key("C-M-v", "scroll-other-window")
+  editor.key("M-C-v", "scroll-other-window-down")
   editor.key("C-space", "set-mark-command")
   editor.key("C-u", "universal-argument")
   editor.key("C-g", "keyboard-quit")

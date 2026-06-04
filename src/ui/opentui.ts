@@ -8,6 +8,7 @@ import {
 } from "@opentui/core"
 import type { Editor } from "../kernel/editor"
 import { isearchMatchSpan, isearchPrompt } from "../kernel/isearch"
+import { type WindowLeaf, type WindowNode } from "../kernel/window"
 import { applyTheme, type Theme } from "../display/theme"
 import { textWithCursor } from "./text-display"
 import type { TextSpan } from "../modes/mode"
@@ -48,11 +49,12 @@ export async function startOpenTui(editor: Editor): Promise<void> {
 class EditorUi {
   private root!: BoxRenderable
   private title!: TextRenderable
-  private body!: TextRenderable
-  private modeline!: TextRenderable
+  private windowsRoot!: BoxRenderable
   private minibuffer!: TextRenderable
   private echo!: TextRenderable
   private lastMessage = ""
+  private splitPanes = new Map<string, BoxRenderable>()
+  private leafPanes = new Map<string, { pane: BoxRenderable; body: TextRenderable; modeline: TextRenderable }>()
 
   constructor(private readonly renderer: CliRenderer, private readonly editor: Editor) {
     editor.events.on("message", ({ text }) => {
@@ -75,15 +77,14 @@ class EditorUi {
       content: "Jemacs OpenTUI",
     })
 
-    this.body = new TextRenderable(this.renderer, {
-      id: "jemacs-body",
-      content: "",
+    this.windowsRoot = new BoxRenderable(this.renderer, {
+      id: "jemacs-windows",
+      flexDirection: "column",
       flexGrow: 1,
-    })
-
-    this.modeline = new TextRenderable(this.renderer, {
-      id: "jemacs-modeline",
-      content: "",
+      flexBasis: 0,
+      minHeight: 0,
+      width: "100%",
+      height: "100%",
     })
 
     this.minibuffer = new TextRenderable(this.renderer, {
@@ -97,8 +98,7 @@ class EditorUi {
     })
 
     this.root.add(this.title)
-    this.root.add(this.body)
-    this.root.add(this.modeline)
+    this.root.add(this.windowsRoot)
     this.root.add(this.minibuffer)
     this.root.add(this.echo)
     this.renderer.root.add(this.root)
@@ -110,43 +110,211 @@ class EditorUi {
 
   render(): void {
     const buffer = this.editor.currentBuffer
-    const { line, col } = buffer.lineCol()
     const pending = this.editor.keymaps.pendingSequence()
-    const mark = buffer.mark == null ? "" : ` mark=${buffer.mark}`
-    const dirty = buffer.dirty ? "*" : ""
     const depth = this.editor.minibuffer && this.editor.minibufferDepthLevel > 1
       ? ` [${this.editor.minibufferDepthLevel}]`
       : ""
 
-    this.title.content = ` Jemacs OpenTUI — ${buffer.name}${dirty}`
-    const spans = [...this.editor.fontLock(buffer)]
-    if (this.editor.isearch) {
-      const match = isearchMatchSpan(buffer, this.editor.isearch)
-      if (match) spans.push(match)
-    }
-    this.body.content = visibleStyledText(buffer.text, buffer.point, {
-      mark: buffer.mark,
-      spans,
-      theme: this.editor.theme,
-    })
-    this.modeline.content = this.editor.minibuffer
-      ? ` Minibuffer${depth}  ${this.editor.activeBuffer.mode}  line ${this.editor.activeBuffer.lineCol().line}, col ${this.editor.activeBuffer.lineCol().col}${pending ? `  [${pending}]` : ""}`
-      : ` ${buffer.mode}  ${buffer.name}${dirty}  line ${line}, col ${col}  point ${buffer.point}${mark}${pending ? `  [${pending}]` : ""}`
+    this.title.content = ` Jemacs OpenTUI — ${buffer.name}${buffer.dirty ? "*" : ""}`
+    this.renderWindows(this.editor.windowLayout, contentAreaLines())
     this.minibuffer.content = this.editor.minibuffer
-      ? ` ${this.editor.minibuffer.prompt}${textWithCursor(this.editor.activeBuffer.text, this.editor.activeBuffer.point)}`
+      ? `${depth} ${this.editor.minibuffer.prompt}${textWithCursor(this.editor.activeBuffer.text, this.editor.activeBuffer.point)}`
       : this.editor.isearch
         ? ` ${textWithCursor(isearchPrompt(this.editor.isearch), this.editor.isearch.string.length)}`
         : " "
-    this.echo.content = ` ${this.lastMessage}`
+    this.echo.content = ` ${this.lastMessage}${pending && !this.editor.minibuffer ? `  [${pending}]` : ""}`
   }
+
+  private renderWindows(layout: WindowNode, availableLines: number): void {
+    const seenSplits = new Set<string>()
+    const seenLeaves = new Set<string>()
+    this.syncWindowNode(this.windowsRoot, layout, availableLines, "column", "root", seenSplits, seenLeaves)
+    for (const [key, pane] of this.splitPanes) {
+      if (seenSplits.has(key)) continue
+      pane.destroyRecursively()
+      this.splitPanes.delete(key)
+    }
+    for (const [id, parts] of this.leafPanes) {
+      if (seenLeaves.has(id)) continue
+      parts.pane.destroyRecursively()
+      this.leafPanes.delete(id)
+    }
+  }
+
+  private syncWindowNode(
+    parent: BoxRenderable,
+    layout: WindowNode,
+    availableLines: number,
+    parentAxis: "row" | "column",
+    path: string,
+    seenSplits: Set<string>,
+    seenLeaves: Set<string>,
+  ): void {
+    if (layout.kind === "leaf") {
+      seenLeaves.add(layout.id)
+      let parts = this.leafPanes.get(layout.id)
+      if (!parts) {
+        const pane = new BoxRenderable(this.renderer, {
+          id: `window:${layout.id}`,
+          flexDirection: "column",
+          flexGrow: 1,
+          flexShrink: 1,
+          flexBasis: 0,
+          minWidth: 0,
+          minHeight: 0,
+          borderStyle: "single",
+        })
+        const body = new TextRenderable(this.renderer, { id: `window-body:${layout.id}`, content: "", flexGrow: 1, flexShrink: 1, flexBasis: 0, minHeight: 0 })
+        const modeline = new TextRenderable(this.renderer, { id: `window-modeline:${layout.id}`, content: "" })
+        pane.add(body)
+        pane.add(modeline)
+        parts = { pane, body, modeline }
+        this.leafPanes.set(layout.id, parts)
+      }
+      this.applyPaneLayout(parts.pane, parentAxis)
+      this.reparent(parts.pane, parent)
+      this.updateLeafContent(parts, layout, availableLines)
+      return
+    }
+
+    const key = `${path}:${layout.direction}`
+    seenSplits.add(key)
+    const axis = layout.direction === "vertical" ? "column" : "row"
+    let container = this.splitPanes.get(key)
+    if (!container) {
+      container = new BoxRenderable(this.renderer, {
+        id: `split:${key}`,
+        flexDirection: axis,
+        flexGrow: 1,
+        flexShrink: 1,
+        flexBasis: 0,
+        minWidth: 0,
+        minHeight: 0,
+      })
+      this.splitPanes.set(key, container)
+    } else {
+      container.flexDirection = axis
+    }
+    this.applyPaneLayout(container, parentAxis)
+    this.reparent(container, parent)
+
+    const { first, second } = this.splitLineBudget(availableLines, layout.direction)
+    this.syncWindowNode(container, layout.first, first, axis, `${path}/f`, seenSplits, seenLeaves)
+    this.syncWindowNode(container, layout.second, second, axis, `${path}/s`, seenSplits, seenLeaves)
+    this.ensureSplitChildren(container)
+  }
+
+  private reparent(pane: BoxRenderable, parent: BoxRenderable): void {
+    if (pane.parent === parent) return
+    if (pane.parent) pane.parent.remove(pane.id)
+    parent.add(pane)
+  }
+
+  private ensureSplitChildren(container: BoxRenderable): void {
+    for (const child of container.getChildren().slice(2)) {
+      container.remove(child.id)
+    }
+  }
+
+  private applyPaneLayout(pane: BoxRenderable, parentAxis: "row" | "column"): void {
+    pane.flexGrow = 1
+    pane.flexShrink = 1
+    pane.flexBasis = 0
+    pane.minWidth = 0
+    pane.minHeight = 0
+    if (parentAxis === "column") pane.width = "100%"
+    else pane.height = "100%"
+  }
+
+  private splitLineBudget(availableLines: number, direction: "horizontal" | "vertical"): { first: number; second: number } {
+    if (direction === "horizontal") {
+      return { first: availableLines, second: availableLines }
+    }
+    const first = Math.max(3, Math.floor(availableLines / 2))
+    return { first, second: Math.max(3, availableLines - first) }
+  }
+
+  private updateLeafContent(
+    parts: { pane: BoxRenderable; body: TextRenderable; modeline: TextRenderable },
+    leaf: WindowLeaf,
+    availableLines: number,
+  ): void {
+    const { pane, body, modeline } = parts
+    const selected = leaf.id === this.editor.selectedWindowId
+    const buffer = this.editor.buffers.get(leaf.bufferId)
+    if (!buffer) {
+      body.content = ""
+      modeline.content = " (empty)"
+      pane.border = selected
+      pane.title = undefined
+      return
+    }
+
+    const point = selected ? buffer.point : leaf.point
+    const mark = selected ? buffer.mark : null
+    const dirty = buffer.dirty ? "*" : ""
+    const { line, col } = pointLineCol(buffer.text, point)
+    pane.border = selected
+    pane.title = selected ? buffer.name : undefined
+
+    const spans = [...this.editor.fontLock(buffer)]
+    if (selected && this.editor.isearch) {
+      const match = isearchMatchSpan(buffer, this.editor.isearch)
+      if (match) spans.push(match)
+    }
+    const maxLines = Math.max(1, availableLines - 1)
+    body.content = selected
+      ? visibleStyledText(buffer.text, point, {
+        mark,
+        markActive: buffer.markActive,
+        spans,
+        theme: this.editor.theme,
+        maxLines,
+      })
+      : visibleStyledTextFromStart(buffer.text, point, leaf.startLine, {
+        spans,
+        theme: this.editor.theme,
+        maxLines,
+      })
+    modeline.content = ` ${buffer.mode}  ${buffer.name}${dirty}${leaf.dedicated ? " [D]" : ""}  line ${line}, col ${col}${selected && buffer.mark != null ? `  mark=${buffer.mark}` : ""}`
+  }
+}
+
+function pointLineCol(text: string, point: number): { line: number; col: number } {
+  const before = text.slice(0, Math.max(0, Math.min(point, text.length)))
+  const lines = before.split("\n")
+  return { line: lines.length, col: lines.at(-1)!.length + 1 }
 }
 
 export function visibleText(text: string, point: number): string {
   return visibleTextRegion(text, point).visible
 }
 
-export function visibleStyledText(text: string, point: number, options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme }): StyledText {
-  const region = visibleTextRegion(text, point)
+export function visibleStyledText(
+  text: string,
+  point: number,
+  options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme, maxLines?: number },
+): StyledText {
+  const region = visibleTextRegion(text, point, options.maxLines)
+  return styledRegion(text, region, point, options)
+}
+
+export function visibleStyledTextFromStart(
+  text: string,
+  point: number,
+  startLine: number,
+  options: { spans?: TextSpan[], theme: Theme, maxLines?: number },
+): StyledText {
+  const region = visibleTextRegionFromStart(text, startLine, options.maxLines)
+  return styledRegion(text, region, point, { ...options, mark: null, markActive: false })
+}
+
+function styledRegion(
+  text: string,
+  region: { visible: string; visibleStart: number },
+  point: number,
+  options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme },
+): StyledText {
   const visibleEnd = region.visibleStart + region.visible.length
   const spans = options.spans ?? []
   const mark = options.markActive === false ? null : (options.mark ?? null)
@@ -159,19 +327,30 @@ export function visibleStyledText(text: string, point: number, options: { mark?:
   return applyTheme(region.visible, visibleSpans, options.theme)
 }
 
+export function visibleTextRegionFromStart(text: string, startLine: number, lineBudget = pageScrollLines()): { visible: string, visibleStart: number } {
+  const lines = text.split("\n")
+  const start = Math.max(0, Math.min(startLine, Math.max(0, lines.length - lineBudget)))
+  const visibleStart = lines.slice(0, start).join("\n").length + (start > 0 ? 1 : 0)
+  const visible = lines.slice(start, start + lineBudget).join("\n")
+  return { visible, visibleStart }
+}
+
 export function pageScrollLines(): number {
   const rows = process.stdout.rows ?? 30
   return Math.max(1, rows - 6)
 }
 
-function visibleTextRegion(text: string, point: number): { visible: string, visibleStart: number } {
+export function contentAreaLines(): number {
+  return Math.max(3, pageScrollLines() - 1)
+}
+
+function visibleTextRegion(text: string, point: number, lineBudget = pageScrollLines()): { visible: string, visibleStart: number } {
   const cursorPoint = Math.max(0, Math.min(point, text.length))
   const withCursor = textWithCursor(text, point)
   const lines = withCursor.split("\n")
-  const maxLines = pageScrollLines()
   const cursorLine = withCursor.slice(0, cursorPoint).split("\n").length - 1
-  const start = Math.max(0, Math.min(cursorLine - Math.floor(maxLines / 2), lines.length - maxLines))
+  const start = Math.max(0, Math.min(cursorLine - Math.floor(lineBudget / 2), lines.length - lineBudget))
   const visibleStart = lines.slice(0, start).join("\n").length + (start > 0 ? 1 : 0)
-  const visible = lines.slice(start, start + maxLines).join("\n")
+  const visible = lines.slice(start, start + lineBudget).join("\n")
   return { visible, visibleStart }
 }

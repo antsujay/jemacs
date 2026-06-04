@@ -109,7 +109,7 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     const lines = [
       `prefixArgument = ${editor.prefixArgument ?? "nil"}`,
       `tilingLayout = ${editor.tilingLayout}`,
-      `registers = ${JSON.stringify([...editor.registers.entries()])}`,
+      `registers = ${JSON.stringify([...editor.registers.entries()].map(([key, value]) => [key, value.kind === "point" ? value.point : value.kind]))}`,
     ]
     editor.scratch("*Help*", `${name}\n\n${lines.join("\n")}`, "text")
   }, "Describe a variable (editor state snapshot).")
@@ -208,6 +208,7 @@ export function bindEmacsStandardKeys(editor: Editor): void {
   editor.key("M-g g", "goto-line")
   editor.key("C-x r SPC", "point-to-register")
   editor.key("C-x r j", "jump-to-register")
+  editor.key("C-x r w", "window-configuration-to-register")
   editor.key("C-x r k", "kill-rectangle")
   editor.key("C-x r y", "yank-rectangle")
   editor.key("C-x (", "start-kbd-macro")
