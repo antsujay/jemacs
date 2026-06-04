@@ -1,10 +1,16 @@
+import { existsSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import type { BufferModel } from "../kernel/buffer"
 import type { LspConnection } from "./client"
 
 /** Port of `lsp-stdio-connection` from lsp-mode.el. */
-export function stdioConnection(command: string[] | (() => string[]), testCommand?: () => boolean): LspConnection {
+export function stdioConnection(
+  command: string[] | ((cwd: string) => string[]),
+  testCommand?: (buffer?: BufferModel) => boolean,
+): LspConnection {
   return {
     connect({ onData, onExit, serverId, cwd }) {
-      const argv = typeof command === "function" ? command() : command
+      const argv = typeof command === "function" ? command(cwd) : command
       const proc = Bun.spawn({
         cmd: argv,
         cwd,
@@ -35,9 +41,13 @@ export function stdioConnection(command: string[] | (() => string[]), testComman
         },
       }
     },
-    test: testCommand ?? (() => {
-      const argv = typeof command === "function" ? command() : command
-      return Bun.which(argv[0]!) != null
-    }),
+    test:
+      testCommand
+      ?? (buffer => {
+        const cwd = buffer?.path ? dirname(resolve(buffer.path)) : process.cwd()
+        const argv = typeof command === "function" ? command(cwd) : command
+        const bin = argv[0]!
+        return existsSync(bin) || Bun.which(bin) != null
+      }),
   }
 }

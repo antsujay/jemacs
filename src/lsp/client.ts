@@ -8,7 +8,7 @@ export type LspConnection = {
     serverId: string
     cwd: string
   }) => { proc: { kill: () => void }; send: (message: string) => void }
-  test?: () => boolean | Promise<boolean>
+  test?: (buffer?: BufferModel) => boolean | Promise<boolean>
 }
 
 /** Mirrors `cl-defstruct lsp--client` in lsp-mode.el. */
@@ -53,7 +53,7 @@ export function supportsBuffer(client: LspClient, buffer: BufferModel): boolean 
   return client.majorModes.includes(buffer.mode)
 }
 
-export function serverBinaryPresent(client: LspClient): boolean {
-  if (client.newConnection.test) return client.newConnection.test() !== false
+export function serverBinaryPresent(client: LspClient, buffer?: BufferModel): boolean {
+  if (client.newConnection.test) return client.newConnection.test(buffer) !== false
   return true
 }

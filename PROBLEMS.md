@@ -3,3 +3,6 @@
 * There's a weird buffer rectangle when you have it focused. IDK if I like that
 * Mark rectangles stopped working
 * `../` doesn't work in `dired-mode`
+* Sometimes, the cursor gets stuck in the middle of the screen. So if you go up or down the whole screen moves
+* Missing c-mode highlighting
+* Missing JSON mode highlighting

@@ -53,7 +53,7 @@ export class LspManager {
   matchingClients(buffer: BufferModel): LspClient[] {
     return allClients()
       .filter(client => supportsBuffer(client, buffer))
-      .filter(client => serverBinaryPresent(client))
+      .filter(client => serverBinaryPresent(client, buffer))
       .sort((a, b) => b.priority - a.priority)
   }
 
@@ -68,7 +68,15 @@ export class LspManager {
     }
     const clients = this.matchingClients(buffer)
     if (!clients.length) {
-      this.editor.message(`No LSP server for mode ${buffer.mode}`)
+      const supported = allClients().filter(client => supportsBuffer(client, buffer))
+      const missing = supported.filter(client => !serverBinaryPresent(client, buffer))
+      if (missing.length) {
+        this.editor.message(
+          `No LSP binary for ${buffer.mode} (install ${missing.map(c => c.serverId).join(", ")}; for TypeScript: bun add -d typescript-language-server)`,
+        )
+      } else {
+        this.editor.message(`No LSP server for mode ${buffer.mode}`)
+      }
       return
     }
     const client = clients[0]!
