@@ -80,7 +80,10 @@ Commands use **GNU Emacs function names** (`find-file`, `kill-region`, `execute-
 | Ctrl-H E | `view-echo-area-messages` |
 | Ctrl-H C | `describe-mode` |
 | Ctrl-H B | `describe-bindings` |
+| Ctrl-H F | `describe-function` (RET → source) |
+| Ctrl-H V | `describe-variable` |
 | Ctrl-H K | `describe-key` |
+| C-M-x | `eval-defun` |
 | Meta-G G | `goto-line` |
 | Ctrl-X 2 / Ctrl-X 3 | `split-window-below` / `split-window-right` |
 | Ctrl-X K | `kill-buffer` |
@@ -88,28 +91,30 @@ Commands use **GNU Emacs function names** (`find-file`, `kill-region`, `execute-
 | Ctrl-C Ctrl-R | `reload-current-file` |
 | Ctrl-X Ctrl-C or Ctrl-C Ctrl-Q | `save-buffers-kill-terminal` |
 
-## Self-editing demo
+## Self-modifying Jemacs (Emacs-style)
 
-1. Start against the editor source:
+Everything registered through the public extension API is live, source-tracked, and patchable:
 
-   ```bash
-   bun run src/main.ts src/init/default-commands.ts
-   ```
+| Kind | Define with | Describe | Patch at point | Revert |
+| --- | --- | --- | --- | --- |
+| Command | `editor.command(...)` | `C-h f` | `C-M-x` (`eval-defun`) | `M-x revert-function` |
+| Variable | `defcustom` / `defvar` | `C-h v` | `C-M-x` | `M-x revert-definition` |
+| Key | `editor.key` / `editor.defineKey` | `C-h k` | `C-M-x` | `M-x revert-definition` |
+| Mode | `defineMode(...)` | `C-h c` | `C-M-x` | `M-x revert-definition` |
+| Hook | `editor.addHook(...)` | `M-x find-definition` | `C-M-x` | `M-x revert-definition` |
+| Advice | `addAdvice(...)` | `M-x find-definition` | `C-M-x` | `M-x revert-definition` |
 
-2. Edit a command or add a new one.
-3. Mark the relevant JavaScript/TypeScript expression or whole buffer.
-4. Press `Ctrl-X Ctrl-E`.
-5. Open `*messages*` or inspect the editor with `Ctrl-H E`.
+Help buffers use **help mode**: put point on a `Source:` line (or the described name) and press **RET** (`help-follow`) to jump to the definition. `M-x find-definition` covers any registered kind.
 
-For module-style plugin reloads, use `Ctrl-C Ctrl-L` and enter a plugin path, e.g.:
+**Temporary** changes: `C-M-x` on a definition form (or `C-x C-e` on a region). **Permanent**: edit the file, `C-x C-s`, then `C-c C-r` (`reload-current-file`) or `M-x load-file`. Reload clears all temporary patches first, then re-imports the module.
 
-```text
-plugins/demo-plugin.ts
+Eval and plugins receive the full runtime (`src/runtime/jemacs-runtime.ts`): `defcustom`, `defineMode`, `addHook`, `addAdvice`, `Editor`, and more. You can also patch `Editor.prototype` in a scratch buffer for kernel-level experiments (advanced; restart Jemacs to fully reset class state).
+
+```bash
+bun run dev:self   # opens src/main.ts
 ```
 
-The plugin's `install(editor)` function runs against the live editor object.
-
-When visiting a TypeScript or JavaScript file, `Ctrl-C Ctrl-R` saves and cache-bust imports the current file. If the module exports `install(editor)` it is run as a plugin; if it exports `installDefaultCommands(editor)` those commands and keybindings are reinstalled in the running editor.
+Module plugins: `C-c C-l` (`load-plugin`). File buffers: `C-c C-r` (`reload-current-file`) when the file exports `install(editor)` or `installDefaultConfig(editor)`.
 
 On macOS, some terminals send Option-key characters instead of Meta events, for example Option-X as `≈`, Option-v as `√`, and Option-. as `≥`. Jemacs maps the common Option encodings (including `M-v` from `√`); the Electron GUI uses the physical key (`KeyboardEvent.code`) for Option chords. `Esc` plus the key (e.g. `Esc .` for xref) works as a terminal-portable Meta fallback.
 

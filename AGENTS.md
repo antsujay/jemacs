@@ -7,6 +7,12 @@
 - If `bun` is not on `PATH`, run those commands through `npx bun`, e.g. `npx bun run check` and `npx bun test`.
 - After implementing a feature, fix, or Emacs port, commit the change before handing work back to the user (unless they asked you not to commit).
 
+## Self-modification
+
+- Extension surface is tracked in `src/runtime/definitions.ts` (catalog) with source locations from `captureCallerSource`.
+- Live eval: `eval-defun`, `load-file`, `reload-current-file`; revert via `revert-definition` / `revert-all-definitions`.
+- Eval context: `src/runtime/jemacs-runtime.ts`. Do not bypass `editor.command`, `defcustom`, `registerKeyBinding`, etc., if the goal is user-visible source links.
+
 ## Emacs fidelity
 
 When porting or replicating a GNU Emacs interactive function:

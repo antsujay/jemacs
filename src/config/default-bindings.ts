@@ -140,6 +140,7 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("C-x )", "end-kbd-macro")
   editor.key("C-x e", "call-last-kbd-macro")
   editor.key("C-h f", "describe-function")
+  editor.key("C-M-x", "eval-defun")
   editor.key("C-h v", "describe-variable")
   editor.key("C-h a", "apropos-command")
   editor.key("C-h i", "info")

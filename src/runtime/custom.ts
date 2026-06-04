@@ -1,3 +1,7 @@
+import { registerCatalogEntry } from "./definitions"
+import type { SourceLocation } from "./source"
+import { captureCallerSource } from "./source"
+
 export type CustomType = "boolean" | "string" | "number"
 
 export type CustomVariable<T = unknown> = {
@@ -5,18 +9,28 @@ export type CustomVariable<T = unknown> = {
   type: CustomType
   value: T
   doc?: string
+  source?: SourceLocation
+  baselineValue?: unknown
+  patched?: boolean
 }
 
 const variables = new Map<string, CustomVariable>()
 
 export function defcustom<T>(name: string, type: CustomType, value: T, doc?: string): CustomVariable<T> {
+  const source = captureCallerSource(3)
   const existing = variables.get(name)
   if (existing) {
     existing.value = value as unknown
+    existing.type = type
+    if (doc) existing.doc = doc
+    if (source) existing.source = source
+    if (!existing.patched) existing.baselineValue = value as unknown
+    registerCatalogEntry({ kind: "variable", name, source: existing.source, patched: existing.patched, doc: existing.doc })
     return existing as CustomVariable<T>
   }
-  const variable: CustomVariable<T> = { name, type, value, doc }
+  const variable: CustomVariable<T> = { name, type, value, doc, source, baselineValue: value, patched: false }
   variables.set(name, variable as CustomVariable)
+  registerCatalogEntry({ kind: "variable", name, source, doc, patched: false })
   return variable
 }
 
@@ -37,6 +51,28 @@ export function setCustom<T>(name: string, value: T): void {
   const variable = variables.get(name)
   if (!variable) throw new Error(`Unknown custom variable: ${name}`)
   variable.value = value as unknown
+}
+
+export function patchCustom<T>(name: string, value: T): void {
+  const variable = variables.get(name)
+  if (!variable) throw new Error(`Unknown custom variable: ${name}`)
+  if (variable.baselineValue === undefined) variable.baselineValue = variable.value
+  variable.value = value as unknown
+  variable.patched = true
+  registerCatalogEntry({ kind: "variable", name, source: variable.source, patched: true, doc: variable.doc })
+}
+
+export function restoreCustom(name: string): boolean {
+  const variable = variables.get(name)
+  if (!variable?.patched || variable.baselineValue === undefined) return false
+  variable.value = variable.baselineValue
+  variable.patched = false
+  registerCatalogEntry({ kind: "variable", name, source: variable.source, patched: false, doc: variable.doc })
+  return true
+}
+
+export function getCustomVariable(name: string): CustomVariable | undefined {
+  return variables.get(name)
 }
 
 export function listCustomVariables(): CustomVariable[] {

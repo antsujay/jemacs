@@ -45,6 +45,7 @@ import {
 import type { LspManager } from "../lsp/manager"
 import { invokeWithAdvice } from "../runtime/advice"
 import { readInteractiveArgs } from "../runtime/interactive"
+import { registerKeyBinding } from "../runtime/key-registry"
 
 export type EditorEvents = {
   changed: { reason: string }
@@ -414,9 +415,15 @@ export class Editor {
 
   key(sequence: string, commandName: string): void {
     this.keymap.bind(sequence, commandName)
+    registerKeyBinding("global-map", sequence, commandName)
   }
 
   defineKey(mapName: "global" | "minibuffer" | string, sequence: string, commandName: string): void {
+    const map = mapName === "global" || mapName === "global-map"
+      ? "global-map"
+      : mapName === "minibuffer" || mapName === "minibuffer-local-map"
+        ? "minibuffer-local-map"
+        : mapName.replace(/-map$/, "")
     if (mapName === "global" || mapName === "global-map") this.keymap.bind(sequence, commandName)
     else if (mapName === "minibuffer" || mapName === "minibuffer-local-map") this.minibufferKeymap.bind(sequence, commandName)
     else {
@@ -424,15 +431,18 @@ export class Editor {
       const mode = getMode(base)
       if (mode?.keymap) {
         mode.keymap.bind(sequence, commandName)
+        registerKeyBinding(map, sequence, commandName)
         return
       }
       const minor = getMinorMode(base)
       if (minor?.keymap) {
         minor.keymap.bind(sequence, commandName)
+        registerKeyBinding(map, sequence, commandName)
         return
       }
       throw new Error(`Unknown keymap: ${mapName}`)
     }
+    registerKeyBinding(map, sequence, commandName)
   }
 
   isMinorModeEnabled(name: string, buffer: BufferModel = this.currentBuffer): boolean {

@@ -99,21 +99,6 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     }
     editor.message("Query replace finished")
   }, "Replace occurrences with confirmation.")
-  editor.command("describe-function", async ({ editor, args }) => {
-    const name = args[0] ?? await editor.completingRead("Describe function: ", { collection: editor.commands.names(), history: "command" })
-    if (!name) return
-    const spec = editor.commands.get(name)
-    editor.scratch("*Help*", spec ? `${name}\n\n${spec.description ?? ""}` : `No command named ${name}`, "text")
-  }, "Describe an interactive command.")
-  editor.command("describe-variable", ({ editor, args }) => {
-    const name = args[0] ?? "prefix"
-    const lines = [
-      `prefixArgument = ${editor.prefixArg.describe()}`,
-      `tilingLayout = ${editor.tilingLayout}`,
-      `registers = ${JSON.stringify([...editor.registers.entries()])}`,
-    ]
-    editor.scratch("*Help*", `${name}\n\n${lines.join("\n")}`, "text")
-  }, "Describe a variable (editor state snapshot).")
   editor.command("apropos-command", async ({ editor, args }) => {
     const pattern = args[0] ?? await editor.prompt("Apropos: ", "", "apropos")
     if (!pattern) return
@@ -131,8 +116,8 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
       "C-h b    describe-bindings",
       "C-h c    describe-mode",
       "C-h k    describe-key",
-      "C-h f    describe-function",
-      "C-h v    describe-variable",
+      "C-h f    describe-function (RET follows source)",
+      "C-h v    describe-variable (custom; RET → source)",
       "C-h a    apropos-command",
       "C-h e    view-echo-area-messages",
       "C-h i    info",

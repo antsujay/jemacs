@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const file = Bun.argv.find((arg, i) => i >= 2 && !arg.startsWith("-") && arg !== "--gui")
   if (file) await editor.openFile(file)
 
-  await runJemacs(editor, createDefaultHost())
+  await runJemacs(editor, await createDefaultHost())
 }
 
 main().catch(error => {

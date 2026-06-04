@@ -1,6 +1,9 @@
 import type { BufferModel } from "../kernel/buffer"
 import { Keymap } from "../kernel/keymap"
 import { modeHookName, addHook, type HookFn } from "../kernel/hooks"
+import { registerCatalogEntry } from "../runtime/definitions"
+import type { SourceLocation } from "../runtime/source"
+import { captureCallerSource } from "../runtime/source"
 
 export type FaceName =
   | "default"
@@ -50,10 +53,19 @@ export type Mode = {
 
 export const modes = new Map<string, Mode>()
 
-export function defineMode(mode: Mode): Mode {
+const modeBaselines = new Map<string, Mode>()
+const modePatched = new Set<string>()
+
+export function defineMode(mode: Mode, source?: SourceLocation): Mode {
+  const loc = source ?? captureCallerSource(3)
   const keymap = mode.keymap ?? new Keymap(`${mode.name}-map`)
   const installed = { ...mode, keymap }
+  const existing = modes.get(installed.name)
+  if (!existing) modeBaselines.set(installed.name, installed)
+  else if (!modePatched.has(installed.name)) modeBaselines.set(installed.name, installed)
   modes.set(installed.name, installed)
+  modePatched.delete(installed.name)
+  registerCatalogEntry({ kind: "mode", name: installed.name, source: loc, doc: installed.parent ? `Child of ${installed.parent}` : undefined })
   if (mode.hooks?.length) {
     const hookName = modeHookName(installed.name)
     for (const hook of mode.hooks) {
@@ -62,6 +74,20 @@ export function defineMode(mode: Mode): Mode {
     }
   }
   return installed
+}
+
+export function markModePatched(name: string): void {
+  modePatched.add(name)
+  registerCatalogEntry({ kind: "mode", name, patched: true })
+}
+
+export function restoreMode(name: string): boolean {
+  const baseline = modeBaselines.get(name)
+  if (!baseline || !modePatched.has(name)) return false
+  modes.set(name, { ...baseline, keymap: baseline.keymap ?? new Keymap(`${name}-map`) })
+  modePatched.delete(name)
+  registerCatalogEntry({ kind: "mode", name, patched: false })
+  return true
 }
 
 export function getMode(name: string): Mode | undefined {

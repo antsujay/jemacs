@@ -27,6 +27,8 @@ import { readFileText, spawnProcess } from "../platform/runtime"
 import { getMode } from "../modes/mode"
 import { pythonBeginningOfDefun, pythonEndOfDefun } from "../modes/python"
 import { Evaluator } from "../runtime/evaluator"
+import { installLiveSourceCommands } from "../runtime/live-source"
+import { revertAllDefinitions } from "../runtime/patch-eval"
 import { inspectValue } from "../runtime/inspect"
 import { installEmacsStandardCommands, type KillRingApi } from "./emacs-standard"
 import { isPrintable } from "../kernel/keymap"
@@ -372,29 +374,10 @@ export function installCoreCommands(editor: Editor): Evaluator {
     editor.message(editor.describeKey(sequence))
   }, "Type a key sequence; print its full command name in the echo area.")
 
-  editor.command("describe-mode", ({ buffer, editor }) => {
-    const def = getMode(buffer.mode)
-    const minors = editor.activeMinorModes(buffer)
-    const lines = [
-      `Major mode: ${buffer.mode}`,
-      def?.parent ? `Parent: ${def.parent}` : "",
-      minors.length ? `Minor modes: ${minors.map(mode => mode.name).join(", ")}` : "",
-      `Buffer: ${buffer.name}`,
-      buffer.path ? `File: ${buffer.path}` : "",
-    ].filter(Boolean)
-    editor.scratch("*Help*", lines.join("\n"), "text")
-  }, "Describe major mode of the current buffer.")
-
   editor.command("describe-bindings", ({ editor }) => {
     const lines = editor.keymap.all().map(([k, v]) => `${k.padEnd(16)} ${v}`)
     editor.scratch("*Help*", lines.join("\n"), "text")
   }, "Describe key bindings of the current keymap.")
-
-  editor.command("describe-key", async ({ editor, args }) => {
-    const sequence = args.join(" ") || await editor.prompt("Describe key: ", "", "describe-key")
-    if (!sequence) return
-    editor.scratch("*Help*", editor.describeKey(sequence), "text")
-  }, "Describe the command bound to a key sequence.")
 
   editor.command("minibuffer-complete", async ({ editor }) => editor.minibufferComplete(), "Complete the current minibuffer input.")
   editor.command("exit-minibuffer", ({ editor }) => editor.minibufferSubmit(), "Submit the minibuffer.")
@@ -414,25 +397,6 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("python-shell-switch-to-shell", ({ editor }) => {
     editor.scratch("*Python*", "Python shell integration is not implemented yet.\n", "text")
   }, "Switch to the Python shell buffer placeholder.")
-
-
-  editor.command("proto-add-rpc", async ({ buffer, editor, args }) => {
-    const name = args[0] ?? await editor.prompt("Enter the function name: ", "", "proto-rpc")
-    if (!name) return
-    buffer.insert(`rpc ${name}(${name}Request) returns (${name}Response);\n\nmessage ${name}Request {}\nmessage ${name}Response {}`)
-  }, "Insert a protobuf RPC plus request/response messages.")
-
-  editor.command("proto-renumber", ({ buffer, editor }) => {
-    if (buffer.mark == null || buffer.mark === buffer.point) {
-      editor.message("You must select a region first!")
-      return
-    }
-    const start = Math.min(buffer.mark, buffer.point)
-    const end = Math.max(buffer.mark, buffer.point)
-    let counter = 1
-    const replacement = buffer.text.slice(start, end).replace(/= \d+;/g, () => `= ${counter++};`)
-    buffer.replaceRange(start, end, replacement)
-  }, "Renumber selected protobuf fields in ascending order.")
 
   editor.command("dired", async ({ editor, args }) => {
     const path = args[0] ?? await editor.completingRead("Dired: ", { completion: "file", history: "file", initialValue: editor.currentBuffer.directory() ?? process.cwd() })
@@ -615,6 +579,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
       editor.message("Current buffer is not visiting a file")
       return
     }
+    revertAllDefinitions(editor)
     if (buffer.dirty) await buffer.save()
     const mod = await evaluator.loadModule(buffer.path)
     if (typeof mod.install === "function") {
@@ -639,6 +604,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   }, "Quit the editor.")
 
   installEmacsStandardCommands(editor, killApi)
+  installLiveSourceCommands(editor, evaluator)
 
   for (const command of ["git-link", "magit-find-main", "projectile-command-map", "ace-jump-word-mode", "ace-jump-char-mode", "yafolding-toggle-element", "gptel-menu", "gptel", "restart-emacs"]) {
     if (!editor.commands.get(command)) editor.command(command, ({ editor }) => editor.message(`${command} is a package-backed command placeholder in Jemacs.`), `${command} package placeholder.`)
