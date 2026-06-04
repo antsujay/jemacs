@@ -125,7 +125,7 @@ class EditorUi {
       if (match) spans.push(match)
     }
     this.body.content = visibleStyledText(buffer.text, buffer.point, {
-      mark: buffer.markActive ? buffer.mark : null,
+      mark: buffer.mark,
       spans,
       theme: this.editor.theme,
     })

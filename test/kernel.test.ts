@@ -498,6 +498,13 @@ test("styled TUI chunks show the active region between mark and point", () => {
   expect(rendered.chunks.map(chunk => chunk.text).join("")).toBe("hello█world")
 })
 
+test("styled TUI chunks keep region highlight after movement deactivates the mark", () => {
+  const editor = new Editor()
+  const rendered = visibleStyledText("hello world", 5, { mark: 0, theme: editor.theme })
+
+  expect(rendered.chunks.some(chunk => chunk.text === "hello" && chunk.bg)).toBe(true)
+})
+
 test("C-x C-x exchanges point and mark like Emacs", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
