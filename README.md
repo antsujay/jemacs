@@ -14,9 +14,13 @@ This is intentionally a starter repo, not a mature editor. The kernel is written
 
 ## Install
 
+Use **Bun** (required to run the editor):
+
 ```bash
 bun install
 ```
+
+`npm install` also works (`.npmrc` sets `legacy-peer-deps` for tree-sitter peer versions) but you still need Bun for `bun run dev`.
 
 If OpenTUI's native package build complains, install Zig. The upstream repo notes that Zig is required to build the packages when native code is involved.
 

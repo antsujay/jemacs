@@ -9,7 +9,7 @@
     "dev:self": "bun run src/main.ts src/main.ts",
     "check": "bun x tsc --noEmit",
     "test": "bun test",
-    "postinstall": "bun run scripts/postinstall-tree-sitter.ts",
+    "postinstall": "npx bun run scripts/postinstall-tree-sitter.ts",
     "generate:lsp-protocol": "bun run scripts/generate-lsp-protocol.ts",
     "start": "bun run src/main.ts"
   },

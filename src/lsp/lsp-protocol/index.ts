@@ -17,6 +17,7 @@ export {
   DidSaveTextDocumentNotification,
   PublishDiagnosticsNotification,
   CompletionRequest,
+  CompletionTriggerKind,
   DefinitionRequest,
   ReferencesRequest,
   HoverRequest,
