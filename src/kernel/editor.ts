@@ -9,6 +9,7 @@ import { enterMode, getMode, modeFeature, modeLineage, type CompletionCandidate,
 import { allMinorModes, getMinorMode, type MinorMode } from "../modes/minor-mode"
 import { makeDiredBuffer } from "../modes/dired"
 import { pointFromWindowClick, type WindowClickState } from "../display/click-to-point"
+import { pageScrollLines } from "../display/viewport"
 import type { Theme } from "../display/theme"
 import { defaultTheme } from "../themes"
 import { fileCompletionCandidates } from "./completion"
@@ -247,7 +248,7 @@ export class Editor {
     const buffer = this.buffers.get(leaf.bufferId)
     const lineCount = buffer ? buffer.text.split("\n").length : 1
     const maxStart = Math.max(0, lineCount - 1)
-    const lines = Math.max(1, (process.stdout.rows ?? 30) - 6) * delta
+    const lines = pageScrollLines() * delta
     this.windowLayout = scrollWindowLeaf(this.windowLayout, otherId, lines, maxStart)
     void this.changed("scroll-other-window")
     return true
@@ -687,7 +688,7 @@ export class Editor {
     const leaf = this.selectedWindowLeaf()
     if (!leaf) return
     const buffer = this.currentBuffer
-    const page = Math.max(1, (process.stdout.rows ?? 30) - 6)
+    const page = pageScrollLines()
     const lineIdx = buffer.lineCol().line - 1
     if (this.recenterCycle === 0) {
       const targetStart = Math.max(0, lineIdx - Math.floor(page / 2))
@@ -705,7 +706,7 @@ export class Editor {
     const leaf = this.selectedWindowLeaf()
     if (!leaf) return
     const buffer = this.currentBuffer
-    const page = Math.max(1, (process.stdout.rows ?? 30) - 6) * screens
+    const page = pageScrollLines() * screens
     const lines = buffer.text.split("\n")
     const lineCount = lines.length
     const maxStart = Math.max(0, lineCount - 1)

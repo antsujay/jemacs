@@ -8,7 +8,7 @@ import type { DisplayModel, WindowDisplayNode } from "./protocol"
 import { bufferHighlightSpans } from "./buffer-highlights"
 import { applyTheme } from "./theme"
 import { plainThemedText } from "./themed-text"
-import { contentAreaLines, type ViewportSize } from "./viewport"
+import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
 
 export type BuildDisplayOptions = {
   lastMessage: string
@@ -84,7 +84,7 @@ function buildWindowTree(editor: Editor, layout: WindowNode, availableLines: num
 
 function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number) {
   const selected = leaf.id === editor.selectedWindowId
-  const maxLines = Math.max(1, availableLines - 1)
+  const maxLines = windowBodyLines(availableLines)
   const buffer = editor.buffers.get(leaf.bufferId)
   if (!buffer) {
     return {

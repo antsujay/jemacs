@@ -5,14 +5,25 @@ export type ViewportSize = {
   cols?: number
 }
 
-const CHROME_LINES = 6
+/** Rows used by title, minibuffer, and echo (outside the window stack). */
+const FRAME_CHROME_LINES = 3
 
-export function pageScrollLines(rows = defaultTerminalRows()): number {
-  return Math.max(1, rows - CHROME_LINES)
+/** Mode line row inside each window pane. */
+const MODE_LINE_LINES = 1
+
+/** Lines available to the window stack (all panes share this vertical budget). */
+export function contentAreaLines(rows: number): number {
+  return Math.max(MODE_LINE_LINES + 1, rows - FRAME_CHROME_LINES)
 }
 
-export function contentAreaLines(rows: number): number {
-  return Math.max(3, pageScrollLines(rows) - 1)
+/** Body text lines for a pane given its share of the window stack height. */
+export function windowBodyLines(availableInWindowArea: number): number {
+  return Math.max(1, availableInWindowArea - MODE_LINE_LINES)
+}
+
+/** Scroll/recenter page size for a single full-height window. */
+export function pageScrollLines(rows = defaultTerminalRows()): number {
+  return windowBodyLines(contentAreaLines(rows))
 }
 
 export function defaultTerminalRows(): number {

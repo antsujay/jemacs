@@ -9,6 +9,7 @@ import {
 } from "./lsp-protocol"
 import { formatLocation, normalizeLocations, type ResolvedLocation } from "./locations"
 import { pointToPosition, positionToPoint, uriToPath } from "./positions"
+import { pageScrollLines } from "../display/viewport"
 import { setWindowLeafPoint } from "../kernel/window"
 import type { LspWorkspace } from "./workspace"
 
@@ -36,7 +37,7 @@ export async function gotoResolvedLocation(editor: Editor, location: ResolvedLoc
   const buffer = await editor.openFile(path)
   buffer.point = positionToPoint(buffer.text, location.range.start)
   editor.windowLayout = setWindowLeafPoint(editor.windowLayout, editor.selectedWindowId, buffer.point)
-  const lineBudget = Math.max(1, (process.stdout.rows ?? 30) - 7)
+  const lineBudget = pageScrollLines()
   editor.syncSelectedWindowViewport(lineBudget)
   await editor.changed("lsp-goto")
 }

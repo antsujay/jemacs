@@ -9,6 +9,7 @@ export {
   visibleTextRegionFromStart,
   pageScrollLines,
   contentAreaLines,
+  windowBodyLines,
   defaultTerminalRows,
 } from "../display/viewport"
 export { OpenTuiHost } from "./opentui-host"
