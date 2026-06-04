@@ -13,5 +13,5 @@ When porting or replicating a GNU Emacs interactive function:
 
 - **Name:** Register the command under the same GNU name (kebab-case, e.g. `beginning-of-buffer`). Do not invent Jemacs-specific command names unless Emacs has no equivalent.
 - **Behavior:** Match Emacs semantics for that command; check `lisp/` or the manual when unsure.
-- **Key:** Wire the default Emacs keybinding when one exists (`editor.key` / `defineKey` in `src/init/` or the relevant mode). See `DEFAULT_KEYBINDINGS.md` for what is already bound.
+- **Key:** Wire default Emacs keybindings in `src/config/default-bindings.ts` (or user `~/.jemacs/init.ts`) via `editor.key` / `editor.defineKey` — never hardcode in `handleKey()`. Commands live in `src/core/`. See `DEFAULT_KEYBINDINGS.md`.
 - **TypeScript identifiers:** Hyphenated Emacs names map to camelCase in code (`beginning-of-buffer` → helpers like `beginningOfBuffer`); the public command string stays kebab-case.

@@ -1,8 +1,10 @@
 # GOAL.md — Emacs, reimplemented in JavaScript
 
-**Jemacs is not an “Emacs-inspired” editor.** The goal is a faithful reimplementation of GNU Emacs’s architecture and behavior in modern JavaScript/TypeScript, with a replaceable terminal UI (OpenTUI today). Elisp becomes JS; the rest of the editor—buffers, windows, keymaps, commands, hooks, minibuffer, completion, modes, packages—should feel like Emacs because it **is** the same design, ported.
+**Jemacs is not an “Emacs-inspired” editor.** The goal is behavioral and architectural parity with GNU Emacs in TypeScript/JavaScript, with a replaceable terminal UI (OpenTUI today). Elisp becomes JS; buffers, windows, keymaps, commands, hooks, minibuffer, completion, and modes should feel like Emacs because they follow the same design.
 
-This repo is early. The sections below describe **where we are**, **what “done” means**, and **how to get there** in phases. Ship vertical slices; do not water down the end state.
+This document is the contract: what exists today, what GNU Emacs still has that we do not, and how we close the gap in phases.
+
+*Last audited: 2026-06-03.*
 
 ---
 
@@ -16,313 +18,362 @@ This repo is early. The sections below describe **where we are**, **what “done
 | `package.el` | Bun modules + `install(editor)` plugins |
 | Decades of packages | Same extension model: hooks, modes, commands, advice |
 
-**Success:** An experienced Emacs user can sit down, run `bun run dev`, and work for a day without reaching for “real Emacs”—same keys, same concepts, same escape hatches (`M-x`, `C-h k`, `C-h f`, `describe-variable`, `customize`). Differences are documented; surprises are bugs.
+**Success:** An experienced Emacs user can run `bun run dev` and work for a day without reaching for “real Emacs”—same keys, same concepts, same escape hatches (`M-x`, `C-h k`, `describe-variable`, Customize). Surprises are bugs; differences are documented.
 
-**Non-goal:** Pixel-perfect UI clone of GTK Emacs. **Goal:** behavioral and architectural parity.
+**Non-goal:** Pixel-perfect GTK Emacs UI. **Goal:** behavioral and architectural parity.
 
-**Primary editing target:** **Python.** The first real major mode is a port of GNU Emacs’s built-in `python-mode` (from `lisp/progmodes/python.el`), not a greenfield “Python-ish” mode. Jemacs should be excellent for editing `.py` files before we polish other language modes.
+**Primary editing target:** **Python** — port GNU `python.el` (`lisp/progmodes/python.el`), not a greenfield Python-ish mode.
 
 ---
 
-## Emacs subsystems (target checklist)
+## Audit: what exists today
 
-Treat this as the master feature matrix. Nothing here is “nice to have”; it is **the product**. Order of implementation varies; completeness does not.
+Honest inventory of the current tree (`src/kernel/`, `src/init/`, `src/modes/`, `src/ui/opentui.ts`). See also [DEFAULT_KEYBINDINGS.md](DEFAULT_KEYBINDINGS.md).
 
-### Core editor (the C layer, in TS)
+### Working well (prototype strengths)
 
-- [ ] **Buffers** — multibyte-safe text, markers, narrowing, indirect buffers, read-only, buffer-local variables
-- [ ] **Windows** — split, delete, other-window, dedicated windows, `window-configuration` save/restore
-- [ ] **Frames** — terminal frame now; later GUI frame backend behind same abstraction
-- [ ] **Point & mark** — transient mark, region-active-p, exchange-point-and-mark
-- [ ] **Undo** — undo-boundaries, selective undo, undo in region
-- [ ] **Kill ring** — append kill, rotate-yank, interprogram paste
-- [ ] **Threads / concurrency** — async subprocesses without blocking redisplay (later)
+| Area | Status | Notes |
+| --- | --- | --- |
+| Buffer editing | **MVP+** | Insert/delete, movement, words, lines, read-only, dirty flag, simple undo/redo |
+| Commands & `M-x` | **MVP+** | Large default command set; GNU names in `default-commands.ts` + `emacs-standard.ts` |
+| Global keymap & prefixes | **MVP+** | `C-x`, `C-h`, `C-c`, `Esc`; `C-g` quits prefix, isearch, minibuffer |
+| Keymap stack | **Partial** | `KeymapStack` + `activeKeymaps()`: overriding maps, minibuffer map + global, major-mode maps; **no minor modes** |
+| Minibuffer | **Partial** | Real buffer per prompt; unified `handleKey()`; history; TAB completion; nested depth; global bindings in minibuffer (tested) |
+| Kill / yank | **Partial** | Kill line/region/word, `yank-pop`, rectangle kill/yank; not full append-kill semantics |
+| Isearch | **Basic** | `C-s` / `C-r`, forward/back, highlight; no regexp, `M-e`, or lazy highlight |
+| Search / replace | **Basic** | `query-replace`, `replace-string`; no `query-replace-regexp`, occur |
+| Files | **MVP** | `find-file`, `write-file`, `find-alternate-file`, `revert-buffer`, `save-buffer` |
+| Dired | **Partial** | Mark, flag, copy, rename, delete, regexp marks; not wdired / full Emacs dired |
+| Help | **Partial** | `describe-key`, `describe-bindings`, `describe-mode`, `describe-function`, `apropos-command`; `info` stub |
+| Modes | **Partial** | `defineMode`, parent lineage, per-mode keymap, indent, tree-sitter font-lock, completion-at-point |
+| Python | **Early** | Indent heuristics, defun nav, tree-sitter highlight; **not** `python.el` parity |
+| Self-edit / runtime | **Strength** | `eval-region`, `eval-expression`, `load-plugin`, `reload-current-file`, inspect messages |
+| Tests | **Good** | `bun test`: keymaps, minibuffer, isearch, dired, kernel behavior |
 
-### Input & commands
+### Partial or broken (important gaps in current code)
 
-- [ ] **Unified key dispatch** — one code path for minibuffer, main area, and read-only special buffers
-- [ ] **Keymap stack** — `overriding-terminal-local-map`, `minibuffer-local-map`, minor modes, major mode, global; `define-key`, `local-set-key`, sparse keymaps
-- [ ] **Prefix keys** — `C-x`, `C-c`, `C-h`, `ESC` as prefix; `C-g` quits prefix and minibuffer
-- [ ] **Commands** — `interactive` specs, prefix args (`C-u`, `M--`), `M-x`, `repeat`, `execute-extended-command`
-- [ ] **Minibuffer** — real buffer, recursive edit, **all relevant keymaps active** (global + minibuffer + completion), history, completion, `minibuffer-depth-indication-mode`
-- [ ] **Completion** — `completing-read`, `*Completions*`, icomplete, partial completion, `C-M-i`
+| Area | Gap |
+| --- | --- |
+| **Windows** | `windowLayout` tree exists for per-window point/buffer, but `split-window-*` / `delete-window` still mutate a **getter** array (`windows.splice`) — splits do not update the tree; **OpenTUI draws one buffer only** (no multi-window redisplay) |
+| **Input dispatch** | Printable keys fall through to `self-insert-command`; terminal keys bound in `src/config/default-bindings.ts` |
+| **Prefix argument** | `C-u`, `M--`, digit args after `C-u` (e.g. `C-u 5`); not full Emacs digit-prefix stack |
+| **Transient mark** | `markActive` exists; region highlighting and Emacs transient-mark-mode behavior incomplete |
+| **Registers** | Point registers only; not full register types (text, rectangle, …) |
+| **Macros** | Record command **names**, not key sequences — differs from Emacs keyboard macros |
+| **Describe-variable** | Editor state snapshot, not real `defvar` / `defcustom` |
+| **Package chords** | `magit`, `lsp`, `org`, etc. registered as **stubs** only |
+
+---
+
+## Audit: major features missing vs GNU Emacs
+
+Grouped like the Emacs manual. **Missing** = not implemented or only a placeholder/stub. **Partial** = subset of Emacs behavior.
+
+### Core editor
+
+| Feature | Status |
+| --- | --- |
+| Multibyte / encoding / coding-system | **Missing** |
+| Markers, narrowing, indirect buffers | **Missing** |
+| Buffer-local variables (`setq-local`, `defvar`) | **Missing** |
+| Undo boundaries, selective undo, undo in region | **Missing** (simple whole-buffer undo stack only) |
+| Kill ring: append consecutive kills, rotate after yank | **Partial** |
+| Interprogram paste (system clipboard integration) | **Partial** (macOS `pbcopy` command only) |
+| Threads / async without blocking UI | **Missing** |
+
+### Input, commands, minibuffer
+
+| Feature | Status |
+| --- | --- |
+| Minor modes (global/local, mode-line lighter, toggle) | **Missing** |
+| Sparse keymaps, `local-set-key`, full precedence spec | **Partial** |
+| `interactive` spec forms (`P`, `r`, `b`, …) | **Missing** (args passed manually) |
+| Full prefix argument (`C-u`, digits, `M--`) | **Partial** |
+| Minibuffer: `M-x` in prompt, isearch in prompt, icomplete, `*Completions*` window selection | **Partial** |
+| `completing-read` with annotations, partial completion, `C-M-i` | **Partial** |
+| `abort-recursive-edit` / recursive edit parity | **Partial** |
 
 ### Search & motion
 
-- [ ] **Isearch** — `C-s` / `C-r`, regexp, lazy highlight, `M-e` edit, `M-%` query-replace from search
-- [ ] **Query replace** — `M-%`, regexp variant
-- [ ] **Occur** — `M-s o`, `C-x C-o` in `*Occur*`
-- [ ] **Tags / project** — etags, project.el-style roots (JS ecosystem: LSP integration as a *package*, not core)
+| Feature | Status |
+| --- | --- |
+| Regexp isearch, `M-e` edit, lazy highlight | **Missing** |
+| `query-replace-regexp`, `replace-regexp` | **Missing** |
+| Occur (`M-s o`), tags, project.el | **Missing** |
+| `fill-paragraph`, `narrow-to-region` | **Missing** |
 
 ### Files & filesystem
 
-- [ ] **Visit/save** — auto-save, backups (`#file#`, `file~`), `C-x C-w`, revert-buffer
-- [ ] **Dired** — directory editing, flags, `q`, `g`, `^`, wdired
-- [ ] **Tramp** — remote paths (phase: pluggable `file-name-handler` alist equivalent)
-- [ ] **Encoding & EOL** — `set-buffer-file-coding-system`, detect coding systems
+| Feature | Status |
+| --- | --- |
+| Auto-save files | **Missing** |
+| Backup files (`#file#`, `file~`) | **Missing** |
+| `auto-mode-alist` / `magic-mode-alist` as data | **Partial** (hardcoded `inferMode`) |
+| Tramp / remote files | **Missing** |
+| `set-buffer-file-coding-system`, EOL conversion | **Missing** |
+| wdired, full dired `%` commands | **Partial** |
+
+### Windows & frames
+
+| Feature | Status |
+| --- | --- |
+| Working split / `C-x 4` / dedicated windows | **Partial / broken** (see above) |
+| `window-configuration` save-restore | **Missing** |
+| `scroll-other-window`, horizontal scroll | **Missing** |
+| Multiple frames, GUI frame backend | **Missing** |
 
 ### Display
 
-- [ ] **Mode line** — full format: buffer, mode, line/col, `(percent)`, minor modes, pending prefix
-- [ ] **Echo area** — messages, `C-h e` view-echo-area-messages
-- [ ] **Faces & text properties** — syntax highlight via overlays/properties; font-lock equivalent in JS
-- [ ] **Fringe / margin** — line numbers, git gutter (as minor mode)
-- [ ] **Scroll** — recenter, scroll-other-window, horizontal scroll where needed
+| Feature | Status |
+| --- | --- |
+| Full mode line (`(percent)`, minor modes, process status) | **Partial** |
+| Text properties / overlays (beyond font-lock spans) | **Missing** |
+| Fringe, line numbers, git gutter minor mode | **Missing** |
+| Multiple windows in redisplay | **Missing** |
 
-### Lisp environment (JS)
+### Lisp environment (JavaScript runtime)
 
-- [ ] **Evaluator** — `eval`, `eval-region`, `eval-defun`, `eval-buffer`, lexical scope option
-- [ ] **Load path** — `require`, autoload, `load`, `load-library`, after-load hooks
-- [ ] **Advice** — `:around` / `:before` / `:after` on commands and functions
-- [ ] **Macros & defcustom** — `defvar`, `defcustom`, `setq-default`, Customize UI
-- [ ] **Optional Elisp subset** — transpile or embed for package porting (long-term; not blocking v1)
+| Feature | Status |
+| --- | --- |
+| `defvar`, `defcustom`, Customize UI | **Missing** |
+| Hook system (`post-command-hook`, `after-save-hook`, …) | **Missing** (only per-mode `onEnter` hooks) |
+| Advice (`:before` / `:after` / `:around`) | **Missing** |
+| Load path, `require`, autoload | **Missing** |
+| Optional Elisp compatibility | **Missing** (long-term) |
 
 ### Modes & packages
 
-- [ ] **Major modes** — derived modes, mode hooks, `define-derived-mode` equivalent
-- [ ] **Minor modes** — toggle, mode line lighter, buffer-local and global
-- [ ] **Font-lock / syntax** — per-mode rules; tree-sitter bridge as package
-- [ ] **Shipped modes** — **`python-mode` first** (see below), then `prog-mode`, `text-mode`, `js-mode`, `typescript-mode`, `markdown-mode`, `json-mode`, `dired-mode`, `shell-mode`, `comint`
-- [ ] **Package manager** — install from git/npm, pin versions, autoloads on startup
+| Feature | Status |
+| --- | --- |
+| `define-derived-mode` equivalent | **Partial** (`parent` on `defineMode`) |
+| Font-lock as incremental pipeline | **Partial** (tree-sitter / regex per buffer refresh) |
+| `shell-mode`, `comint`, `compile` | **Missing** |
+| `package.el` analog (install/activate/pin) | **Missing** |
+| Built-in ports: full **python.el**, org, magit, eshell, ediff | **Missing** / stubs |
+| LSP integration | **Stub** (`lsp-*` placeholders) |
 
-### Help & discovery
+### Help & documentation
 
-- [ ] **C-h k** — describe-key (which map, which command)
-- [ ] **C-h f** — describe-function/command
-- [ ] **C-h v** — describe-variable
-- [ ] **C-h m** — describe-mode
-- [ ] **C-h b** — list buffers (already partial)
-- [ ] **Info** — read Info manuals in buffer (Emacs tutorial, elisp intro → JS port docs)
+| Feature | Status |
+| --- | --- |
+| Info reader (`C-h i`) | **Stub** |
+| Tutorial / intro ported to JS | **Missing** |
 
-### Classic packages (built-in or first-party)
+### Famous third-party workflows (Emacs ecosystem)
 
-- [ ] **Org** — outline, agenda, source blocks (ambitious; separate milestone)
-- [ ] **Magit-shaped git** — status, commit, blame as minor modes
-- [ ] **Gnus/notmuch-shaped mail** — optional
-- [ ] **Eshell** — Lispy shell on JS runtime
-- [ ] **Ediff** — 2/3-way merge UI in windows
+| Package class | Status |
+| --- | --- |
+| Org-mode | **Missing** |
+| Magit / git UI | **Stub** |
+| Projectile / project switching | **Stub** |
+| Gnus / notmuch mail | **Missing** |
+| Eshell | **Missing** |
+| Ediff | **Missing** |
+| Ace jump, gptel, etc. | **Stub** or custom one-offs |
+
+---
+
+## Emacs subsystems checklist (target state)
+
+Master matrix — everything below is **product**, not optional polish. Implementation order varies.
+
+### Core editor
+
+- [ ] Buffers — multibyte-safe text, markers, narrowing, indirect buffers, read-only, buffer-local variables
+- [x] Buffers — basic text, visit, kill, list, switch *(MVP)*
+- [ ] Windows — split, delete, other-window, dedicated windows, `window-configuration` save/restore
+- [x] Windows — commands exist; tree + UI need to be finished *(partial)*
+- [ ] Frames — terminal frame now; later GUI/web behind same abstraction
+- [x] Point & mark — basic mark, exchange-point-and-mark *(partial transient mark)*
+- [ ] Undo — undo-boundaries, selective undo, undo in region
+- [x] Undo — linear undo/redo per buffer *(MVP)*
+- [ ] Kill ring — append kill, full rotate-yank, interprogram paste
+- [x] Kill ring — kill, yank, yank-pop *(partial)*
+- [ ] Threads / concurrency — async subprocesses without blocking redisplay
+
+### Input & commands
+
+- [x] Unified key dispatch — keymap → commands; `self-insert-command` fallback for printables
+- [x] Keymap stack — global, major, minibuffer, overriding *(no minor modes yet)*
+- [x] Prefix keys — `C-x`, `C-c`, `C-h`, `Esc`; `C-g` quits
+- [x] Commands — `M-x`, many interactive commands
+- [ ] Commands — full `interactive` specs, `M--`, digit prefix args
+- [x] Minibuffer — buffer, history, completion, nesting, global keys in prompt
+- [ ] Minibuffer — full Emacs prompt behavior (icomplete, all maps per prompt type)
+- [x] Completion — file + collection completing-read, `*Completions*` buffer
+- [ ] Completion — icomplete, annotations, `C-M-i`, partial completion standards
+
+### Search & motion
+
+- [x] Isearch — forward/backward literal
+- [ ] Isearch — regexp, lazy highlight, `M-e`, query-replace from search
+- [x] Query replace — literal with prompts
+- [ ] Occur, tags, project roots (+ LSP as **package**)
+
+### Files & filesystem
+
+- [x] Visit/save/revert/write-file
+- [ ] Auto-save, backups, coding systems, Tramp
+- [x] Dired — core directory editing *(partial vs full Emacs)*
+
+### Display
+
+- [x] Mode line, echo area, basic faces via theme + font-lock spans
+- [ ] Full mode line, overlays, fringe, line numbers, multi-window redisplay
+
+### Lisp environment (JS)
+
+- [x] Evaluator — `eval-region`, `eval-expression`, plugins
+- [ ] Load path, advice, `defcustom`, Customize
+- [ ] Optional Elisp subset for porting
+
+### Modes & packages
+
+- [x] Major modes — several with tree-sitter / indent / keymaps
+- [ ] Minor modes — toggle, lighter, buffer-local and global
+- [ ] **python.el port** — see [Flagship mode](#flagship-mode-port-gnu-pythonel-to-javascript)
+- [ ] Package manager, comint, compile, org, magit, eshell, ediff
+
+### Help
+
+- [x] `C-h k/c/b/f/v/a/e`, `help-for-help`
+- [ ] Info manuals in buffer
+
+---
+
+## Where we are (summary)
+
+| Subsystem | Status |
+| --- | --- |
+| Daily editing, buffers, global keys, `M-x` | Usable MVP |
+| Keymap stack + minibuffer-as-buffer | **In progress** — landed, needs minor maps + less hardcoding |
+| Major modes + tree-sitter | **Early** — many file types, shallow behavior |
+| Windows in UI | **Not usable** — fix tree + redisplay before “daily driving” |
+| Python (`python.el`) | **Not started** (heuristics only) |
+| Hooks, customize, packages, comint | **Not started** |
+| Self-edit / eval / plugins | **Strength** — keep and generalize |
+
+---
+
+## Phased roadmap
+
+### Phase 0 — Foundation *(current)*
+
+1. Fix **window tree** — `split-window-*`, `delete-window`, `other-window` update `windowLayout`; remove broken `windows.splice` paths.
+2. **Multi-window redisplay** in OpenTUI (or document single-window until Phase 1).
+3. Route **self-insert** and motion keys through commands/keymaps where feasible.
+4. **Minor modes** + documented keymap precedence tests.
+5. **`defvar` / buffer-local** skeleton; mode activation on `find-file`.
+
+**Exit:** README bindings work in minibuffer; `C-h k` at prompt is correct; window split shows two buffers; `bun test` covers precedence.
+
+### Phase 1 — Daily-driving editor + Python mode v1
+
+- Port **`python.el`** (indent + nav + P0 keys) — [below](#flagship-mode-port-gnu-pythonel-to-javascript)
+- Transient mark + region highlight; kill-ring append; undo boundaries
+- Isearch regexp; `query-replace-regexp`
+- Auto-save & backup files
+- Dired polish; `~/.jemacs/init.ts` startup
+
+**Exit:** Maintainer edits Python in Jemacs for two weeks (open, indent, navigate defs, search, save).
+
+### Phase 2 — Emacs as a platform
+
+- Hook system, advice, autoload, package manager
+- `comint` / `shell-mode`, `compile`
+- Info + full describe/customize
+- Font-lock pipeline; tree-sitter as package option
+
+**Exit:** Third-party package adds minor mode + hook without kernel edits.
+
+### Phase 3 — Famous packages
+
+- Org-mode (outline, src blocks)
+- Magit-shaped git
+- Tramp, Eshell, Ediff
+- Optional Elisp bridge
+
+### Phase 4 — Frontends & scale
+
+- GUI/web frame sharing kernel
+- Incremental redisplay; gap buffer or rope for large files
 
 ---
 
 ## Flagship mode: port GNU `python.el` to JavaScript
 
-**Source of truth:** [GNU Emacs `lisp/progmodes/python.el`](https://github.com/emacs-mirror/emacs/blob/master/lisp/progmodes/python.el) (maintained in Emacs; ~7k lines Elisp). Do **not** port the legacy standalone `python-mode.el` package (different project, huge and divergent).
+**Source of truth:** [GNU Emacs `lisp/progmodes/python.el`](https://github.com/emacs-mirror/emacs/blob/master/lisp/progmodes/python.el). Do **not** port legacy standalone `python-mode.el`.
 
-**Target layout in this repo (when we implement):**
+**Target layout (when implementing):**
 
 ```
 src/modes/python/
-  SOURCE.md          # upstream path, version, license, porting notes
-  python-rx.ts       # from `python-rx` macro (block-start, defun, dedenter, …)
-  python-indent.ts   # `python-indent-*`, `python-indent-context`
-  python-nav.ts        # `python-nav-*`, `python-mark-defun`
-  python-shell.ts    # `python-shell-*`, `run-python`, inferior buffer (later)
-  python-mode.ts       # `define-derived-mode` equivalent: install commands + keymap
+  SOURCE.md
+  python-rx.ts
+  python-indent.ts
+  python-nav.ts
+  python-shell.ts
+  python-mode.ts
 ```
 
-**Porting rules**
+**Porting rules:** Same command names and `python-base-mode-map` keys where possible; behavior tests per subsystem; layers: indent → nav → shell → flymake/eldoc.
 
-1. **Same command names** as Emacs where possible (`python-indent-line`, `python-shell-send-buffer`, `beginning-of-defun`, …).
-2. **Same keymap** as `python-base-mode-map` / `python-mode-map` unless the kernel cannot represent a key yet—then document the gap in `SOURCE.md`.
-3. **Behavior tests** per subsystem (indent fixtures copied from Emacs comments or small `.py` snippets).
-4. Port in **layers**: indentation + movement first, then shell/comint, then flymake/eldoc/imports—matching how Emacs splits concerns inside one file.
+### P0 bindings (from upstream)
 
-### `python-base-mode-map` bindings to honor (from upstream)
+| Keys | Command |
+| --- | --- |
+| `TAB`, `BACKTAB` | `python-indent-line` / `python-indent-dedent-line` |
+| `C-c <`, `C-c >` | `python-indent-shift-left` / `right` |
+| `C-M-a`, `C-M-e`, `C-M-h` | `beginning-of-defun`, `end-of-defun`, `python-mark-defun` |
 
-| Keys | Command | Priority |
-| --- | --- | --- |
-| `TAB`, `BACKTAB` | `python-indent-line` / `python-indent-dedent-line` | P0 |
-| `C-c <`, `C-c >` | `python-indent-shift-left` / `right` | P0 |
-| `C-M-a`, `C-M-e`, `C-M-h` | `beginning-of-defun`, `end-of-defun`, `python-mark-defun` | P0 |
-| `C-c C-j` | `imenu` | P1 |
-| `C-c C-p` | `run-python` | P1 |
-| `C-c C-c`, `C-c C-l`, `C-c C-z`, … | `python-shell-send-*`, `python-shell-switch-to-shell` | P1 (needs comint) |
-| `C-c C-v`, `C-c C-f`, `C-c C-d` | `python-check`, `python-eldoc-at-point`, `python-describe-at-point` | P2 |
-| `C-c C-i …` | import add/remove/sort/fix | P2 |
-| `C-c C-t …` | skeletons | P3 |
+### Milestone: Python mode v1
 
-Movement remaps (`M-a`/`M-e` → block nav, etc.) come after `python-nav-*` exists.
+- [ ] `.py` → `python-mode` with `#` comments
+- [ ] Indentation parity (`test/python-indent.test.ts`)
+- [ ] P0 keys on major-mode map stack
+- [ ] `beginning-of-defun` / `end-of-defun` on `def` / `class` / `async def`
+- [ ] README Python workflow section
 
-### Indentation (largest port)
+**Do not expand python-mode until Phase 0 keymap + mode hooks are solid.**
 
-Reimplement the pipeline from `python.el`, not a simplified tab handler:
-
-- `python-indent-offset` (default 4), `python-indent-guess-indent-offset`
-- `python-indent-context` → `python-indent--calculate-indentation` → `python-indent-line`
-- `python-indent-dedent-line`, `python-indent-region`, shift left/right
-- Electric `:` behavior (`python-indent-post-self-insert-function`) once `post-self-insert-hook` exists
-
-Acceptance: open a multi-level `.py` file, `TAB` at line start cycles indent levels like Emacs; `elif`/`else` dedent correctly; continuations after `\` align.
-
-### Shell & evaluation (Python-specific)
-
-- `run-python` → `*Python*` buffer (comint-style)
-- `python-shell-send-buffer`, `-region`, `-defun`, `-file`, `-statement`
-- `python-interpreter` / `python-shell-interpreter` as `defcustom` equivalents
-- Integrate with Jemacs eval story only where Emacs does (do not replace `python-shell-send-*` with ad-hoc `eval` for normal use)
-
-### Mode entry
-
-- `inferMode` / `auto-mode-alist`: `\.py[iw]?$` → `python-mode`
-- `python-mode` derived from `prog-mode` (port `prog-mode` minimal keymap or inherit global prog bindings)
-- **Minibuffer:** `python-mode` keys that apply in Emacs during Python-related prompts must work once unified key dispatch lands (see minibuffer section).
-
-### What we skip or defer from full `python.el`
+### Defer from full `python.el`
 
 | Feature | Plan |
 | --- | --- |
-| `python-ts-mode` (tree-sitter) | Package / Phase 2; start with regex + `python-rx` like classic `python-mode` |
-| Pymacs, legacy Python 2-only paths | Omit |
-| Tramp-specific shell env | After Tramp |
-| Full flymake / native completion | Phase 2; stub `python-check` with `python -m py_compile` or `ruff` early |
-
-### Milestone: “Python mode v1”
-
-- [ ] `.py` files open in `python-mode` with correct comment syntax (`# `)
-- [ ] Indentation parity on a fixed test corpus (checked in `test/python-indent.test.ts`)
-- [ ] `python-base-mode-map` P0 keys bound via major-mode keymap stack
-- [ ] `beginning-of-defun` / `end-of-defun` on `def`/`class`/`async def`
-- [ ] README section: Python workflow (edit, indent, send to shell when comint exists)
-
-**Do not implement python-mode until Phase 0 keymap stack + mode hooks exist**—otherwise bindings fight the global map and minibuffer stays broken.
+| `python-ts-mode` | Package / Phase 2 |
+| Pymacs, Python 2 paths | Omit |
+| Tramp shell env | After Tramp |
+| Full flymake / native completion | Phase 2; stub `python-check` early |
 
 ---
 
 ## Principle: the minibuffer is Emacs, not a dialog
 
-Today (`src/ui/opentui.ts`) the minibuffer is a special-case input handler: almost no keybindings. **That is incompatible with the project goal.**
+The minibuffer must remain a **buffer** with the **full keymap hierarchy** (minibuffer-local + global; major/minor when Emacs would). Requirements:
 
-In GNU Emacs:
+- `M-x`, `C-w`, `C-s` in prompts where Emacs allows
+- Nested prompts; `C-g` pops one level
+- No parallel `handleMinibufferKey` shortcut that bypasses `handleKey()`
 
-- The minibuffer is a **buffer** (`minibuffer-mode`).
-- Key lookup walks the same **keymap hierarchy** (with `minibuffer-local-map` and friends on top).
-- **Global bindings work** unless shadowed. Major/minor maps apply where Emacs applies them (e.g. `minibuffer-with-setup-hook` for `M-x` vs `find-file`).
-- You can **`M-x` inside a prompt**, **`C-w` in the prompt**, **`C-s` in the prompt** (for history or completion), nest prompts, and **`C-g` one level at a time**.
-
-**Requirement:** `editor.handleKey()` must not branch “if minibuffer then ignore keymap.” Minibuffer edits go through `BufferModel` (or equivalent) and the full dispatcher.
-
----
-
-## Architecture (target)
-
-```
-                    ┌─────────────────────────────────────┐
-                    │  Frontend (OpenTUI, later GUI/web)   │
-                    │  keys, paste, resize, draw strings   │
-                    └─────────────────┬───────────────────┘
-                                      │ handleKey / render
-                    ┌─────────────────▼───────────────────┐
-                    │  Kernel (no UI imports)              │
-                    │  Editor, Frame, Window, Buffer       │
-                    │  Keymaps, Commands, Minibuffer       │
-                    │  Completion, Hooks, Variables        │
-                    └─────────────────┬───────────────────┘
-                                      │
-                    ┌─────────────────▼───────────────────┐
-                    │  Runtime (JS “Lisp”)                 │
-                    │  eval, load, advice, packages        │
-                    └─────────────────────────────────────┘
-```
-
-**Rules**
-
-1. Kernel stays UI-agnostic (`AGENTS.md`).
-2. Every user-visible action is a **command** reachable from `M-x` and bindable in a keymap.
-3. Prefer **reimplementing Emacs names** (`find-file`, `switch-to-buffer`, `kill-line`) over inventing new ones.
-4. Tests lock behavior: key lookup order, minibuffer nesting, undo boundaries.
-
----
-
-## Where we are (honest baseline)
-
-| Subsystem | Status |
-| --- | --- |
-| Buffers, point, mark, region, basic kill/yank | MVP |
-| Global keymap + prefixes | MVP |
-| Commands, `M-x`, messages | MVP |
-| Minibuffer | **Broken vs Emacs** — parallel input path |
-| Modes | Labels only — no keymaps, hooks, or font-lock |
-| Windows / frames | Single view |
-| Isearch, dired, completion, hooks, customize | Not started |
-| Self-edit / eval / plugins | **Strength** — keep and generalize |
-
----
-
-## Phased roadmap (ambitious, ordered)
-
-### Phase 0 — Foundation (current sprint)
-
-Make the kernel behave like Emacs’s input layer, not a text widget.
-
-1. **`src/kernel/input.ts`** — single `handleKey(editor, event)`; UI only forwards events.
-2. **Keymap stack** — global, major, minor, local, minibuffer-*, overriding maps; `describe-key` shows winner.
-3. **Minibuffer = buffer** — unified dispatch; history + TAB completion; recursive prompts.
-4. **Buffer-local variables & mode hooks** — `enable-javascript-mode` style activation on `open-file`.
-
-**Exit criteria:** README keybindings work in the minibuffer; `C-h k` at prompt reports correct binding; nested `prompt` + `C-g` passes tests.
-
-### Phase 1 — Daily-driving editor + Python mode v1
-
-- **Port `python.el`** (indent + nav + P0 keys) — see [Flagship mode](#flagship-mode-port-gnu-pythonel-to-javascript)
-- Full **kill ring**, **undo** ergonomics, **transient mark** + region highlight
-- **Isearch** + **query-replace**
-- **Windows** (`C-x 2`, `1`, `0`, `o`, `4`) and **window-selected buffer**
-- **Dired**
-- **Auto-save** & **backup files**
-- **`defcustom` + `~/.jemacs/init.ts`** startup file
-
-**Exit criteria:** You can edit Python projects in Jemacs for a week (open, indent, navigate defs, search, save); shell send works once comint lands in Phase 1b or early Phase 2.
-
-### Phase 2 — Emacs as a platform
-
-- **Hook system** — `post-command-hook`, `after-save-hook`, `kill-emacs-hook`, mode hooks
-- **Advice** and **autoload**
-- **Package.el analog** — install/activate/list packages
-- **Completion subsystem** — generic `completing-read`, annotation buffer, icomplete
-- **Help system** — Info, apropos, describe-* parity
-- **Font-lock** pipeline + tree-sitter package
-- **Subprocess / comint** — `M-!`, `async-shell-command`, compile mode
-
-**Exit criteria:** Third-party package can add a minor mode with keymap + hook without forking kernel.
-
-### Phase 3 — Famous packages
-
-- **Org-mode** (outline, TAB cycling, src blocks, export hooks)
-- **Magit** or equivalent
-- **Tramp** / remote files
-- **Eshell**
-- **Ediff**
-- Optional **Elisp** compatibility layer for porting old config
-
-**Exit criteria:** Documented port of a non-trivial Emacs config section (e.g. org + magit workflow) with JS equivalents listed in a migration guide.
-
-### Phase 4 — Frontends & scale
-
-- GUI or web frame backend sharing kernel
-- Performance: redisplay incremental, buffer gap buffer or rope if needed
-- Large files, many windows, long-running sessions
+Today: largely met in kernel/tests; extend as new maps and commands land.
 
 ---
 
 ## Keymap precedence (spec)
 
-Match GNU Emacs’s lookup order (simplified; extend as we add map types):
+Match GNU Emacs lookup order (extend as we add map types):
 
-1. `overriding-terminal-local-map` (if active)
-2. `overriding-map` (if active)
-3. `minibuffer-local-ns-map` / `minibuffer-local-map` (when in minibuffer)
-4. Minor mode maps (reverse order of enablement)
+1. `overriding-terminal-local-map`
+2. `overriding-map`
+3. `minibuffer-local-map` (when in minibuffer)
+4. Minor mode maps (reverse enable order) — **not implemented**
 5. Major mode map
-6. Buffer-local map (if any)
+6. Buffer-local map
 7. Global map
-
-**Minibuffer rule:** Never bypass this stack. “Major mode keybinds in minibuffer” means: apply the same rules Emacs applies (global always; major/minor when Emacs would—document per prompt type in tests).
 
 ---
 
 ## API direction (JS “Lisp”)
-
-Aim for Emacs-shaped public API on `Editor`:
 
 ```ts
 editor.defun("my-command", async (ctx) => { ... }, { interactive: true })
@@ -340,54 +391,49 @@ Plugins and `~/.jemacs/init.ts` use the same surface as built-in code.
 
 ## Testing philosophy
 
-- **Behavior tests over snapshots** — key lookup, minibuffer stack, undo boundaries, kill ring rotation
-- **Regression tests for Emacs names** — binding `C-x C-f` must always call `find-file` (or documented alias)
-- **Conformance suite (long-term)** — scriptable scenarios: “open file → isearch → query-replace → save” with expected buffer state
+- Behavior tests: key lookup order, minibuffer stack, undo boundaries, kill ring
+- Regression: `C-x C-f` → `find-file` (or documented alias)
+- Long-term: scriptable conformance scenarios
 
 ---
 
 ## What we keep from the prototype
 
-- **Live evaluation** and **reload current file** — first-class, not a demo trick
-- **Inspectable editor** — `C-h e` on live objects; becomes `describe` family
-- **Bun + OpenTUI** — default stack; not the only allowed stack
+- Live evaluation and reload-current-file
+- Inspectable editor (`*messages*`, describe-*)
+- Bun + OpenTUI as default stack
 
 ---
 
-## Metrics (project-level)
+## Metrics
 
 | Milestone | Metric |
 | --- | --- |
-| Phase 0 done | 100% of README bindings pass in minibuffer; `bun test` covers map precedence |
-| Phase 1 done | Maintainer uses Jemacs full-time for **Python** work for 2 weeks |
-| Python mode v1 | Indent + defun navigation tests pass; P0 `python-base-mode-map` keys work in `.py` buffers |
-| Phase 2 done | ≥3 external packages (or monorepo packages) without kernel edits |
-| Phase 3 done | Org + git workflow documented end-to-end |
-| “Emacs in JS” | A newcomer recognizes architecture from *GNU Emacs Manual* part I |
+| Phase 0 done | README bindings in minibuffer; window split visible; map precedence in `bun test` |
+| Phase 1 done | Full-time **Python** editing in Jemacs for 2 weeks |
+| Python mode v1 | Indent + defun tests; P0 `python-base-mode-map` keys |
+| Phase 2 done | ≥3 packages without kernel edits |
+| Phase 3 done | Org + git workflow documented |
+| “Emacs in JS” | Newcomer recognizes GNU Emacs Manual part I architecture |
 
 ---
 
-## Open design decisions (resolve in code + tests)
+## Immediate next steps
 
-1. **Byte-compiled JS** — cache eval for startup speed?
-2. **Gap buffer vs rope** — when buffers exceed ~1MB?
-3. **Elisp bridge** — transpile vs embed vs “rewrite in JS” only?
-4. **LSP** — core vs `lsp-mode` package (recommend: package).
-
----
-
-## Immediate next steps (from today’s tree)
-
-1. Extract key handling to kernel; delete `handleMinibufferKey` shortcut.
-2. Implement keymap stack + `describe-key`.
-3. Minibuffer buffer + completion + history + recursion.
-4. **`prog-mode` + `python-mode` skeleton** — mode hooks and empty major map only; no indent yet.
-5. **Begin `python.el` port** — `python-rx` + `python-indent-context` + tests (after step 2).
-
-Do **not** land a partial python-mode in the tree before step 2; document and test the port in GOAL-driven slices.
+1. Fix window split/delete to use `windowLayout`; render multiple windows in OpenTUI.
+2. Add **minor modes** to `activeKeymaps()` + tests.
+3. Introduce `defvar` / buffer-local variables; wire `describe-variable`.
+4. **`prog-mode` + `python-mode` skeleton** on mode hooks only — then begin `python-rx` + `python-indent` + tests.
 
 ---
 
-*This document is the contract: Jemacs is Emacs in JavaScript. Trim scope only by explicit maintainer decision, recorded here with reason—not by accident.*
+## Open design decisions
 
-*Last updated: 2026-06-03.*
+1. Byte-compiled / cached eval for startup?
+2. Gap buffer vs rope for large buffers?
+3. Elisp bridge: transpile vs embed vs JS-only ports?
+4. LSP: core vs package (**recommend: package**).
+
+---
+
+*Trim scope only by explicit maintainer decision recorded here—not by accident.*

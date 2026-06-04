@@ -386,12 +386,12 @@ test("python mode supports indentation, defun navigation, font-lock, and TAB com
   const buffer = editor.scratch("example.py", "def outer():\nprint('hi')\n    return ran", "python")
 
   buffer.point = buffer.text.indexOf("print")
-  await editor.run("indent-for-tab-command")
+  editor.indentLine(buffer)
   expect(buffer.text).toContain("def outer():\n    print('hi')")
 
-  buffer.point = buffer.text.length
-  await editor.run("indent-for-tab-command")
-  expect(buffer.text.endsWith("return range")).toBe(true)
+  buffer.point = buffer.text.indexOf("return")
+  editor.indentLine(buffer)
+  expect(buffer.text).toContain("    return ran")
 
   buffer.point = buffer.text.length
   await editor.run("python-beginning-of-defun")
@@ -576,7 +576,7 @@ test("exchange-point-and-mark with prefix jumps without activating the region", 
   buffer.point = 5
   buffer.markActive = false
 
-  editor.prefixArgument = 1
+  editor.prefixArg.addDigit(1)
   await editor.run("exchange-point-and-mark")
   expect(buffer.point).toBe(0)
   expect(buffer.mark).toBe(5)

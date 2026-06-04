@@ -94,4 +94,6 @@ On macOS, some terminals send Option-key characters instead of Meta events, for 
 
 The editor kernel deliberately avoids OpenTUI imports. That keeps it testable and makes the frontend replaceable. The only OpenTUI-specific file is `src/ui/opentui.ts`.
 
+**Core vs config:** Interactive commands live in `src/core/commands.ts` (no key bindings). Default GNU keybindings are in `src/config/default-bindings.ts` using the same `editor.key()` / `editor.defineKey()` API as plugins and user config. Startup calls `installDefaultConfig(editor)` from `src/config/index.ts`. Override keys in a plugin or `~/.jemacs/init.ts` by calling `editor.key(...)` after defaults load.
+
 The evaluator uses Bun's dynamic `Function` constructor rather than a hard security sandbox. Treat evaluated code and plugins as trusted user config, like Emacs Lisp. Do not run hostile plugins.

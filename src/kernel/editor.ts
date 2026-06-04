@@ -4,6 +4,7 @@ import { BufferModel } from "./buffer"
 import { CommandRegistry, type CommandFn } from "./command"
 import { Emitter } from "./events"
 import { isPrintable, Keymap, KeymapStack, keyToken, type KeyEventLike } from "./keymap"
+import { digitFromKey, PrefixArgumentState } from "./prefix-argument"
 import { enterMode, getMode, modeFeature, modeLineage, type CompletionCandidate, type TextSpan } from "../modes/mode"
 import { makeDiredBuffer } from "../modes/dired"
 import { defaultTheme, type Theme } from "../display/theme"
@@ -82,7 +83,8 @@ export class Editor {
   running = true
   overridingTerminalLocalMap: Keymap | null = null
   overridingMap: Keymap | null = null
-  prefixArgument: number | null = null
+  readonly prefixArg = new PrefixArgumentState()
+  lastKeyEvent: KeyEventLike | null = null
   quotedInsertNext = false
   recenterCycle = 0
   macroRecording: string[] | null = null
@@ -375,9 +377,17 @@ export class Editor {
   }
 
   async handleKey(key: KeyEventLike): Promise<KeyDispatchResult> {
+    this.lastKeyEvent = key
+
     if (this.isearch) {
       const isearchResult = await this.handleIsearchKey(key)
       if (isearchResult) return isearchResult
+    }
+
+    const digit = digitFromKey(key.name)
+    if (digit != null && this.prefixArg.acceptsDigitKey()) {
+      await this.run("digit-argument", [String(digit)])
+      return { status: "command", command: "digit-argument" }
     }
 
     const fed = this.keymaps.feed(key)
@@ -392,54 +402,9 @@ export class Editor {
       return { status: "pending" }
     }
 
-    const buffer = this.activeBuffer
-    switch (key.name) {
-      case "left":
-        buffer.move(-1)
-        await this.changed("key:left")
-        return { status: "inserted" }
-      case "right":
-        buffer.move(1)
-        await this.changed("key:right")
-        return { status: "inserted" }
-      case "up":
-        if (this.minibuffer) await this.minibufferPreviousHistory()
-        else buffer.moveLine(-1)
-        await this.changed("key:up")
-        return { status: "inserted" }
-      case "down":
-        if (this.minibuffer) await this.minibufferNextHistory()
-        else buffer.moveLine(1)
-        await this.changed("key:down")
-        return { status: "inserted" }
-      case "backspace":
-        buffer.deleteBackward()
-        await this.changed("key:backspace")
-        return { status: "inserted" }
-      case "delete":
-        buffer.deleteForward()
-        await this.changed("key:delete")
-        return { status: "inserted" }
-      case "return":
-        if (this.minibuffer) this.minibufferSubmit()
-        else buffer.insert("\n")
-        await this.changed("key:return")
-        return { status: "inserted" }
-      case "escape":
-        await this.run("keyboard-quit")
-        return { status: "command", command: "keyboard-quit" }
-      default:
-        if (this.quotedInsertNext && isPrintable(key)) {
-          this.quotedInsertNext = false
-          buffer.insert(key.sequence ?? "")
-          await this.changed("quoted-insert")
-          return { status: "inserted" }
-        }
-        if (isPrintable(key)) {
-          buffer.insert((key.sequence ?? "").repeat(this.consumePrefixArgument() ?? 1))
-          await this.changed(`key:${key.name}`)
-          return { status: "inserted" }
-        }
+    if (this.commands.get("self-insert-command") && (isPrintable(key) || this.quotedInsertNext)) {
+      await this.run("self-insert-command")
+      return { status: "command", command: "self-insert-command" }
     }
 
     this.message(`Unbound key: ${keyToken(key)}`)
@@ -653,15 +618,15 @@ export class Editor {
     return this.tilingLayout
   }
 
-  universalArgument(): void {
-    this.prefixArgument = (this.prefixArgument ?? 1) * 4
-    this.message(`C-u ${this.prefixArgument}`)
+  universalArgument(): number {
+    const value = this.prefixArg.universalArgument()
+    const sign = this.prefixArg.isNegative() ? "-" : ""
+    this.message(`C-u ${sign}${value}`)
+    return value
   }
 
   consumePrefixArgument(): number | null {
-    const value = this.prefixArgument
-    this.prefixArgument = null
-    return value
+    return this.prefixArg.consume()
   }
 
   startIsearch(direction: 1 | -1): void {

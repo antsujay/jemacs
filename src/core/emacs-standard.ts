@@ -107,9 +107,9 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
   editor.command("describe-variable", ({ editor, args }) => {
     const name = args[0] ?? "prefix"
     const lines = [
-      `prefixArgument = ${editor.prefixArgument ?? "nil"}`,
+      `prefixArgument = ${editor.prefixArg.describe()}`,
       `tilingLayout = ${editor.tilingLayout}`,
-      `registers = ${JSON.stringify([...editor.registers.entries()].map(([key, value]) => [key, value.kind === "point" ? value.point : value.kind]))}`,
+      `registers = ${JSON.stringify([...editor.registers.entries()])}`,
     ]
     editor.scratch("*Help*", `${name}\n\n${lines.join("\n")}`, "text")
   }, "Describe a variable (editor state snapshot).")
@@ -182,43 +182,6 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     yankRectangle(buffer, text)
     editor.message("Yanked rectangle")
   }, "Insert the last killed rectangle.")
-}
-
-export function bindEmacsStandardKeys(editor: Editor): void {
-  editor.key("C-/", "undo")
-  editor.key("C-@", "set-mark-command")
-  editor.key("M-y", "yank-pop")
-  editor.key("C-q", "quoted-insert")
-  editor.key("C-t", "transpose-chars")
-  editor.key("C-o", "open-line")
-  editor.key("C-l", "recenter-top-bottom")
-  editor.key("M-<", "beginning-of-buffer")
-  editor.key("M->", "end-of-buffer")
-  editor.key("M-%", "query-replace")
-  editor.key("C-x C-w", "write-file")
-  editor.key("C-x C-v", "find-alternate-file")
-  editor.key("C-x k", "kill-buffer")
-  editor.key("C-x 0", "delete-window")
-  editor.key("C-x 1", "delete-other-windows")
-  editor.key("C-x 2", "split-window-below")
-  editor.key("C-x 3", "split-window-right")
-  editor.key("C-x u", "undo")
-  editor.key("C-x h", "mark-whole-buffer")
-  editor.key("C-x l", "count-lines-page")
-  editor.key("M-g g", "goto-line")
-  editor.key("C-x r SPC", "point-to-register")
-  editor.key("C-x r j", "jump-to-register")
-  editor.key("C-x r w", "window-configuration-to-register")
-  editor.key("C-x r k", "kill-rectangle")
-  editor.key("C-x r y", "yank-rectangle")
-  editor.key("C-x (", "start-kbd-macro")
-  editor.key("C-x )", "end-kbd-macro")
-  editor.key("C-x e", "call-last-kbd-macro")
-  editor.key("C-h f", "describe-function")
-  editor.key("C-h v", "describe-variable")
-  editor.key("C-h a", "apropos-command")
-  editor.key("C-h i", "info")
-  editor.key("C-h C-h", "help-for-help")
 }
 
 function killRectangle(buffer: BufferModel): string {

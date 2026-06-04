@@ -2,30 +2,31 @@
 
 GNU Emacs **interactive function names** are the canonical identity of each binding. Jemacs uses the same names in `editor.command(…)` and `editor.key(…)` wherever behavior exists.
 
-**Source of truth:** `src/init/default-commands.ts`, `src/init/emacs-standard.ts`, and mode installers under `src/modes/`. Verify live with `M-x describe-bindings` or `M-x describe-key`.
+**Source of truth:** Commands in `src/core/commands.ts`; default keys in `src/config/default-bindings.ts` (same API as user config). Mode maps under `src/modes/`. Verify live with `M-x describe-bindings` or `M-x describe-key`.
 
 ## Legend
 
 | Implementation | Meaning |
 | --- | --- |
 | **bound** | Key dispatches the named command. |
-| **hardcoded** | `Editor.handleKey()` (same effect, not via keymap). |
+| **fallback** | `self-insert-command` when no keymap binding matches a printable key. |
 | **stub** | Placeholder message only (external packages). |
 | **M-x** | Command exists, no default key. |
 
-## Hardcoded dispatch
+## Terminal keys (global / minibuffer maps)
 
-| Input | GNU function |
-| --- | --- |
-| Printable | `self-insert-command` |
-| `left` / `right` | `backward-char` / `forward-char` |
-| `up` / `down` (buffer) | `previous-line` / `next-line` |
-| `up` / `down` (minibuffer) | `previous-history-element` / `next-history-element` |
-| `backspace` | `delete-backward-char` |
-| `delete` | `delete-char` |
-| `RET` (buffer) | `newline` |
-| `RET` (minibuffer) | `exit-minibuffer` |
-| `esc` | `keyboard-quit` |
+| Input | GNU function | Map |
+| --- | --- | --- |
+| Printable (unbound) | `self-insert-command` | fallback via `handleKey` |
+| `left` / `right` | `backward-char` / `forward-char` | global; minibuffer |
+| `up` / `down` | `previous-line` / `next-line` | global |
+| `up` / `down` | `previous-history-element` / `next-history-element` | minibuffer |
+| `backspace` | `delete-backward-char` | global; minibuffer |
+| `delete` | `delete-char` | global |
+| `RET` / `enter` | `newline` | global |
+| `RET` / `enter` | `exit-minibuffer` | minibuffer |
+| `esc` | `keyboard-quit` | global |
+| `C-u` / `M--` | `universal-argument` / `negative-argument` | global; minibuffer |
 
 ## Global map (highlights)
 

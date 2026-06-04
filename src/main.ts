@@ -1,5 +1,5 @@
 import { Editor } from "./kernel/editor"
-import { installDefaultCommands } from "./init/default-commands"
+import { installDefaultConfig } from "./config"
 import { installDefaultModes } from "./modes/default-modes"
 import { installLspMode } from "./lsp/install"
 import { startOpenTui } from "./ui/opentui"
@@ -7,7 +7,7 @@ import { startOpenTui } from "./ui/opentui"
 async function main(): Promise<void> {
   installDefaultModes()
   const editor = new Editor()
-  installDefaultCommands(editor)
+  installDefaultConfig(editor)
   installLspMode(editor)
 
   const file = Bun.argv[2]
