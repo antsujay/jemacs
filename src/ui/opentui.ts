@@ -8,7 +8,7 @@ import {
 } from "@opentui/core"
 import type { Editor } from "../kernel/editor"
 import { isearchMatchSpan, isearchPrompt } from "../kernel/isearch"
-import { type WindowLeaf, type WindowNode } from "../kernel/window"
+import { findWindowLeaf, type WindowLeaf, type WindowNode } from "../kernel/window"
 import { applyTheme, type Theme } from "../display/theme"
 import { textWithCursor } from "./text-display"
 import {
@@ -250,43 +250,39 @@ class EditorUi {
     const buffer = this.editor.buffers.get(leaf.bufferId)
     if (!buffer) {
       body.content = ""
-      modeline.content = " (empty)"
-      pane.border = selected
-      pane.title = undefined
+      modeline.content = applyTheme(" (empty)", [], this.editor.theme)
       return
     }
 
     const point = selected ? buffer.point : leaf.point
-    const mark = selected ? buffer.mark : null
     const dirty = buffer.dirty ? "*" : ""
     const { line, col } = pointLineCol(buffer.text, point)
-    pane.border = selected
-    pane.title = selected ? buffer.name : undefined
+    const maxLines = Math.max(1, availableLines - 1)
+    if (selected) this.editor.syncSelectedWindowViewport(maxLines)
+    const startLine = findWindowLeaf(this.editor.windowLayout, leaf.id)?.startLine ?? leaf.startLine
 
     const spans = [...this.editor.fontLock(buffer)]
     if (selected && this.editor.isearch) {
       const match = isearchMatchSpan(buffer, this.editor.isearch)
       if (match) spans.push(match)
     }
-    const maxLines = Math.max(1, availableLines - 1)
     const showLineNumbers = buffer.kind !== "minibuffer" && this.editor.showLineNumbers(buffer)
-    body.content = selected
-      ? visibleStyledText(buffer.text, point, {
-        mark,
-        markActive: buffer.markActive,
-        spans,
-        theme: this.editor.theme,
-        maxLines,
-        showLineNumbers,
-      })
-      : visibleStyledTextFromStart(buffer.text, point, leaf.startLine, {
-        spans,
-        theme: this.editor.theme,
-        maxLines,
-        showLineNumbers,
-      })
+    body.content = visibleStyledTextFromStart(buffer.text, point, startLine, {
+      mark: selected ? buffer.mark : null,
+      markActive: selected ? buffer.markActive : false,
+      spans,
+      theme: this.editor.theme,
+      maxLines,
+      showLineNumbers,
+      showCursor: selected,
+    })
     const lighters = this.editor.minorModeLighters(buffer)
-    modeline.content = ` ${buffer.mode}${lighters}  ${buffer.name}${dirty}${leaf.dedicated ? " [D]" : ""}  line ${line}, col ${col}${selected && buffer.mark != null ? `  mark=${buffer.mark}` : ""}`
+    const modelineText = ` ${buffer.mode}${lighters}  ${buffer.name}${dirty}${leaf.dedicated ? " [D]" : ""}  line ${line}, col ${col}${selected && buffer.mark != null ? `  mark=${buffer.mark}` : ""}`
+    modeline.content = applyTheme(modelineText, [{
+      start: 0,
+      end: modelineText.length,
+      face: selected ? "modeLine" : "modeLineInactive",
+    }], this.editor.theme)
   }
 }
 
@@ -313,17 +309,32 @@ export function visibleStyledTextFromStart(
   text: string,
   point: number,
   startLine: number,
-  options: { spans?: TextSpan[], theme: Theme, maxLines?: number, showLineNumbers?: boolean },
+  options: {
+    spans?: TextSpan[]
+    theme: Theme
+    maxLines?: number
+    showLineNumbers?: boolean
+    mark?: number | null
+    markActive?: boolean
+    showCursor?: boolean
+  },
 ): StyledText {
   const region = visibleTextRegionFromStart(text, startLine, options.maxLines)
-  return styledRegion(text, region, point, { ...options, mark: null, markActive: false })
+  return styledRegion(text, region, point, options)
 }
 
 function styledRegion(
   text: string,
   region: { visible: string; visibleStart: number },
   point: number,
-  options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme, showLineNumbers?: boolean },
+  options: {
+    mark?: number | null
+    markActive?: boolean
+    spans?: TextSpan[]
+    theme: Theme
+    showLineNumbers?: boolean
+    showCursor?: boolean
+  },
 ): StyledText {
   const visibleEnd = region.visibleStart + region.visible.length
   const spans = options.spans ?? []
@@ -334,13 +345,17 @@ function styledRegion(
   const visibleSpans = allSpans
     .filter(span => span.end > region.visibleStart && span.start < visibleEnd)
     .map(span => ({ ...span, start: Math.max(0, span.start - region.visibleStart), end: Math.min(region.visible.length, span.end - region.visibleStart) }))
-  if (!options.showLineNumbers) return applyTheme(region.visible, visibleSpans, options.theme)
+  let visible = region.visible
+  if (options.showCursor && point >= region.visibleStart && point <= visibleEnd) {
+    visible = textWithCursor(region.visible, point - region.visibleStart)
+  }
+  if (!options.showLineNumbers) return applyTheme(visible, visibleSpans, options.theme)
 
   const firstLine = firstVisibleLineNumber(region.visibleStart, text)
-  const format = formatWithLineNumbers(region.visible, firstLine)
+  const format = formatWithLineNumbers(visible, firstLine)
   const displaySpans = [
     ...gutterSpans(format.text, format.prefixLen),
-    ...adjustSpansForLineNumbers(visibleSpans, region.visible, format.prefixLen),
+    ...adjustSpansForLineNumbers(visibleSpans, visible, format.prefixLen),
   ]
   return applyTheme(format.text, displaySpans, options.theme)
 }

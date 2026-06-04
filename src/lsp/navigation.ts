@@ -9,6 +9,7 @@ import {
 } from "./lsp-protocol"
 import { formatLocation, normalizeLocations, type ResolvedLocation } from "./locations"
 import { pointToPosition, positionToPoint, uriToPath } from "./positions"
+import { setWindowLeafPoint } from "../kernel/window"
 import type { LspWorkspace } from "./workspace"
 
 async function ensureLspWorkspaces(editor: Editor, buffer: BufferModel): Promise<LspWorkspace[]> {
@@ -34,6 +35,9 @@ export async function gotoResolvedLocation(editor: Editor, location: ResolvedLoc
   const path = uriToPath(location.uri)
   const buffer = await editor.openFile(path)
   buffer.point = positionToPoint(buffer.text, location.range.start)
+  editor.windowLayout = setWindowLeafPoint(editor.windowLayout, editor.selectedWindowId, buffer.point)
+  const lineBudget = Math.max(1, (process.stdout.rows ?? 30) - 7)
+  editor.syncSelectedWindowViewport(lineBudget)
   await editor.changed("lsp-goto")
 }
 
@@ -68,7 +72,8 @@ export async function lspFindDefinition(editor: Editor, buffer: BufferModel): Pr
       await gotoResolvedLocation(editor, location)
       editor.message("Found definition (LSP)")
       return true
-    } catch {
+    } catch (error) {
+      editor.message(error instanceof Error ? error.message : String(error))
       continue
     }
   }

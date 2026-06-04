@@ -22,6 +22,8 @@ export type LspWorkspace = {
   client: LspClient
   status: WorkspaceStatus
   buffers: BufferModel[]
+  /** URIs already sent via textDocument/didOpen for this workspace. */
+  openedUris: Set<string>
   serverCapabilities: ServerCapabilities | null
   diagnosticsByPath: Map<string, LspDiagnostic[]>
   rpc: LspRpcConnection
@@ -54,6 +56,7 @@ export async function startWorkspace(
     client,
     status: "starting",
     buffers: [...buffers],
+    openedUris: new Set(),
     serverCapabilities: null,
     diagnosticsByPath: new Map(),
     rpc: null as unknown as LspRpcConnection,

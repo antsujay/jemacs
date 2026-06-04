@@ -33,7 +33,10 @@ test("mac option key sequences map to meta bindings", () => {
   expect(keyToken({ name: "≈", sequence: "≈" })).toBe("M-x")
   expect(keyToken({ name: "ƒ", sequence: "ƒ" })).toBe("M-f")
   expect(keyToken({ name: "∫", sequence: "∫" })).toBe("M-b")
+  expect(keyToken({ name: "≥", sequence: "≥" })).toBe("M-.")
+  expect(keyToken({ name: "≤", sequence: "≤" })).toBe("M-,")
   expect(isPrintable({ name: "≈", sequence: "≈" })).toBe(false)
+  expect(isPrintable({ name: "≥", sequence: "≥" })).toBe(false)
 })
 
 test("visible text cursor does not shift the character under point", () => {

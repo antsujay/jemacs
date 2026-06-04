@@ -128,9 +128,22 @@ export class Editor {
   private persistSelectedWindowPoint(): void {
     const leaf = this.selectedWindowLeaf()
     if (!leaf) return
-    const startLine = this.lineAtPoint(this.currentBuffer.point)
     this.windowLayout = setWindowLeafPoint(this.windowLayout, leaf.id, this.currentBuffer.point)
-    this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, startLine)
+  }
+
+  /** Keep the cursor on screen without recentering the whole window on focus changes. */
+  syncSelectedWindowViewport(lineBudget: number): void {
+    const leaf = this.selectedWindowLeaf()
+    if (!leaf) return
+    const buffer = this.buffers.get(leaf.bufferId)
+    if (!buffer) return
+    const cursorLine = this.lineAtPoint(buffer.point)
+    let start = leaf.startLine
+    if (cursorLine < start) start = cursorLine
+    else if (cursorLine >= start + lineBudget) start = Math.max(0, cursorLine - lineBudget + 1)
+    if (start !== leaf.startLine) {
+      this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, start)
+    }
   }
 
   private lineAtPoint(point: number): number {

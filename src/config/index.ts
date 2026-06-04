@@ -1,6 +1,7 @@
 import type { Editor } from "../kernel/editor"
 import type { Evaluator } from "../runtime/evaluator"
 import { installCoreCommands } from "../core/commands"
+import { installLinumMode } from "../modes/linum-mode"
 import { installMinorModeCommands } from "../modes/minor-mode"
 import { bindDefaultKeybindings } from "./default-bindings"
 import { installUserConfig } from "./user"
@@ -12,6 +13,7 @@ export { LSP_AUTO_MODES, LSP_AUTO_EXTENSIONS, shouldAutoStartLsp } from "./lsp-a
 export function installDefaultConfig(editor: Editor): Evaluator {
   const evaluator = installCoreCommands(editor)
   installMinorModeCommands(editor)
+  installLinumMode()
   bindDefaultKeybindings(editor)
   installUserConfig(editor)
   return evaluator

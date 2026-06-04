@@ -92,7 +92,7 @@ The plugin's `install(editor)` function runs against the live editor object.
 
 When visiting a TypeScript or JavaScript file, `Ctrl-C Ctrl-R` saves and cache-bust imports the current file. If the module exports `install(editor)` it is run as a plugin; if it exports `installDefaultCommands(editor)` those commands and keybindings are reinstalled in the running editor.
 
-On macOS, some terminals send Option-key characters instead of Meta events, for example Option-X as `≈`. Jemacs maps the common Option encodings for `M-x`, `M-f`, and `M-b`, and `Esc x` works as the terminal-portable Meta-X fallback.
+On macOS, some terminals send Option-key characters instead of Meta events, for example Option-X as `≈` and Option-. as `≥`. Jemacs maps the common Option encodings for `M-x`, `M-f`, `M-b`, `M-.`, and `M-,`; `Esc` plus the key (e.g. `Esc .` for xref) works as a terminal-portable Meta fallback.
 
 ## Design notes
 

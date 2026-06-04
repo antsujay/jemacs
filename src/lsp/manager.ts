@@ -6,7 +6,7 @@ import { shouldAutoStartLsp } from "../config/lsp-auto-modes"
 import { findProjectRoot } from "./project-root"
 import { ensureBufferLspState, getBufferLspState, setBufferWorkspaces } from "./buffer-state"
 import { bufferUri } from "./positions"
-import { textDocumentDidChange, textDocumentDidChangeFull, textDocumentDidClose } from "./sync"
+import { textDocumentDidChange, textDocumentDidChangeFull, textDocumentDidClose, textDocumentDidOpen } from "./sync"
 import { lspCompletionAtPoint } from "./completion"
 import { lspDefinitionsAtPoint } from "./definition"
 import type { XrefLocation } from "../xref/types"
@@ -106,6 +106,7 @@ export class LspManager {
     setBufferWorkspaces(buffer, workspaces)
     for (const workspace of workspaces) {
       if (!workspace.buffers.includes(buffer)) workspace.buffers.push(buffer)
+      if (workspace.status === "initialized") textDocumentDidOpen(workspace, buffer)
     }
   }
 

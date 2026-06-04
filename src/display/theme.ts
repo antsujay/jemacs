@@ -30,6 +30,7 @@ export const defaultTheme: Theme = {
     region: { bg: "#3f4756" },
     isearch: { bg: "#6a5f00", fg: "#ffffff" },
     modeLine: { fg: "#ffffff", bg: "#264f78", bold: true },
+    modeLineInactive: { fg: "#9d9d9d", bg: "#252526" },
     minibuffer: { fg: "#ffffff", bg: "#3a3a3a" },
     error: { fg: "#f44747", bold: true },
     lineNumber: { fg: "#858585", italic: true },

@@ -169,6 +169,10 @@ function macOptionMetaKey(key: KeyEventLike): string | null {
       return "f"
     case "≈":
       return "x"
+    case "≥":
+      return "."
+    case "≤":
+      return ","
     default:
       return null
   }

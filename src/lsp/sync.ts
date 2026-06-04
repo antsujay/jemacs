@@ -12,9 +12,10 @@ import {
 
 export function textDocumentDidOpen(workspace: LspWorkspace, buffer: BufferModel): void {
   const uri = bufferUri(buffer)
-  if (!uri) return
+  if (!uri || workspace.openedUris.has(uri)) return
   const state = ensureBufferLspState(buffer, uri)
   if (!workspace.buffers.includes(buffer)) workspace.buffers.push(buffer)
+  workspace.openedUris.add(uri)
   workspace.rpc.sendNotification(
     "textDocument/didOpen",
     lspMakeDidOpenTextDocumentParams({
@@ -71,6 +72,7 @@ export function textDocumentDidChangeFull(workspace: LspWorkspace, buffer: Buffe
 export function textDocumentDidClose(workspace: LspWorkspace, buffer: BufferModel): void {
   const uri = bufferUri(buffer)
   if (!uri) return
+  workspace.openedUris.delete(uri)
   workspace.rpc.sendNotification(
     "textDocument/didClose",
     lspMakeDidCloseTextDocumentParams({
