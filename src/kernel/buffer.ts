@@ -1,4 +1,6 @@
 import { dirname, basename } from "node:path"
+import { fileExists, readFileText, writeFileText } from "../platform/runtime"
+import { isTransientMarkModeEnabled } from "./transient-mark"
 
 export type BufferKind = "file" | "directory" | "scratch" | "messages" | "inspector" | "minibuffer" | "grep"
 
@@ -15,6 +17,7 @@ export class BufferModel {
   readOnly = false
   mode = "text"
   readonly minorModes = new Set<string>()
+  readonly locals = new Map<string, unknown>()
   onTextChange?: (event: { start: number; end: number; text: string }) => void
   private undoStack: string[] = []
   private redoStack: string[] = []
@@ -29,8 +32,7 @@ export class BufferModel {
   }
 
   static async fromFile(path: string): Promise<BufferModel> {
-    const file = Bun.file(path)
-    const text = await file.exists() ? await file.text() : ""
+    const text = await fileExists(path) ? await readFileText(path) : ""
     return new BufferModel({ name: basename(path), path, text, kind: "file", mode: inferMode(path) })
   }
 
@@ -165,6 +167,7 @@ export class BufferModel {
   }
 
   deactivateMark(): void {
+    if (!isTransientMarkModeEnabled()) return
     this.markActive = false
   }
 
@@ -194,7 +197,7 @@ export class BufferModel {
 
   async save(): Promise<void> {
     if (!this.path) throw new Error(`Buffer ${this.name} has no file path`)
-    await Bun.write(this.path, this.text)
+    await writeFileText(this.path, this.text)
     this.dirty = false
   }
 

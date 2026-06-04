@@ -23,6 +23,7 @@ import {
   refreshDiredBuffer,
 } from "../modes/dired"
 import { bufferListEntryAtPoint, showBufferList } from "../modes/buffer-list"
+import { readFileText, spawnProcess } from "../platform/runtime"
 import { getMode } from "../modes/mode"
 import { pythonBeginningOfDefun, pythonEndOfDefun } from "../modes/python"
 import { Evaluator } from "../runtime/evaluator"
@@ -254,7 +255,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
       editor.message("Current buffer is not visiting a file")
       return
     }
-    const text = await Bun.file(buffer.path).text()
+    const text = await readFileText(buffer.path)
     buffer.setText(text, false)
     buffer.dirty = false
     buffer.point = Math.min(buffer.point, buffer.text.length)
@@ -542,8 +543,8 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   editor.command("fzf-git", async ({ editor, args }) => {
     const query = args[0] ?? ""
-    const proc = Bun.spawn(["git", "ls-files"], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" })
-    const output = await new Response(proc.stdout).text()
+    const proc = spawnProcess({ cmd: ["git", "ls-files"], cwd: process.cwd(), stdout: "pipe", stderr: "pipe" })
+    const output = proc.stdout ? await new Response(proc.stdout).text() : ""
     const files = output.split("\n").filter(file => file && file.includes(query))
     const choice = args[1] ?? await editor.completingRead("Git file: ", { collection: files, history: "file", initialValue: query })
     if (choice) await editor.openFile(choice)
@@ -552,8 +553,16 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("counsel-ag", async ({ editor, args }) => {
     const pattern = args[0] ?? await editor.prompt("Search project: ", "", "search")
     if (!pattern) return
-    const proc = Bun.spawn(["rg", "--line-number", "--column", "--no-heading", pattern], { cwd: process.cwd(), stdout: "pipe", stderr: "pipe" })
-    const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    const proc = spawnProcess({
+      cmd: ["rg", "--line-number", "--column", "--no-heading", pattern],
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [stdout, stderr] = await Promise.all([
+      proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
+      proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
+    ])
     const exit = await proc.exited
     const text = exit === 0 || stdout ? stdout : stderr
     editor.scratch("*grep*", text || "No matches\n", "text").kind = "grep"
@@ -561,9 +570,9 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   editor.command("copy-region-to-clipboard-mac", async ({ buffer, editor }) => {
     const text = buffer.selectedText() || buffer.lineBoundsAt().text
-    const pbcopy = Bun.spawn(["pbcopy"], { stdin: "pipe" })
-    pbcopy.stdin.write(text)
-    pbcopy.stdin.end()
+    const pbcopy = spawnProcess({ cmd: ["pbcopy"], stdin: "pipe" })
+    pbcopy.stdin?.write(text)
+    pbcopy.stdin?.end()
     await pbcopy.exited
     killApi.pushKill(text)
     editor.message("Copied text to clipboard")

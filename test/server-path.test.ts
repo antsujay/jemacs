@@ -17,5 +17,7 @@ test("emacsLspNpmBinary matches lsp-mode install layout", () => {
 test("findServerBinary prefers Emacs cache when not on PATH", () => {
   const fromEmacs = emacsLspNpmBinary("typescript-language-server")
   if (!fromEmacs) return
+  const workspaceBin = join(process.cwd(), "node_modules", ".bin", "typescript-language-server")
+  if (existsSync(workspaceBin)) return
   expect(findServerBinary("typescript-language-server", "/tmp")).toBe(fromEmacs)
 })

@@ -1,0 +1,41 @@
+{
+  "title": { "chunks": [{ "text": " Jemacs GUI — *scratch*", "fg": "#cccccc", "bg": "#1e1e1e" }] },
+  "windows": {
+    "kind": "leaf",
+    "pane": {
+      "id": "w1",
+      "bufferId": "b1",
+      "selected": true,
+      "dedicated": false,
+      "body": {
+        "chunks": [
+          { "text": "// Try: editor.message('hello from eval')\n", "fg": "#6a9955", "italic": true }
+        ]
+      },
+      "modeline": {
+        "chunks": [
+          {
+            "text": " javascript  *scratch*   line 1, col 1",
+            "fg": "#ffffff",
+            "bg": "#264f78",
+            "bold": true
+          }
+        ]
+      },
+      "clickState": { "startLine": 0, "gutterPrefixLen": 0 },
+      "bodyLineBudget": 20,
+      "syncText": "",
+      "syncPoint": 0
+    }
+  },
+  "minibuffer": { "chunks": [{ "text": " ", "fg": "#ffffff", "bg": "#3a3a3a" }] },
+  "echo": { "chunks": [{ "text": " ", "fg": "#ffffff", "bg": "#3a3a3a" }] },
+  "theme": {
+    "name": "jemacs-dark",
+    "faces": {
+      "default": { "fg": "#d4d4d4", "bg": "#1e1e1e" }
+    }
+  },
+  "viewport": { "rows": 40, "cols": 100 },
+  "hostLabel": "Jemacs GUI"
+}

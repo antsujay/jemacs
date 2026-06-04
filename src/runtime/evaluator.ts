@@ -1,6 +1,9 @@
 import { pathToFileURL } from "node:url"
-import { resolve } from "node:path"
+import { existsSync } from "node:fs"
+import { join, resolve } from "node:path"
 import type { Editor } from "../kernel/editor"
+import { runtimeBun } from "../platform/runtime"
+import { getLoadPath } from "./load-path"
 
 export class Evaluator {
   constructor(private readonly editor: Editor) {}
@@ -14,7 +17,7 @@ export class Evaluator {
       "Bun",
       `// ${filename}\n${code}\n//# sourceURL=${filename}`,
     )
-    return await fn(this.editor, console, Buffer, Bun)
+    return await fn(this.editor, console, Buffer, runtimeBun())
   }
 
   async evalExpression(expression: string, filename = "jemacs-expression.js"): Promise<unknown> {
@@ -28,10 +31,20 @@ export class Evaluator {
   }
 
   async loadPlugin(path: string): Promise<unknown> {
-    const mod = await this.loadModule(path)
+    const resolved = this.resolveOnLoadPath(path) ?? resolve(path)
+    const mod = await this.loadModule(resolved)
     if (typeof mod.install !== "function") {
       throw new Error(`Plugin ${path} does not export install(editor)`)
     }
     return await mod.install(this.editor)
+  }
+
+  private resolveOnLoadPath(path: string): string | null {
+    if (path.startsWith("/") || path.startsWith(".")) return null
+    for (const dir of getLoadPath()) {
+      const candidate = join(dir, path)
+      if (existsSync(candidate)) return candidate
+    }
+    return null
   }
 }

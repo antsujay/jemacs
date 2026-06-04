@@ -1,0 +1,14 @@
+{
+  "name": "@jemacs/host-electron",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Electron GUI UiHost for Jemacs.",
+  "exports": {
+    ".": "./index.ts",
+    "./dom-frame": "../../src/display/dom-frame.ts"
+  },
+  "dependencies": {
+    "@jemacs/core": "workspace:*"
+  }
+}

@@ -5,6 +5,7 @@ import { installLinumMode } from "../modes/linum-mode"
 import { installMinorModeCommands } from "../modes/minor-mode"
 import { bindDefaultKeybindings } from "./default-bindings"
 import { installUserConfig } from "./user"
+import { installDefaultCustomVariables } from "./custom-init"
 
 export { installDefaultHooks, installLspDeferredHooks } from "./install-hooks"
 export { LSP_AUTO_MODES, LSP_AUTO_EXTENSIONS, shouldAutoStartLsp } from "./lsp-auto-modes"
@@ -15,6 +16,7 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   installMinorModeCommands(editor)
   installLinumMode()
   bindDefaultKeybindings(editor)
+  installDefaultCustomVariables(editor)
   installUserConfig(editor)
   return evaluator
 }

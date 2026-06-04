@@ -4,7 +4,8 @@ import { installDefaultModes } from "./modes/default-modes"
 import { installMarkdownMode } from "./modes/markdown"
 import { installLspMode } from "./lsp/install"
 import { installXref } from "./xref/install"
-import { startOpenTui } from "./ui/opentui"
+import { runJemacs } from "./run"
+import { createDefaultHost } from "./ui/select-host"
 
 async function main(): Promise<void> {
   installDefaultModes()
@@ -15,10 +16,10 @@ async function main(): Promise<void> {
   installDefaultHooks(editor)
   installXref(editor)
 
-  const file = Bun.argv[2]
+  const file = Bun.argv.find((arg, i) => i >= 2 && !arg.startsWith("-") && arg !== "--gui")
   if (file) await editor.openFile(file)
 
-  await startOpenTui(editor)
+  await runJemacs(editor, createDefaultHost())
 }
 
 main().catch(error => {

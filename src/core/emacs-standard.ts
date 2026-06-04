@@ -1,5 +1,6 @@
 import type { Editor } from "../kernel/editor"
 import { BufferModel } from "../kernel/buffer"
+import { readFileText } from "../platform/runtime"
 export type KillRingApi = {
   pushKill: (text: string) => void
   getKill: () => string
@@ -48,7 +49,7 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
       initialValue: buffer.directory() ?? process.cwd(),
     })
     if (!path) return
-    const text = await Bun.file(path).text()
+    const text = await readFileText(path)
     buffer.path = path
     buffer.name = path.split("/").pop() ?? path
     buffer.setText(text, false)

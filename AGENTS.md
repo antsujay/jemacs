@@ -15,3 +15,12 @@ When porting or replicating a GNU Emacs interactive function:
 - **Behavior:** Match Emacs semantics for that command; check `lisp/` or the manual when unsure.
 - **Key:** Wire default Emacs keybindings in `src/config/default-bindings.ts` (or user `~/.jemacs/init.ts`) via `editor.key` / `editor.defineKey` — never hardcode in `handleKey()`. Commands live in `src/core/`. See `DEFAULT_KEYBINDINGS.md`.
 - **TypeScript identifiers:** Hyphenated Emacs names map to camelCase in code (`beginning-of-buffer` → helpers like `beginningOfBuffer`); the public command string stays kebab-case.
+
+## UI hosts
+
+- Kernel and redisplay: `src/kernel/`, `src/display/build-display-model.ts` — no `@opentui/*` or Electron imports.
+- Terminal: `OpenTuiHost` in `src/ui/opentui-host.ts`; GUI: `ElectronHost` in `src/ui/electron-host.ts`.
+- Bootstrap: `runJemacs()` / `bindJemacsHost()` in `src/run.ts`.
+- Optional native editor pane: `JEMACS_USE_TEXTAREA=1` (selected window; font-lock via `syncSpans` + `opentui-textarea-sync.ts`).
+- Shared GUI DOM: `src/display/dom-frame.ts` (used by `src/electron/renderer.ts`).
+- Workspace packages: `packages/jemacs-core`, `host-opentui`, `host-electron` (re-exports; app still runs from repo root).

@@ -1,6 +1,6 @@
 # Jemacs OpenTUI
 
-A small, self-editable Emacs-like editor prototype where JavaScript replaces Emacs Lisp and OpenTUI renders the terminal frontend.
+A self-editable Emacs-like editor where JavaScript replaces Emacs Lisp and **pluggable frontends** render the UI: **OpenTUI** (terminal) and **Electron** (GUI). See [PLAN.md](PLAN.md) for architecture and roadmap.
 
 This is intentionally a starter repo, not a mature editor. The kernel is written so that buffers, commands, keymaps, modes, and the evaluator are ordinary JavaScript/TypeScript objects that can be inspected and modified from inside the editor.
 
@@ -26,12 +26,31 @@ If OpenTUI's native package build complains, install Zig. The upstream repo note
 
 ## Run
 
+**Terminal (default):**
+
 ```bash
 bun run dev
 # or open a file
 bun run src/main.ts README.md
 # or self-edit the editor
 bun run dev:self
+```
+
+**GUI (Electron):**
+
+```bash
+bun run build:gui   # once, or before first GUI launch
+bun run dev:gui
+# same as: JEMACS_UI=electron bun run dev
+# or: bun run src/main.ts --gui
+```
+
+Both hosts share the same kernel (`src/kernel/`), display model (`src/display/`), and bootstrap (`src/run.ts`).
+
+Optional: native OpenTUI editor surface for the selected window (no font-lock in that pane):
+
+```bash
+JEMACS_USE_TEXTAREA=1 bun run dev
 ```
 
 ## Keybindings
@@ -111,7 +130,14 @@ If a key still fails, check the echo area after pressing it: unbound keys show t
 
 ## Design notes
 
-The editor kernel deliberately avoids OpenTUI imports. That keeps it testable and makes the frontend replaceable. OpenTUI wiring lives in `src/ui/opentui.ts` and `src/ui/opentui-key.ts`.
+The editor kernel deliberately avoids OpenTUI and Electron imports. Display output is built in `src/display/build-display-model.ts` as a host-agnostic `DisplayModel`; hosts only paint it:
+
+| Host | Module |
+| --- | --- |
+| Terminal | `src/ui/opentui-host.ts` (`OpenTuiHost`) |
+| GUI | `src/ui/electron-host.ts` (`ElectronHost`) |
+
+OpenTUI key translation stays in `src/ui/opentui-key.ts`. Entry: `src/main.ts` (TUI or `--gui`) / `src/main-electron.ts` (GUI-only).
 
 **Core vs config:** Interactive commands live in `src/core/commands.ts` (no key bindings). Default GNU keybindings are in `src/config/default-bindings.ts` using the same `editor.key()` / `editor.defineKey()` API as plugins and user config. Startup calls `installDefaultConfig(editor)` from `src/config/index.ts`. Override keys in a plugin or `~/.jemacs/init.ts` by calling `editor.key(...)` after defaults load.
 

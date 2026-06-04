@@ -123,7 +123,10 @@ export function treeSitterFontLock(language: string, buffer: BufferModel): TextS
     if (spec.highlightsPath) return highlightWithQuery(spec, tree.rootNode)
     if (language === "markdown" || language === "gfm") return highlightMarkdown(tree.rootNode, buffer.text)
     return spec.highlight?.(tree.rootNode) ?? []
-  } catch {
+  } catch (error) {
+    if (process.env.JEMACS_DEBUG_FONT_LOCK === "1") {
+      console.error(`tree-sitter font-lock failed for ${language}:`, error)
+    }
     return []
   }
 }

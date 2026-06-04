@@ -1,38 +1,24 @@
 import type { FaceName, TextSpan } from "../modes/mode"
-import { createTextAttributes, parseColor, StyledText, type TextChunk } from "@opentui/core"
+import type { FaceStyle, Theme } from "./theme-types"
+import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-text"
 
-export type FaceStyle = {
-  fg?: string
-  bg?: string
-  bold?: boolean
-  italic?: boolean
-  underline?: boolean
-}
-
-export type Theme = {
-  name: string
-  faces: Partial<Record<FaceName, FaceStyle>>
-}
-
-/** Build a named theme from face overrides (Emacs custom-theme style). */
-export function defineTheme(name: string, faces: Partial<Record<FaceName, FaceStyle>>): Theme {
-  return { name, faces }
-}
+export type { FaceStyle, Theme } from "./theme-types"
+export { defineTheme } from "./theme-types"
 
 export function themeFaceBackground(theme: Theme, face: FaceName = "default"): string | undefined {
   return theme.faces[face]?.bg ?? theme.faces.default?.bg
 }
 
-export function applyTheme(text: string, spans: TextSpan[], theme: Theme): StyledText {
+export function applyTheme(text: string, spans: TextSpan[], theme: Theme): ThemedText {
   const defaultStyle = theme.faces.default
-  if (!spans.length) return new StyledText([styledChunk(text, defaultStyle)])
+  if (!spans.length) return plainThemedText(text, defaultStyle)
 
   const ordered = spans
     .filter(span => span.end > span.start && span.start < text.length)
     .map(span => ({ ...span, start: Math.max(0, span.start), end: Math.min(text.length, span.end) }))
   const boundaries = [...new Set([0, text.length, ...ordered.flatMap(span => [span.start, span.end])])]
     .sort((a, b) => a - b)
-  const chunks: TextChunk[] = []
+  const chunks: ThemedChunk[] = []
   for (let i = 0; i < boundaries.length - 1; i++) {
     const start = boundaries[i]!
     const end = boundaries[i + 1]!
@@ -41,9 +27,9 @@ export function applyTheme(text: string, spans: TextSpan[], theme: Theme): Style
       if (span.start > start || span.end < end) return merged
       return mergeStyle(merged, theme.faces[span.face])
     }, defaultStyle)
-    chunks.push(styledChunk(text.slice(start, end), style))
+    chunks.push(themedChunk(text.slice(start, end), style))
   }
-  return new StyledText(chunks)
+  return { chunks }
 }
 
 function mergeStyle(base: FaceStyle | undefined, overlay: FaceStyle | undefined): FaceStyle | undefined {
@@ -52,15 +38,16 @@ function mergeStyle(base: FaceStyle | undefined, overlay: FaceStyle | undefined)
   return { ...base, ...overlay }
 }
 
-function styledChunk(text: string, style?: FaceStyle): TextChunk {
+function themedChunk(text: string, style?: FaceStyle): ThemedChunk {
   if (!style?.fg && !style?.bg && !style?.bold && !style?.italic && !style?.underline) {
-    return { __isChunk: true, text }
+    return { text }
   }
   return {
-    __isChunk: true,
     text,
-    fg: style.fg ? parseColor(style.fg) : undefined,
-    bg: style.bg ? parseColor(style.bg) : undefined,
-    attributes: createTextAttributes(style),
+    fg: style.fg,
+    bg: style.bg,
+    bold: style.bold,
+    italic: style.italic,
+    underline: style.underline,
   }
 }

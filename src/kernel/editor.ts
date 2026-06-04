@@ -8,6 +8,7 @@ import { digitFromKey, PrefixArgumentState } from "./prefix-argument"
 import { enterMode, getMode, modeFeature, modeLineage, type CompletionCandidate, type TextSpan } from "../modes/mode"
 import { allMinorModes, getMinorMode, type MinorMode } from "../modes/minor-mode"
 import { makeDiredBuffer } from "../modes/dired"
+import { pointFromWindowClick, type WindowClickState } from "../display/click-to-point"
 import type { Theme } from "../display/theme"
 import { defaultTheme } from "../themes"
 import { fileCompletionCandidates } from "./completion"
@@ -41,6 +42,8 @@ import {
   type HookFn,
 } from "./hooks"
 import type { LspManager } from "../lsp/manager"
+import { invokeWithAdvice } from "../runtime/advice"
+import { readInteractiveArgs } from "../runtime/interactive"
 
 export type EditorEvents = {
   changed: { reason: string }
@@ -160,6 +163,20 @@ export class Editor {
     this.selectedWindowId = windowId
     this.currentBufferId = findWindowLeaf(this.windowLayout, windowId)!.bufferId
     this.restoreSelectedWindowPoint()
+  }
+
+  /** Select a window and move point from a body click (terminal/GUI cell coordinates). */
+  clickWindow(windowId: string, row: number, col: number, clickState: WindowClickState, bodyLineBudget: number): void {
+    const leaf = findWindowLeaf(this.windowLayout, windowId)
+    if (!leaf) return
+    this.selectWindow(windowId)
+    const buffer = this.buffers.get(leaf.bufferId)
+    if (!buffer || buffer.readOnly && buffer.kind !== "minibuffer") return
+    const point = pointFromWindowClick(buffer.text, clickState, row, col, bodyLineBudget)
+    buffer.point = point
+    buffer.deactivateMark()
+    this.windowLayout = setWindowLeafPoint(this.windowLayout, windowId, point)
+    void this.changed("mouse-click")
   }
 
   ensureOtherWindowSelected(): void {
@@ -470,7 +487,12 @@ export class Editor {
     const spec = this.commands.get(name)
     if (!spec) throw new Error(`Unknown command: ${name}`)
     const prefixArgument = name === "universal-argument" ? null : this.consumePrefixArgument()
-    const result = await spec.fn({ editor: this, buffer: this.activeBuffer, args, prefixArgument })
+    let runArgs = args
+    if (typeof spec.interactive === "string" && !runArgs.length) {
+      runArgs = await readInteractiveArgs(this, spec.interactive)
+    }
+    const ctx = { editor: this, buffer: this.activeBuffer, args: runArgs, prefixArgument }
+    const result = await invokeWithAdvice(name, spec.fn, ctx)
     await this.changed(`command:${name}`)
     return result
   }
@@ -850,7 +872,19 @@ export class Editor {
   minibufferInsert(s: string): void {
     if (!this.minibuffer) return
     this.activeBuffer.insert(s)
+    void this.refreshMinibufferCompletions()
     void this.changed("minibuffer-input")
+  }
+
+  /** Incremental completion (icomplete-style) while typing in the minibuffer. */
+  refreshMinibufferCompletions(): void {
+    const request = this.minibuffer
+    if (!request) return
+    const collection = request.collection
+    if (!collection?.length) return
+    const text = this.activeBuffer.text
+    const matches = collection.filter(item => item.startsWith(text))
+    if (matches.length > 1) this.showCompletions(matches)
   }
 
   minibufferBackspace(): void {

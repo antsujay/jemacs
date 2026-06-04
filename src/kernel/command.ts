@@ -13,7 +13,8 @@ export type CommandFn = (ctx: CommandContext) => unknown | Promise<unknown>
 export type CommandSpec = {
   name: string
   description?: string
-  interactive?: boolean
+  /** When true, command may be invoked interactively; use a string for `interactive` form specs. */
+  interactive?: boolean | string
   fn: CommandFn
 }
 

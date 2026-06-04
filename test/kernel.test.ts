@@ -62,8 +62,8 @@ test("mac option key sequences map to meta bindings", () => {
 })
 
 test("visible text cursor does not shift the character under point", () => {
-  expect(visibleText("abc", 1)).toBe("a█c")
-  expect(visibleText("abc", 3)).toBe("abc█")
+  expect(visibleText("abc", 1, 10)).toBe("a█c")
+  expect(visibleText("abc", 3, 10)).toBe("abc█")
 })
 
 test("editor command registry runs commands", async () => {
@@ -571,7 +571,7 @@ test("theme support renders font-lock spans as styled TUI chunks", async () => {
   const buffer = editor.scratch("theme.py", "def f():\n    return 1\n", "python")
   const rendered = visibleStyledText(buffer.text, buffer.text.length, { spans: editor.fontLock(buffer), theme: editor.theme })
   expect(rendered.chunks.length).toBeGreaterThan(1)
-  expect(rendered.chunks.some(chunk => chunk.text === "def" && chunk.attributes)).toBe(true)
+  expect(rendered.chunks.some(chunk => chunk.text === "def" && chunk.fg)).toBe(true)
   expect(rendered.chunks.map(chunk => chunk.text).join("")).not.toContain("\x1b[")
 })
 

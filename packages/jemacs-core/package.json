@@ -1,0 +1,14 @@
+{
+  "name": "@jemacs/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Jemacs display-agnostic kernel and display layer (re-exports from monorepo root).",
+  "exports": {
+    ".": "./index.ts",
+    "./display/*": "../../src/display/*",
+    "./kernel/*": "../../src/kernel/*",
+    "./modes/*": "../../src/modes/*",
+    "./runtime/*": "../../src/runtime/*"
+  }
+}

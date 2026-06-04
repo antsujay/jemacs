@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import type { BufferModel } from "../kernel/buffer"
+import { spawnProcess, whichExecutable } from "../platform/runtime"
 import type { LspConnection } from "./client"
 
 /** Port of `lsp-stdio-connection` from lsp-mode.el. */
@@ -11,7 +12,7 @@ export function stdioConnection(
   return {
     connect({ onData, onExit, serverId, cwd }) {
       const argv = typeof command === "function" ? command(cwd) : command
-      const proc = Bun.spawn({
+      const proc = spawnProcess({
         cmd: argv,
         cwd,
         stdin: "pipe",
@@ -47,7 +48,7 @@ export function stdioConnection(
         const cwd = buffer?.path ? dirname(resolve(buffer.path)) : process.cwd()
         const argv = typeof command === "function" ? command(cwd) : command
         const bin = argv[0]!
-        return existsSync(bin) || Bun.which(bin) != null
+        return existsSync(bin) || whichExecutable(bin) != null
       }),
   }
 }

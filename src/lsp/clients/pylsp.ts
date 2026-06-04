@@ -1,4 +1,5 @@
 import { registerClient, activateOn } from "../client"
+import { serverBinaryAvailable } from "../server-path"
 import { stdioConnection } from "../stdio"
 
 /** Port of `lsp-pylsp.el` client registration (simplified initialization). */
@@ -9,7 +10,7 @@ export function registerPylspClient(): void {
     priority: -1,
     activationFn: activateOn("python"),
     languageId: () => "python",
-    newConnection: stdioConnection(["pylsp"], () => Bun.which("pylsp") != null),
+    newConnection: stdioConnection(["pylsp"], () => serverBinaryAvailable("pylsp")),
     initializationOptions: {
       pylsp: {
         plugins: {

@@ -1,0 +1,14 @@
+{
+  "name": "@jemacs/host-opentui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenTUI terminal UiHost for Jemacs.",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "dependencies": {
+    "@jemacs/core": "workspace:*",
+    "@opentui/core": "^0.3.0"
+  }
+}

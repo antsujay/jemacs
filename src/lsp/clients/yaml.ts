@@ -1,4 +1,5 @@
 import { registerClient } from "../client"
+import { serverBinaryAvailable } from "../server-path"
 import { stdioConnection } from "../stdio"
 
 /** yaml-language-server for yaml-ts-mode hook in ~/.emacs.d/stephen.el. */
@@ -10,7 +11,7 @@ export function registerYamlLanguageServerClient(): void {
     languageId: () => "yaml",
     newConnection: stdioConnection(
       ["yaml-language-server", "--stdio"],
-      () => Bun.which("yaml-language-server") != null,
+      () => serverBinaryAvailable("yaml-language-server"),
     ),
   })
 }
