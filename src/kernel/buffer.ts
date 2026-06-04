@@ -121,6 +121,16 @@ export class BufferModel {
     this.point = nextNewline === -1 ? this.text.length : nextNewline
   }
 
+  moveToBufferStart(): void {
+    this.deactivateMark()
+    this.point = 0
+  }
+
+  moveToBufferEnd(): void {
+    this.deactivateMark()
+    this.point = this.text.length
+  }
+
   moveWord(delta: number): void {
     this.deactivateMark()
     if (delta > 0) {

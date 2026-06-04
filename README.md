@@ -58,6 +58,9 @@ Commands use **GNU Emacs function names** (`find-file`, `kill-region`, `execute-
 | Ctrl-H C | `describe-mode` |
 | Ctrl-H B | `describe-bindings` |
 | Ctrl-H K | `describe-key` |
+| Meta-G G | `goto-line` |
+| Ctrl-X 2 / Ctrl-X 3 | `split-window-below` / `split-window-right` |
+| Ctrl-X K | `kill-buffer` |
 | Ctrl-C Ctrl-L | `load-plugin` |
 | Ctrl-C Ctrl-R | `reload-current-file` |
 | Ctrl-X Ctrl-C or Ctrl-C Ctrl-Q | `save-buffers-kill-terminal` |

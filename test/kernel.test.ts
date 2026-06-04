@@ -563,7 +563,7 @@ test("Stephen config feature slice installs modes, keybindings, windows, tabs, r
   await editor.run("jump-to-register", ["f"])
   expect(buffer.point).toBe(4)
 
-  await editor.run("split-window")
+  await editor.run("split-window-below")
   expect(editor.windows).toHaveLength(2)
   await editor.run("next-window-any-frame")
   expect(editor.selectedWindow).toBe(0)

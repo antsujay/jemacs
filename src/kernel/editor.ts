@@ -61,6 +61,10 @@ export class Editor {
   overridingTerminalLocalMap: Keymap | null = null
   overridingMap: Keymap | null = null
   prefixArgument: number | null = null
+  quotedInsertNext = false
+  recenterCycle = 0
+  macroRecording: string[] | null = null
+  lastKbdMacro: string[] = []
   private minibufferDepth = 0
 
   constructor() {
@@ -215,6 +219,7 @@ export class Editor {
     const fed = this.keymaps.feed(key)
     if (fed.status === "matched") {
       await this.run(fed.command)
+      if (this.macroRecording) this.macroRecording.push(fed.command)
       return { status: "command", command: fed.command }
     }
 
@@ -260,6 +265,12 @@ export class Editor {
         await this.run("keyboard-quit")
         return { status: "command", command: "keyboard-quit" }
       default:
+        if (this.quotedInsertNext && isPrintable(key)) {
+          this.quotedInsertNext = false
+          buffer.insert(key.sequence ?? "")
+          await this.changed("quoted-insert")
+          return { status: "inserted" }
+        }
         if (isPrintable(key)) {
           buffer.insert((key.sequence ?? "").repeat(this.consumePrefixArgument() ?? 1))
           await this.changed(`key:${key.name}`)
@@ -345,10 +356,64 @@ export class Editor {
     void this.changed("theme")
   }
 
-  splitWindow(): void {
+  splitWindowBelow(): void {
     this.windows.splice(this.selectedWindow + 1, 0, this.currentBufferId)
     this.selectedWindow++
-    void this.changed("split-window")
+    void this.changed("split-window-below")
+  }
+
+  splitWindowRight(): void {
+    this.splitWindowBelow()
+  }
+
+  deleteOtherWindows(): void {
+    if (this.windows.length <= 1) return
+    const keep = this.windows[this.selectedWindow]!
+    this.windows.splice(0, this.windows.length, keep)
+    this.selectedWindow = 0
+    this.currentBufferId = keep
+    void this.changed("delete-other-windows")
+  }
+
+  killBuffer(idOrName?: string): BufferModel | null {
+    const target = idOrName
+      ? this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
+      : this.currentBuffer
+    if (!target || target.kind === "minibuffer") return null
+    const survivors = [...this.buffers.values()].filter(b => b.kind !== "minibuffer" && b.id !== target.id)
+    if (!survivors.length) {
+      this.message("Cannot kill the only buffer")
+      return null
+    }
+    this.buffers.delete(target.id)
+    for (let i = this.windows.length - 1; i >= 0; i--) {
+      if (this.windows[i] === target.id) this.windows.splice(i, 1)
+    }
+    if (!this.windows.length) this.windows.push(survivors[0]!.id)
+    this.tabs.forEach(tab => {
+      if (tab.bufferId === target.id) tab.bufferId = survivors[0]!.id
+    })
+    if (this.currentBufferId === target.id) this.switchToBuffer(survivors[0]!.id)
+    void this.changed("kill-buffer")
+    return target
+  }
+
+  recenterTopBottom(): void {
+    const buffer = this.currentBuffer
+    const page = Math.max(1, (process.stdout.rows ?? 30) - 6)
+    const { line } = buffer.lineCol()
+    const lines = buffer.text.split("\n")
+    const lineIdx = line - 1
+    if (this.recenterCycle === 0) {
+      const target = Math.max(0, lineIdx - Math.floor(page / 2))
+      buffer.point = lines.slice(0, target).reduce((offset, text) => offset + text.length + 1, 0)
+    } else if (this.recenterCycle === 1) {
+      buffer.moveToLineStart()
+    } else {
+      buffer.moveToLineEnd()
+    }
+    this.recenterCycle = (this.recenterCycle + 1) % 3
+    void this.changed("recenter-top-bottom")
   }
 
   nextWindow(delta = 1): void {

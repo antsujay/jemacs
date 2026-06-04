@@ -105,10 +105,13 @@ test("dired keymap binds mark, copy, delete, and regexp commands", async () => {
   installDefaultModes()
   const keymap = getMode("dired")?.keymap
   expect(keymap?.get("m")).toBe("dired-mark")
-  expect(keymap?.get("C")).toBe("dired-do-copy")
+  expect(keymap?.get("S-c")).toBe("dired-do-copy")
+  expect(keymap?.get("d")).toBe("dired-flag-file-deletion")
+  expect(keymap?.get("S-d")).toBe("dired-do-delete")
+  expect(keymap?.get("u")).toBe("dired-unmark")
+  expect(keymap?.get("S-u")).toBe("dired-unmark-all")
   expect(keymap?.get("x")).toBe("dired-do-flagged-delete")
   expect(keymap?.get("% m")).toBe("dired-mark-files-regexp")
-  expect(keymap?.get("U")).toBe("dired-unmark-all")
   expect(keymap?.get("% .")).toBe("dired-mark-all")
 })
 

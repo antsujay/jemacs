@@ -25,10 +25,45 @@ import { pythonBeginningOfDefun, pythonEndOfDefun } from "../modes/python"
 import { Evaluator } from "../runtime/evaluator"
 import { inspectValue } from "../runtime/inspect"
 import { pageScrollLines } from "../ui/opentui"
+import { bindEmacsStandardKeys, installEmacsStandardCommands, type KillRingApi } from "./emacs-standard"
 
 export function installDefaultCommands(editor: Editor): Evaluator {
   const evaluator = new Evaluator(editor)
   let killRing = ""
+  let killRingHistory: string[] = []
+  let yankRingIndex = 0
+  let lastYankStart: number | null = null
+  let lastYankEnd: number | null = null
+
+  const killApi: KillRingApi = {
+    pushKill(text: string) {
+      if (!text) return
+      killRing = text
+      killRingHistory.unshift(text)
+      if (killRingHistory.length > 60) killRingHistory.length = 60
+      yankRingIndex = 0
+    },
+    getKill: () => killRing,
+    recordYank(buffer, text) {
+      lastYankStart = buffer.point
+      lastYankEnd = buffer.point + text.length
+      yankRingIndex = 0
+    },
+    yankPop(buffer) {
+      if (!killRingHistory.length) return
+      yankRingIndex = (yankRingIndex + 1) % killRingHistory.length
+      const text = killRingHistory[yankRingIndex]!
+      killRing = text
+      if (lastYankStart != null && lastYankEnd != null) {
+        buffer.replaceRange(lastYankStart, lastYankEnd, text)
+        lastYankEnd = lastYankStart + text.length
+      } else {
+        buffer.insert(text)
+        lastYankStart = buffer.point - text.length
+        lastYankEnd = buffer.point
+      }
+    },
+  }
 
   editor.command("save-buffer", async ({ buffer, editor }) => {
     await buffer.save()
@@ -134,7 +169,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
       buffer.moveWord(-1)
       killed = buffer.deleteRange(buffer.point, end) + killed
     })
-    killRing = killed
+    killApi.pushKill(killed)
   }, "Kill the word before point.")
   editor.command("kill-word", ({ buffer, prefixArgument }) => {
     let killed = ""
@@ -143,29 +178,34 @@ export function installDefaultCommands(editor: Editor): Evaluator {
       buffer.moveWord(1)
       killed += buffer.deleteRange(start, buffer.point)
     })
-    killRing = killed
+    killApi.pushKill(killed)
   }, "Kill the word after point.")
   editor.command("kill-line", ({ buffer }) => {
     const lineEnd = buffer.text.indexOf("\n", buffer.point)
     const end = lineEnd === -1 ? buffer.text.length : lineEnd + (lineEnd === buffer.point ? 1 : 0)
-    killRing = buffer.deleteRange(buffer.point, end)
+    killApi.pushKill(buffer.deleteRange(buffer.point, end))
   }, "Kill text from point to end of line.")
   editor.command("kill-region", ({ buffer }) => {
     if (buffer.mark == null || buffer.mark === buffer.point) {
       const line = buffer.lineBoundsAt()
       const end = line.end < buffer.text.length ? line.end + 1 : line.end
-      killRing = buffer.deleteRange(line.start, end)
+      killApi.pushKill(buffer.deleteRange(line.start, end))
       return
     }
-    killRing = buffer.deleteRange(buffer.mark, buffer.point)
+    killApi.pushKill(buffer.deleteRange(buffer.mark, buffer.point))
     buffer.clearMark()
   }, "Kill the active region, or the current line when no region is active.")
   editor.command("kill-ring-save", ({ buffer, editor }) => {
     const selected = buffer.selectedText() || buffer.lineBoundsAt().text + (buffer.lineBoundsAt().end < buffer.text.length ? "\n" : "")
-    killRing = selected
+    killApi.pushKill(selected)
     editor.message(buffer.selectedText() ? "Copied region" : "Copied line")
   }, "Copy the active region, or the current line when no region is active.")
-  editor.command("yank", ({ buffer }) => buffer.insert(killRing), "Insert the last killed text at point.")
+  editor.command("yank", ({ buffer }) => {
+    const text = killRing
+    if (!text) return
+    buffer.insert(text)
+    killApi.recordYank(buffer, text)
+  }, "Insert the last killed text at point.")
 
   editor.command("undo", ({ buffer }) => buffer.undo(), "Undo the last text edit.")
   editor.command("redo", ({ buffer }) => buffer.redo(), "Redo the last undone text edit.")
@@ -272,7 +312,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
 
   editor.command("minibuffer-complete", async ({ editor }) => editor.minibufferComplete(), "Complete the current minibuffer input.")
   editor.command("exit-minibuffer", ({ editor }) => editor.minibufferSubmit(), "Submit the minibuffer.")
-  editor.command("abort-minibuffer", ({ editor }) => editor.minibufferCancel(), "Cancel the minibuffer.")
+  editor.command("abort-recursive-edit", ({ editor }) => editor.minibufferCancel(), "Abort the minibuffer or recursive edit.")
 
   editor.command("indent-for-tab-command", ({ editor, buffer }) => {
     if (!editor.completeAtPoint(buffer)) editor.indentLine(buffer)
@@ -381,7 +421,6 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     if (editor.windows.length === 1) editor.nextBuffer()
   }, "Bury the current special buffer and select another buffer.")
 
-  editor.command("split-window", ({ editor }) => editor.splitWindow(), "Split the selected window.")
   editor.command("delete-window", ({ editor }) => editor.deleteWindow(), "Delete the selected window.")
   editor.command("other-window", ({ editor }) => editor.nextWindow(1), "Select another window.")
   editor.command("next-window-any-frame", ({ editor }) => editor.nextWindow(1), "Select the next window.")
@@ -422,13 +461,13 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     pbcopy.stdin.write(text)
     pbcopy.stdin.end()
     await pbcopy.exited
-    killRing = text
+    killApi.pushKill(text)
     editor.message("Copied text to clipboard")
   }, "Copy region or current line to the macOS clipboard.")
 
   editor.command("stephen-emacs-mcp-copy-codex-config", ({ buffer, editor }) => {
     const snippet = codexMcpConfig()
-    killRing = snippet
+    killApi.pushKill(snippet)
     buffer.insert(snippet)
     editor.message("Copied Codex MCP config for emacs-mcp to the kill ring")
   }, "Copy/insert the Codex MCP config snippet for emacs-mcp.")
@@ -478,8 +517,6 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     editor.message(`Reloaded ${buffer.name}; no installer export found`)
   }, "Save and reload the current TypeScript/JavaScript file into the live editor.")
 
-  editor.command("show-messages", ({ editor }) => editor.switchToBuffer("*messages*"), "Switch to the messages buffer.")
-
   editor.command("save-buffers-kill-terminal", ({ editor }) => {
     editor.message("Quit requested")
     editor.quit()
@@ -494,7 +531,6 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.key("C-x C-c", "save-buffers-kill-terminal")
   editor.key("C-x C-j", "previous-buffer")
   editor.key("C-x C-l", "next-buffer")
-  editor.key("C-x l", "goto-line")
   editor.key("C-x C-r", "revert-buffer")
   editor.key("C-x f", "fzf-git")
   editor.key("C-x o", "other-window")
@@ -569,8 +605,11 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.defineKey("minibuffer", "C-i", "minibuffer-complete")
   editor.defineKey("minibuffer", "enter", "exit-minibuffer")
   editor.defineKey("minibuffer", "C-m", "exit-minibuffer")
-  editor.defineKey("minibuffer", "esc", "abort-minibuffer")
+  editor.defineKey("minibuffer", "esc", "abort-recursive-edit")
   editor.defineKey("minibuffer", "backspace", "delete-backward-char")
+
+  installEmacsStandardCommands(editor, killApi)
+  bindEmacsStandardKeys(editor)
 
   for (const command of ["git-link", "magit-find-main", "projectile-command-map", "ace-jump-word-mode", "ace-jump-char-mode", "yafolding-toggle-element", "lsp-find-definition", "lsp-ui-peek-find-implementation", "lsp-execute-code-action", "gptel-menu", "gptel", "restart-emacs"]) {
     if (!editor.commands.get(command)) editor.command(command, ({ editor }) => editor.message(`${command} is a package-backed command placeholder in Jemacs.`), `${command} package placeholder.`)
