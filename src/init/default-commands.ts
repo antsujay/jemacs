@@ -3,7 +3,23 @@ import { homedir } from "node:os"
 import { access, appendFile, mkdir } from "node:fs/promises"
 import type { CommandContext } from "../kernel/command"
 import type { Editor } from "../kernel/editor"
-import { diredEntryAtPoint, refreshDiredBuffer } from "../modes/dired"
+import {
+  diredCreateDirectory,
+  diredDoCopy,
+  diredDoDelete,
+  diredDoFlaggedDelete,
+  diredDoRename,
+  diredEntryAtPoint,
+  diredFlagFileDeletion,
+  diredMarkAll,
+  diredMarkEntry,
+  diredMarkFilesRegexp,
+  diredToggleMark,
+  diredUnmarkAll,
+  diredUnmarkBackward,
+  diredUnmarkEntry,
+  refreshDiredBuffer,
+} from "../modes/dired"
 import { pythonBeginningOfDefun, pythonEndOfDefun } from "../modes/python"
 import { Evaluator } from "../runtime/evaluator"
 import { inspectValue } from "../runtime/inspect"
@@ -287,6 +303,56 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     if (!buffer.path) return
     await editor.openDirectory(dirname(buffer.path))
   }, "Open the parent directory in Dired.")
+  editor.command("dired-mark", ({ buffer }) => {
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
+  }, "Mark the current Dired line.")
+  editor.command("dired-unmark", ({ buffer }) => {
+    diredUnmarkEntry(buffer, diredEntryAtPoint(buffer))
+  }, "Unmark the current Dired line.")
+  editor.command("dired-unmark-all", ({ buffer, editor }) => {
+    diredUnmarkAll(buffer)
+    editor.message("Unmarked all")
+  }, "Remove all marks and deletion flags in Dired.")
+  editor.command("dired-toggle-mark", ({ buffer }) => {
+    diredToggleMark(buffer, diredEntryAtPoint(buffer))
+  }, "Toggle the mark on the current Dired line.")
+  editor.command("dired-mark-all", ({ buffer, editor }) => {
+    diredMarkAll(buffer)
+    editor.message("Marked all files")
+  }, "Mark all files in this Dired buffer.")
+  editor.command("dired-mark-files-regexp", async ({ buffer, editor, args }) => {
+    const regexp = args[0] ?? await editor.prompt("% m Mark files (regexp): ", "", "dired-regexp")
+    if (!regexp) return
+    const count = diredMarkFilesRegexp(buffer, regexp, "marked")
+    editor.message(`Marked ${count} file(s)`)
+  }, "Mark files whose names match a regular expression.")
+  editor.command("dired-flag-files-regexp", async ({ buffer, editor, args }) => {
+    const regexp = args[0] ?? await editor.prompt("% d Flag files (regexp): ", "", "dired-regexp")
+    if (!regexp) return
+    const count = diredMarkFilesRegexp(buffer, regexp, "delete")
+    editor.message(`Flagged ${count} file(s) for deletion`)
+  }, "Flag files for deletion by regular expression.")
+  editor.command("dired-flag-file-deletion", ({ buffer }) => {
+    diredFlagFileDeletion(buffer, diredEntryAtPoint(buffer))
+  }, "Flag the current Dired line for deletion.")
+  editor.command("dired-do-flagged-delete", async ({ buffer, editor }) => {
+    await diredDoFlaggedDelete(editor, buffer)
+  }, "Delete files flagged for deletion in Dired.")
+  editor.command("dired-do-delete", async ({ buffer, editor, prefixArgument }) => {
+    await diredDoDelete(editor, buffer, prefixArgument)
+  }, "Delete file on the current line or marked files.")
+  editor.command("dired-do-copy", async ({ buffer, editor, prefixArgument }) => {
+    await diredDoCopy(editor, buffer, prefixArgument)
+  }, "Copy marked files or the file on the current line.")
+  editor.command("dired-do-rename", async ({ buffer, editor, prefixArgument }) => {
+    await diredDoRename(editor, buffer, prefixArgument)
+  }, "Rename a file or move marked files to another directory.")
+  editor.command("dired-create-directory", async ({ buffer, editor }) => {
+    await diredCreateDirectory(editor, buffer)
+  }, "Create a new directory in the current Dired listing.")
+  editor.command("dired-unmark-backward", ({ buffer }) => {
+    diredUnmarkBackward(buffer)
+  }, "Move up one line and unmark or unflag.")
   editor.command("quit-window", ({ editor }) => {
     editor.deleteWindow()
     if (editor.windows.length === 1) editor.nextBuffer()

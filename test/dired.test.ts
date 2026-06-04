@@ -1,0 +1,130 @@
+import { expect, test } from "bun:test"
+import { mkdir, readFile, rm, stat } from "node:fs/promises"
+import { join } from "node:path"
+import { installDefaultCommands } from "../src/init/default-commands"
+import { Editor } from "../src/kernel/editor"
+import {
+  diredDoCopy,
+  diredDoDelete,
+  diredDoFlaggedDelete,
+  diredEntryAtPoint,
+  diredFlaggedEntries,
+  diredMarkAll,
+  diredMarkEntry,
+  diredMarkFilesRegexp,
+  diredToggleMark,
+  diredUnmarkAll,
+  diredUnmarkEntry,
+  refreshDiredBuffer,
+} from "../src/modes/dired"
+import { installDefaultModes } from "../src/modes/default-modes"
+
+async function tempDiredDir(): Promise<string> {
+  const dir = `/tmp/jemacs-dired-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  await mkdir(dir, { recursive: true })
+  await Bun.write(join(dir, "alpha.txt"), "alpha")
+  await Bun.write(join(dir, "beta.txt"), "beta")
+  return dir
+}
+
+test("dired mark, unmark, toggle, and mark-all update the listing", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    const alphaLine = buffer.text.indexOf("alpha.txt")
+    buffer.point = alphaLine
+
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
+    expect(buffer.text).toContain("* -")
+
+    diredToggleMark(buffer, diredEntryAtPoint(buffer))
+    expect(buffer.text).not.toContain("* -     ")
+
+    diredMarkAll(buffer)
+    expect(buffer.text.match(/^\* /gm)?.length).toBeGreaterThanOrEqual(2)
+
+    diredUnmarkAll(buffer)
+    expect(buffer.text).not.toMatch(/^\* /m)
+
+    const count = diredMarkFilesRegexp(buffer, "beta\\.txt$", "marked")
+    expect(count).toBe(1)
+    expect(buffer.text).toContain("beta.txt")
+    expect(buffer.text).toMatch(/^\* -.*beta\.txt/m)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("dired copies and deletes files with Emacs-style prompts", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  const dest = `${dir}-copy`
+  try {
+    const buffer = await editor.openDirectory(dir)
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
+
+    const copyPrompt = diredDoCopy(editor, buffer, null)
+    expect(editor.minibuffer?.prompt).toContain("Copy to:")
+    editor.activeBuffer.setText(dest, true)
+    editor.activeBuffer.point = dest.length
+    await editor.handleKey({ name: "return" })
+    await copyPrompt
+    expect(await readFile(join(dest, "alpha.txt"), "utf8")).toBe("alpha")
+
+    buffer.point = buffer.text.indexOf("beta.txt")
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "delete")
+    expect(diredFlaggedEntries(buffer).map(entry => entry.name)).toEqual(["beta.txt"])
+
+    const deletePrompt = diredDoFlaggedDelete(editor, buffer)
+    editor.activeBuffer.setText("yes", true)
+    await editor.handleKey({ name: "return" })
+    await deletePrompt
+    await expect(stat(join(dir, "beta.txt"))).rejects.toThrow()
+
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    const rmPrompt = diredDoDelete(editor, buffer, null)
+    editor.activeBuffer.setText("yes", true)
+    await editor.handleKey({ name: "return" })
+    await rmPrompt
+    await expect(stat(join(dir, "alpha.txt"))).rejects.toThrow()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+    await rm(dest, { recursive: true, force: true })
+  }
+})
+
+test("dired keymap binds mark, copy, delete, and regexp commands", async () => {
+  installDefaultModes()
+  const { getMode } = await import("../src/modes/mode")
+  installDefaultModes()
+  const keymap = getMode("dired")?.keymap
+  expect(keymap?.get("m")).toBe("dired-mark")
+  expect(keymap?.get("C")).toBe("dired-do-copy")
+  expect(keymap?.get("x")).toBe("dired-do-flagged-delete")
+  expect(keymap?.get("% m")).toBe("dired-mark-files-regexp")
+  expect(keymap?.get("U")).toBe("dired-unmark-all")
+  expect(keymap?.get("% .")).toBe("dired-mark-all")
+})
+
+test("dired revert keeps marks on surviving files", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
+    await Bun.write(join(dir, "gamma.txt"), "gamma")
+    await refreshDiredBuffer(buffer)
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).toContain("gamma.txt")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
