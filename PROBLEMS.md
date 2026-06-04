@@ -1,5 +1,4 @@
 * The pwd used for find-file is sometimes wrong
-* No markdown-mode
 * There's a weird buffer rectangle when you have it focused. IDK if I like that
 * Help buffer doesn't support mark highlighting. Neither does markdown-mode
 * `../` doesn't work in `dired-mode`

@@ -6,6 +6,7 @@ import Python from "tree-sitter-python"
 import JavaScript from "tree-sitter-javascript"
 import HTML from "tree-sitter-html"
 import Java from "tree-sitter-java"
+import Markdown from "@tree-sitter-grammars/tree-sitter-markdown"
 import type { BufferModel } from "../kernel/buffer"
 import type { FaceName, TextSpan } from "./mode"
 
@@ -42,6 +43,17 @@ const CAPTURE_FACES: Record<string, FaceName> = {
   punctuation: "default",
   tag: "keyword",
   attribute: "type",
+  "text.title": "type",
+  "text.literal": "string",
+  "text.uri": "string",
+  "text.reference": "function",
+  "text.emphasis": "constant",
+  "text.strong": "builtin",
+  "markup.heading": "type",
+  "markup.raw": "string",
+  "markup.link": "function",
+  "markup.quote": "comment",
+  "markup.list": "keyword",
 }
 
 const CAPTURE_PRIORITY: Record<string, number> = {
@@ -94,10 +106,13 @@ const languageSpecs: Map<string, LanguageSpec> = new Map([
   ["typescript", { language: JavaScript as Language, highlightsPath: queryPath("tree-sitter-javascript") }],
   ["html", { language: HTML as Language, highlight: highlightHtml }],
   ["java", { language: Java as Language, highlight: highlightJava }],
+  ["markdown", { language: Markdown as Language }],
+  ["gfm", { language: Markdown as Language }],
 ])
 
 const parsers = new Map<string, Parser>()
 const queries = new Map<string, Parser.Query>()
+const markdownInlineLanguage = (Markdown as { inline: Language }).inline
 
 export function treeSitterFontLock(language: string, buffer: BufferModel): TextSpan[] {
   const spec = languageSpecs.get(language)
@@ -106,6 +121,7 @@ export function treeSitterFontLock(language: string, buffer: BufferModel): TextS
     const parser = parserFor(language, spec.language)
     const tree = parser.parse(buffer.text)
     if (spec.highlightsPath) return highlightWithQuery(spec, tree.rootNode)
+    if (language === "markdown" || language === "gfm") return highlightMarkdown(tree.rootNode, buffer.text)
     return spec.highlight?.(tree.rootNode) ?? []
   } catch {
     return []
@@ -239,9 +255,139 @@ function pushSpan(spans: TextSpan[], node: SyntaxNode, face: FaceName): void {
   spans.push({ start: node.startIndex, end: node.endIndex, face })
 }
 
+function highlightMarkdown(root: SyntaxNode, text: string): TextSpan[] {
+  const spans: TextSpan[] = []
+  const inlineParser = parserFor("markdown-inline", markdownInlineLanguage)
+
+  const walkBlock = (node: SyntaxNode): void => {
+    switch (node.type) {
+      case "atx_heading": {
+        const marker = node.children.find(child => child.type.startsWith("atx_h"))
+        if (marker) pushSpan(spans, marker, "keyword")
+        const inline = node.children.find(child => child.type === "inline")
+        if (inline) {
+          pushSpan(spans, inline, "type")
+          highlightInlineRegion(spans, inline, text, inlineParser)
+        }
+        return
+      }
+      case "setext_heading": {
+        for (const child of node.children) {
+          if (child.type === "paragraph") pushSpan(spans, child, "type")
+          else if (child.type.startsWith("setext_h")) pushSpan(spans, child, "keyword")
+        }
+        return
+      }
+      case "fenced_code_block":
+      case "indented_code_block":
+        pushSpan(spans, node, "string")
+        return
+      case "block_quote":
+        pushSpan(spans, node, "comment")
+        return
+      case "thematic_break":
+      case "list_marker_plus":
+      case "list_marker_minus":
+      case "list_marker_star":
+      case "list_marker_dot":
+      case "list_marker_parenthesis":
+      case "block_quote_marker":
+        pushSpan(spans, node, "keyword")
+        return
+      case "html_block":
+      case "html_comment":
+        pushSpan(spans, node, "comment")
+        return
+      case "plus_metadata":
+      case "minus_metadata":
+        pushSpan(spans, node, "keyword")
+        return
+      case "info_string":
+      case "language":
+        pushSpan(spans, node, "type")
+        return
+      case "pipe_table_header":
+      case "pipe_table_row":
+      case "pipe_table_delimiter_row":
+        for (const child of node.children) {
+          if (child.type === "pipe_table_cell") pushSpan(spans, child, "type")
+          else if (child.type === "pipe_table_delimiter_cell" || child.text === "|") pushSpan(spans, child, "keyword")
+        }
+        return
+      case "inline":
+        highlightInlineRegion(spans, node, text, inlineParser)
+        return
+      default:
+        break
+    }
+    for (const child of node.children) walkBlock(child)
+  }
+
+  walkBlock(root)
+  return mergeSpans(spans)
+}
+
+function highlightInlineRegion(
+  spans: TextSpan[],
+  node: SyntaxNode,
+  text: string,
+  inlineParser: Parser,
+): void {
+  const ranges = [{
+    startIndex: node.startIndex,
+    endIndex: node.endIndex,
+    startPosition: node.startPosition,
+    endPosition: node.endPosition,
+  }]
+  const tree = inlineParser.parse(text, null, { includedRanges: ranges })
+  const walkInline = (inlineNode: SyntaxNode): void => {
+    switch (inlineNode.type) {
+      case "strong_emphasis":
+        pushSpan(spans, inlineNode, "builtin")
+        break
+      case "emphasis":
+        pushSpan(spans, inlineNode, "constant")
+        break
+      case "code_span":
+        pushSpan(spans, inlineNode, "string")
+        break
+      case "shortcut_link":
+      case "inline_link":
+        pushSpan(spans, inlineNode, "function")
+        break
+      case "link_label":
+      case "link_text":
+      case "image_description":
+        pushSpan(spans, inlineNode, "function")
+        break
+      case "link_destination":
+      case "uri_autolink":
+        pushSpan(spans, inlineNode, "string")
+        break
+      case "backslash_escape":
+      case "hard_line_break":
+        pushSpan(spans, inlineNode, "string")
+        break
+      case "code_span_delimiter":
+      case "emphasis_delimiter":
+        pushSpan(spans, inlineNode, "keyword")
+        break
+      default:
+        break
+    }
+    for (const child of inlineNode.children) walkInline(child)
+  }
+  walkInline(tree.rootNode)
+}
+
+function mergeSpans(spans: TextSpan[]): TextSpan[] {
+  return spans.sort((a, b) => a.start - b.start || a.end - b.end)
+}
+
 function captureFace(name: string): FaceName | undefined {
   if (name === "constructor") return "type"
-  return CAPTURE_FACES[name]
+  const base = name.split(".")[0]!
+  return CAPTURE_FACES[name] ?? CAPTURE_FACES[base]
 }
 
 function queryPath(packageName: string): string | undefined {
