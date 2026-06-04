@@ -1,5 +1,6 @@
 import type { SerializedDisplayModel } from "../display/serialize"
 import { presentDomFrame } from "../display/dom-frame"
+import { domKeyFromKeyboardEvent } from "./dom-key"
 
 const titleEl = document.getElementById("jemacs-title")!
 const windowsEl = document.getElementById("jemacs-windows")!
@@ -26,35 +27,10 @@ function present(model: SerializedDisplayModel): void {
   )
 }
 
-function keyName(event: KeyboardEvent): string {
-  if (event.key === "Enter") return "return"
-  if (event.key === "Escape") return "escape"
-  if (event.key === "Tab") return "tab"
-  if (event.key === "Backspace") return "backspace"
-  if (event.key === " ") return "space"
-  if (event.key.length === 1) return event.key.toLowerCase()
-  return event.key.toLowerCase()
-}
-
 document.addEventListener("keydown", event => {
   if (event.defaultPrevented) return
-  const name = keyName(event)
-  if (event.metaKey && name.length === 1) {
-    event.preventDefault()
-    return
-  }
-  window.jemacs.sendInput({
-    type: "key",
-    key: {
-      name,
-      sequence: event.key,
-      raw: event.key,
-      ctrl: event.ctrlKey,
-      meta: event.metaKey || event.altKey,
-      shift: event.shiftKey,
-    },
-  })
-  if (name.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) event.preventDefault()
+  window.jemacs.sendInput({ type: "key", key: domKeyFromKeyboardEvent(event) })
+  event.preventDefault()
 })
 
 document.addEventListener("paste", event => {

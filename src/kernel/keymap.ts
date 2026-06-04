@@ -232,6 +232,8 @@ function macOptionMetaKey(key: KeyEventLike): string | null {
       return "."
     case "≤":
       return ","
+    case "√":
+      return "v"
     default:
       return null
   }

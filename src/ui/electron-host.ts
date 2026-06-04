@@ -110,12 +110,13 @@ export class ElectronHost implements UiHost {
   }
 }
 
-/** Map DOM KeyboardEvent fields to kernel key representation (renderer sends this shape). */
+/** Map DOM key payload from the renderer to kernel key representation. */
 export function domKeyToKeyEventLike(detail: {
   name: string
   sequence?: string
   ctrl?: boolean
   meta?: boolean
+  super?: boolean
   shift?: boolean
 }): KeyEventLike {
   return {
@@ -124,6 +125,7 @@ export function domKeyToKeyEventLike(detail: {
     raw: detail.sequence ?? detail.name,
     ctrl: detail.ctrl,
     meta: detail.meta,
+    super: detail.super,
     shift: detail.shift,
   }
 }
