@@ -1,18 +1,20 @@
 import type { BufferModel } from "../kernel/buffer"
 import type { TextSpan } from "../modes/mode"
 import { positionToPoint, uriToPath } from "./positions"
-import type { LspDiagnostic } from "./buffer-state"
+import type { Diagnostic } from "./lsp-protocol"
+import { lspPublishDiagnosticsParamsP } from "./lsp-protocol"
 import type { LspWorkspace } from "./workspace"
 
 export function handlePublishDiagnostics(workspace: LspWorkspace, params: unknown): void {
-  const record = params as { uri?: string; diagnostics?: LspDiagnostic[] }
+  if (!lspPublishDiagnosticsParamsP(params)) return
+  const record = params as { uri: string; diagnostics: Diagnostic[] }
   if (!record.uri) return
   const path = uriToPath(record.uri)
   workspace.diagnosticsByPath.set(path, record.diagnostics ?? [])
   workspace.onDiagnosticsUpdated?.(path)
 }
 
-export function diagnosticsForBuffer(buffer: BufferModel, workspace: LspWorkspace): LspDiagnostic[] {
+export function diagnosticsForBuffer(buffer: BufferModel, workspace: LspWorkspace): Diagnostic[] {
   if (!buffer.path) return []
   return workspace.diagnosticsByPath.get(buffer.path) ?? []
 }

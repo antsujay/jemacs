@@ -2,13 +2,14 @@ import type { BufferModel } from "../kernel/buffer"
 import type { CompletionCandidate } from "../modes/mode"
 import { pointToPosition } from "./positions"
 import type { LspWorkspace } from "./workspace"
-
-type CompletionItem = {
-  label: string
-  insertText?: string
-  textEdit?: { range?: { start: { line: number; character: number }; end: { line: number; character: number } }; newText?: string }
-  sortText?: string
-}
+import {
+  CompletionTriggerKind,
+  lspCompletionListP,
+  lspMakeCompletionParams,
+  lspMakeTextDocumentIdentifier,
+  type CompletionItem,
+  type CompletionList,
+} from "./lsp-protocol"
 
 export async function lspCompletionAtPoint(
   buffer: BufferModel,
@@ -21,13 +22,19 @@ export async function lspCompletionAtPoint(
   for (const workspace of workspaces) {
     if (workspace.status !== "initialized") continue
     try {
-      const result = await workspace.rpc.request("textDocument/completion", {
-        textDocument: { uri: workspace.uriForBuffer(buffer) },
+      const params = lspMakeCompletionParams({
+        textDocument: lspMakeTextDocumentIdentifier({ uri: workspace.uriForBuffer(buffer) }),
         position,
-        context: { triggerKind: 1 },
-      }) as CompletionItem[] | { items?: CompletionItem[] } | null
+        context: { triggerKind: CompletionTriggerKind.Invoked },
+      })
+      const result = await workspace.rpc.request("textDocument/completion", params) as CompletionItem[] | CompletionList | null
 
-      const items = Array.isArray(result) ? result : result?.items ?? []
+      const items = Array.isArray(result)
+        ? result
+        : result && lspCompletionListP(result)
+          ? result.items
+          : []
+
       if (!items.length) continue
 
       const sorted = [...items].sort((a, b) => (a.sortText ?? a.label).localeCompare(b.sortText ?? b.label))

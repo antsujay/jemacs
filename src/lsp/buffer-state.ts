@@ -1,13 +1,8 @@
+import type { Diagnostic } from "vscode-languageserver-types"
 import type { BufferModel } from "../kernel/buffer"
 import type { LspWorkspace } from "./workspace"
 
-export type LspDiagnostic = {
-  range: { start: { line: number; character: number }; end: { line: number; character: number } }
-  severity?: number
-  message: string
-  source?: string
-  code?: string | number
-}
+export type { Diagnostic as LspDiagnostic }
 
 export type BufferLspState = {
   workspaces: LspWorkspace[]

@@ -5,7 +5,14 @@ import { handlePublishDiagnostics } from "./diagnostics"
 import { bufferUri, pathToUri } from "./positions"
 import { createRpcConnection, type LspRpcConnection } from "./rpc"
 import { textDocumentDidOpen } from "./sync"
-import { makeResponse, serializeMessage, type JsonRpcMessage } from "./protocol"
+import { makeResponse, serializeMessage, type JsonRpcMessage } from "./transport"
+import {
+  lspMakeInitializeParams,
+  lspInitializeResultP,
+  type InitializeParams,
+  type InitializeResult,
+  type ServerCapabilities,
+} from "./lsp-protocol"
 import type { LspDiagnostic } from "./buffer-state"
 
 export type WorkspaceStatus = "starting" | "initialized" | "shutdown"
@@ -15,7 +22,7 @@ export type LspWorkspace = {
   client: LspClient
   status: WorkspaceStatus
   buffers: BufferModel[]
-  serverCapabilities: Record<string, unknown> | null
+  serverCapabilities: ServerCapabilities | null
   diagnosticsByPath: Map<string, LspDiagnostic[]>
   rpc: LspRpcConnection
   send: (payload: string) => void
@@ -88,16 +95,18 @@ export async function startWorkspace(
     ? client.initializationOptions()
     : client.initializationOptions
 
-  const result = await workspace.rpc.request("initialize", {
+  const initParams = lspMakeInitializeParams({
     processId: process.pid,
     rootUri: pathToUri(root),
     rootPath: root,
     capabilities: clientCapabilities(),
     clientInfo: { name: "jemacs", version: "0.1.0" },
     initializationOptions: initOptions ?? {},
-  }) as { capabilities?: Record<string, unknown> }
+  }) as InitializeParams
 
-  workspace.serverCapabilities = result.capabilities ?? null
+  const result = await workspace.rpc.request("initialize", initParams)
+  if (!lspInitializeResultP(result)) throw new Error("Invalid initialize response from language server")
+  workspace.serverCapabilities = (result as InitializeResult).capabilities ?? null
   workspace.status = "initialized"
   workspace.rpc.sendNotification("initialized", {})
   client.initializedFn?.(workspace)

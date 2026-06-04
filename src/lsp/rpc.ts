@@ -1,4 +1,4 @@
-import { LspMessageParser, makeRequest, messageKind, serializeMessage, type JsonRpcMessage } from "./protocol"
+import { LspMessageParser, makeRequest, messageKind, serializeMessage, type JsonRpcMessage } from "./transport"
 
 export type PendingRequest = {
   method: string

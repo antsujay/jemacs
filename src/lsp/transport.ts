@@ -1,25 +1,27 @@
 /** Content-Length JSON-RPC transport (lsp--make-message, lsp--create-filter-function). */
 
+import type { LSPAny } from "vscode-languageserver-types"
+
 export type JsonRpcMessage = {
   jsonrpc?: string
   id?: number | string | null
   method?: string
-  params?: unknown
-  result?: unknown
-  error?: { code?: number; message?: string; data?: unknown }
+  params?: LSPAny
+  result?: LSPAny
+  error?: { code?: number; message?: string; data?: LSPAny }
 }
 
 export type MessageKind = "request" | "response" | "response-error" | "notification"
 
-export function makeNotification(method: string, params?: unknown): JsonRpcMessage {
+export function makeNotification(method: string, params?: LSPAny): JsonRpcMessage {
   return { jsonrpc: "2.0", method, params }
 }
 
-export function makeRequest(method: string, params: unknown, id: number): JsonRpcMessage {
+export function makeRequest(method: string, params: LSPAny, id: number): JsonRpcMessage {
   return { jsonrpc: "2.0", id, method, params }
 }
 
-export function makeResponse(id: number | string, result: unknown): JsonRpcMessage {
+export function makeResponse(id: number | string, result: LSPAny): JsonRpcMessage {
   return { jsonrpc: "2.0", id, result }
 }
 
