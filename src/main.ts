@@ -2,6 +2,7 @@ import { Editor } from "./kernel/editor"
 import { installDefaultConfig } from "./config"
 import { installDefaultModes } from "./modes/default-modes"
 import { installLspMode } from "./lsp/install"
+import { installXref } from "./xref/install"
 import { startOpenTui } from "./ui/opentui"
 
 async function main(): Promise<void> {
@@ -9,6 +10,7 @@ async function main(): Promise<void> {
   const editor = new Editor()
   installDefaultConfig(editor)
   installLspMode(editor)
+  installXref(editor)
 
   const file = Bun.argv[2]
   if (file) await editor.openFile(file)

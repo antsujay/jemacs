@@ -605,7 +605,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   installEmacsStandardCommands(editor, killApi)
 
-  for (const command of ["git-link", "magit-find-main", "projectile-command-map", "ace-jump-word-mode", "ace-jump-char-mode", "yafolding-toggle-element", "lsp-find-definition", "lsp-ui-peek-find-implementation", "lsp-execute-code-action", "gptel-menu", "gptel", "restart-emacs"]) {
+  for (const command of ["git-link", "magit-find-main", "projectile-command-map", "ace-jump-word-mode", "ace-jump-char-mode", "yafolding-toggle-element", "lsp-ui-peek-find-implementation", "lsp-execute-code-action", "gptel-menu", "gptel", "restart-emacs"]) {
     if (!editor.commands.get(command)) editor.command(command, ({ editor }) => editor.message(`${command} is a package-backed command placeholder in Jemacs.`), `${command} package placeholder.`)
   }
 

@@ -7,6 +7,8 @@ import { ensureBufferLspState, getBufferLspState, setBufferWorkspaces } from "./
 import { bufferUri } from "./positions"
 import { textDocumentDidChange, textDocumentDidChangeFull, textDocumentDidClose } from "./sync"
 import { lspCompletionAtPoint } from "./completion"
+import { lspDefinitionsAtPoint } from "./definition"
+import type { XrefLocation } from "../xref/types"
 import { diagnosticSpans as buildDiagnosticSpans } from "./diagnostics"
 import type { LspWorkspace } from "./workspace"
 import { shutdownWorkspace, startWorkspace } from "./workspace"
@@ -132,6 +134,11 @@ export class LspManager {
   async completionAtPoint(buffer: BufferModel): Promise<CompletionCandidate[]> {
     const workspaces = this.bufferWorkspaces(buffer).filter(w => w.status === "initialized")
     return lspCompletionAtPoint(buffer, workspaces)
+  }
+
+  async definitionsAtPoint(buffer: BufferModel): Promise<XrefLocation[]> {
+    const workspaces = this.bufferWorkspaces(buffer).filter(w => w.status === "initialized")
+    return lspDefinitionsAtPoint(buffer, workspaces)
   }
 
   diagnosticSpans(buffer: BufferModel): TextSpan[] {
