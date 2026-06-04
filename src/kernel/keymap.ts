@@ -6,6 +6,7 @@ export type KeyEventLike = {
   ctrl?: boolean
   meta?: boolean
   shift?: boolean
+  super?: boolean
 }
 
 export type KeyLookupResult =
@@ -117,22 +118,34 @@ export function normalizeSequence(sequence: string): string {
 }
 
 export function normalizeToken(token: string): string {
-  const t = token.trim()
-  if (!t) return t
-  if (/^C-/i.test(t)) return `C-${t.slice(2).toLowerCase()}`
-  if (/^M-/i.test(t)) return `M-${t.slice(2).toLowerCase()}`
-  return t.toLowerCase()
+  const raw = token.trim()
+  if (!raw) return raw
+  const parts = raw.split("-")
+  const key = normalizeKeyName(parts.pop() ?? "")
+  const lowerMods = new Set(parts.map(p => p.toLowerCase()))
+  const hasShift = parts.some(p => p === "S" || p.toLowerCase() === "shift")
+  const hasSuper = parts.some(p => p === "s" || ["super", "cmd", "command"].includes(p.toLowerCase()))
+  const ordered = [
+    lowerMods.has("c") || lowerMods.has("ctrl") ? "C" : null,
+    lowerMods.has("m") || lowerMods.has("meta") || lowerMods.has("alt") ? "M" : null,
+    hasShift ? "S" : null,
+    hasSuper ? "s" : null,
+  ].filter(Boolean)
+  return [...ordered, key].join("-")
 }
 
 export function keyToken(key: KeyEventLike): string {
   const macOptionMeta = macOptionMetaKey(key)
   if (macOptionMeta) return `M-${macOptionMeta}`
 
-  const name = key.name === "return" ? "enter" : key.name === "escape" ? "esc" : key.name
-  const base = name === "space" && key.sequence === " " ? "space" : name.toLowerCase()
-  if (key.ctrl) return `C-${base}`
-  if (key.meta) return `M-${base}`
-  return base
+  const base = normalizeKeyName(key.name === "return" ? "enter" : key.name === "escape" ? "esc" : key.name === "space" && key.sequence === " " ? "space" : key.name)
+  const mods = [
+    key.ctrl ? "C" : null,
+    key.meta ? "M" : null,
+    key.shift ? "S" : null,
+    key.super ? "s" : null,
+  ].filter(Boolean)
+  return [...mods, base].join("-")
 }
 
 export function isMetaKey(key: KeyEventLike): boolean {
@@ -140,7 +153,11 @@ export function isMetaKey(key: KeyEventLike): boolean {
 }
 
 export function isPrintable(key: KeyEventLike): boolean {
-  return !key.ctrl && !isMetaKey(key) && typeof key.sequence === "string" && key.sequence.length > 0 && (key.name.length === 1 || key.sequence === " ")
+  return !key.ctrl && !key.super && !isMetaKey(key) && typeof key.sequence === "string" && key.sequence.length > 0 && (key.name.length === 1 || key.sequence === " ")
+}
+
+function normalizeKeyName(name: string): string {
+  return name.toLowerCase().replace(/^<(.+)>$/, "$1")
 }
 
 function macOptionMetaKey(key: KeyEventLike): string | null {

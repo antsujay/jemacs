@@ -1,6 +1,6 @@
 import { dirname, basename } from "node:path"
 
-export type BufferKind = "file" | "directory" | "scratch" | "messages" | "inspector" | "minibuffer"
+export type BufferKind = "file" | "directory" | "scratch" | "messages" | "inspector" | "minibuffer" | "grep"
 
 export class BufferModel {
   readonly id: string
@@ -207,8 +207,19 @@ export function inferMode(path: string): string {
   if (/\.(js|mjs|cjs|jsx)$/.test(path)) return "javascript"
   if (/\.(ts|mts|cts|tsx)$/.test(path)) return "typescript"
   if (/\.json$/.test(path)) return "json"
-  if (/\.md$/.test(path)) return "markdown"
+  if (/\.ya?ml$/.test(path)) return "yaml"
+  if (/\.mdx?$/.test(path)) return "markdown"
   if (/\.py$/.test(path)) return "python"
+  if (/\.rs$/.test(path)) return "rust"
+  if (/\.go$/.test(path)) return "go"
+  if (/\.proto$/.test(path)) return "protobuf"
+  if (/\.http$/.test(path)) return "restclient"
+  if (/\.tf$/.test(path)) return "terraform"
+  if (/\.(hbs|handlebars)$/.test(path)) return "handlebars"
+  if (/\.glsl$/.test(path)) return "glsl"
+  if (/(^|\/)Jenkinsfile$/.test(path)) return "jenkinsfile"
+  if (/\.exs?$/.test(path)) return "elixir"
+  if (/\.prisma$/.test(path)) return "prisma"
   return "text"
 }
 

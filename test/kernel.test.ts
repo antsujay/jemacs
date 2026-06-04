@@ -332,3 +332,63 @@ test("styled TUI chunks show the active region between mark and point", () => {
   expect(rendered.chunks.some(chunk => chunk.text === "hello" && chunk.bg)).toBe(true)
   expect(rendered.chunks.map(chunk => chunk.text).join("")).toBe("hello█world")
 })
+
+test("Stephen config feature slice installs modes, keybindings, windows, tabs, registers, and MCP helpers", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  const { getMode } = await import("../src/modes/mode")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+
+  expect((await editor.openFile("/tmp/jemacs-config-test.ts")).mode).toBe("typescript")
+  expect((await editor.openFile("/tmp/jemacs-config-test.rs")).mode).toBe("rust")
+  expect((await editor.openFile("/tmp/jemacs-config-test.go")).mode).toBe("go")
+  expect((await editor.openFile("/tmp/jemacs-config-test.proto")).mode).toBe("protobuf")
+  expect(getMode("protobuf")?.keymap?.get("C-c n")).toBe("proto-renumber")
+
+  expect(editor.keymap.get("C-x C-j")).toBe("previous-buffer")
+  expect(editor.keymap.get("C-x C-r")).toBe("revert-buffer")
+  expect(editor.keymap.get("s-f")).toBe("counsel-ag")
+  expect(editor.keymaps.describe("C-M-S-<tab>")?.command).toBe("tab-bar-switch-to-prev-tab")
+  expect(editor.keymaps.describe("C-\\")?.command).toBe("tiling-cycle")
+
+  const buffer = editor.scratch("registers", "one\ntwo\nthree", "text")
+  buffer.point = 4
+  await editor.run("point-to-register", ["f"])
+  buffer.point = 0
+  await editor.run("jump-to-register", ["f"])
+  expect(buffer.point).toBe(4)
+
+  await editor.run("split-window")
+  expect(editor.windows).toHaveLength(2)
+  await editor.run("next-window-any-frame")
+  expect(editor.selectedWindow).toBe(0)
+  await editor.run("tab-bar-new-tab")
+  expect(editor.tabs).toHaveLength(2)
+  await editor.run("tiling-cycle")
+  expect(editor.tilingLayout).toBe("tiling-master-top")
+
+  await editor.run("stephen-emacs-mcp-doctor")
+  expect(editor.currentBuffer.name).toBe("*emacs-mcp-doctor*")
+  expect(editor.currentBuffer.text).toContain("@keegancsmith/emacs-mcp-server")
+})
+
+test("Stephen protobuf and generic code helpers run inside Jemacs", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.scratch("service.proto", "string a = 9;\nstring b = 42;\n", "protobuf")
+
+  buffer.mark = 0
+  buffer.point = buffer.text.length
+  await editor.run("proto-renumber")
+  expect(buffer.text).toBe("string a = 1;\nstring b = 2;\n")
+
+  buffer.point = buffer.text.length
+  await editor.run("proto-add-rpc", ["DoThing"])
+  expect(buffer.text).toContain("rpc DoThing(DoThingRequest) returns (DoThingResponse);")
+
+  const spans = editor.fontLock(editor.scratch("main.rs", "fn main() { return }\n", "rust"))
+  expect(spans.some(span => span.face === "keyword")).toBe(true)
+})

@@ -43,7 +43,13 @@ export class Editor {
   readonly events = new Emitter<EditorEvents>()
   readonly keymaps = new KeymapStack(() => this.activeKeymaps())
   readonly minibufferHistory = new Map<string, string[]>()
+  readonly registers = new Map<string, number>()
+  readonly tabs: Array<{ name: string; bufferId: string }> = []
+  readonly windows: string[] = []
   theme: Theme = defaultTheme
+  selectedWindow = 0
+  selectedTab = 0
+  tilingLayout = "tiling-master-left"
   currentBufferId: string
   minibuffer: MinibufferRequest | null = null
   running = true
@@ -58,6 +64,8 @@ export class Editor {
     this.addBuffer(scratch)
     this.addBuffer(messages)
     this.currentBufferId = scratch.id
+    this.windows.push(scratch.id)
+    this.tabs.push({ name: "1", bufferId: scratch.id })
   }
 
   get currentBuffer(): BufferModel {
@@ -78,6 +86,8 @@ export class Editor {
     const found = this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
     if (!found) throw new Error(`No such buffer: ${idOrName}`)
     this.currentBufferId = found.id
+    this.windows[this.selectedWindow] = found.id
+    if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = found.id
     void this.changed("switch-buffer")
     return found
   }
@@ -87,8 +97,21 @@ export class Editor {
     const i = values.findIndex(b => b.id === this.currentBufferId)
     const next = values[(i + 1) % values.length]!
     this.currentBufferId = next.id
+    this.windows[this.selectedWindow] = next.id
+    if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = next.id
     void this.changed("next-buffer")
     return next
+  }
+
+  previousBuffer(): BufferModel {
+    const values = [...this.buffers.values()].filter(b => b.kind !== "minibuffer")
+    const i = values.findIndex(b => b.id === this.currentBufferId)
+    const previous = values[(i - 1 + values.length) % values.length]!
+    this.currentBufferId = previous.id
+    this.windows[this.selectedWindow] = previous.id
+    if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = previous.id
+    void this.changed("previous-buffer")
+    return previous
   }
 
   async openFile(path: string): Promise<BufferModel> {
@@ -100,6 +123,8 @@ export class Editor {
     const buffer = await BufferModel.fromFile(full)
     this.addBuffer(buffer)
     this.currentBufferId = buffer.id
+    this.windows[this.selectedWindow] = buffer.id
+    if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = buffer.id
     this.enterMode(buffer, buffer.mode)
     await this.changed("open-file")
     return buffer
@@ -112,6 +137,8 @@ export class Editor {
     const buffer = await makeDiredBuffer(full)
     this.addBuffer(buffer)
     this.currentBufferId = buffer.id
+    this.windows[this.selectedWindow] = buffer.id
+    if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = buffer.id
     this.enterMode(buffer, "dired")
     await this.changed("open-directory")
     return buffer
@@ -124,6 +151,8 @@ export class Editor {
       existing.kind = name === "*messages*" ? "messages" : "scratch"
       this.enterMode(existing, mode)
       this.currentBufferId = existing.id
+      this.windows[this.selectedWindow] = existing.id
+      if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = existing.id
       void this.changed("scratch-update")
       return existing
     }
@@ -131,6 +160,8 @@ export class Editor {
     this.addBuffer(buffer)
     this.enterMode(buffer, mode)
     this.currentBufferId = buffer.id
+    this.windows[this.selectedWindow] = buffer.id
+    if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = buffer.id
     void this.changed("scratch")
     return buffer
   }
@@ -281,6 +312,57 @@ export class Editor {
   setTheme(theme: Theme): void {
     this.theme = theme
     void this.changed("theme")
+  }
+
+  splitWindow(): void {
+    this.windows.splice(this.selectedWindow + 1, 0, this.currentBufferId)
+    this.selectedWindow++
+    void this.changed("split-window")
+  }
+
+  nextWindow(delta = 1): void {
+    if (!this.windows.length) return
+    this.selectedWindow = (this.selectedWindow + delta + this.windows.length) % this.windows.length
+    this.currentBufferId = this.windows[this.selectedWindow]!
+    void this.changed("select-window")
+  }
+
+  deleteWindow(): void {
+    if (this.windows.length <= 1) return
+    this.windows.splice(this.selectedWindow, 1)
+    this.selectedWindow = Math.min(this.selectedWindow, this.windows.length - 1)
+    this.currentBufferId = this.windows[this.selectedWindow]!
+    void this.changed("delete-window")
+  }
+
+  newTab(): void {
+    this.tabs.push({ name: String(this.tabs.length + 1), bufferId: this.currentBufferId })
+    this.selectedTab = this.tabs.length - 1
+    void this.changed("new-tab")
+  }
+
+  switchTab(delta: number): void {
+    if (!this.tabs.length) return
+    this.selectedTab = (this.selectedTab + delta + this.tabs.length) % this.tabs.length
+    this.currentBufferId = this.tabs[this.selectedTab]!.bufferId
+    this.windows[this.selectedWindow] = this.currentBufferId
+    void this.changed("switch-tab")
+  }
+
+  closeTab(): void {
+    if (this.tabs.length <= 1) return
+    this.tabs.splice(this.selectedTab, 1)
+    this.selectedTab = Math.min(this.selectedTab, this.tabs.length - 1)
+    this.currentBufferId = this.tabs[this.selectedTab]!.bufferId
+    this.windows[this.selectedWindow] = this.currentBufferId
+    void this.changed("close-tab")
+  }
+
+  cycleTilingLayout(): string {
+    const layouts = ["tiling-master-left", "tiling-master-top", "tiling-even-horizontal", "tiling-even-vertical", "tiling-tile-4"]
+    this.tilingLayout = layouts[(layouts.indexOf(this.tilingLayout) + 1) % layouts.length]!
+    void this.changed("tiling-cycle")
+    return this.tilingLayout
   }
 
   universalArgument(): void {
