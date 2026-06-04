@@ -11,6 +11,12 @@ import { isearchMatchSpan, isearchPrompt } from "../kernel/isearch"
 import { type WindowLeaf, type WindowNode } from "../kernel/window"
 import { applyTheme, type Theme } from "../display/theme"
 import { textWithCursor } from "./text-display"
+import {
+  adjustSpansForLineNumbers,
+  firstVisibleLineNumber,
+  formatWithLineNumbers,
+  gutterSpans,
+} from "./line-numbers"
 import type { TextSpan } from "../modes/mode"
 
 export async function startOpenTui(editor: Editor): Promise<void> {
@@ -263,6 +269,7 @@ class EditorUi {
       if (match) spans.push(match)
     }
     const maxLines = Math.max(1, availableLines - 1)
+    const showLineNumbers = buffer.kind !== "minibuffer" && this.editor.showLineNumbers(buffer)
     body.content = selected
       ? visibleStyledText(buffer.text, point, {
         mark,
@@ -270,13 +277,16 @@ class EditorUi {
         spans,
         theme: this.editor.theme,
         maxLines,
+        showLineNumbers,
       })
       : visibleStyledTextFromStart(buffer.text, point, leaf.startLine, {
         spans,
         theme: this.editor.theme,
         maxLines,
+        showLineNumbers,
       })
-    modeline.content = ` ${buffer.mode}  ${buffer.name}${dirty}${leaf.dedicated ? " [D]" : ""}  line ${line}, col ${col}${selected && buffer.mark != null ? `  mark=${buffer.mark}` : ""}`
+    const lighters = this.editor.minorModeLighters(buffer)
+    modeline.content = ` ${buffer.mode}${lighters}  ${buffer.name}${dirty}${leaf.dedicated ? " [D]" : ""}  line ${line}, col ${col}${selected && buffer.mark != null ? `  mark=${buffer.mark}` : ""}`
   }
 }
 
@@ -293,7 +303,7 @@ export function visibleText(text: string, point: number): string {
 export function visibleStyledText(
   text: string,
   point: number,
-  options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme, maxLines?: number },
+  options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme, maxLines?: number, showLineNumbers?: boolean },
 ): StyledText {
   const region = visibleTextRegion(text, point, options.maxLines)
   return styledRegion(text, region, point, options)
@@ -303,7 +313,7 @@ export function visibleStyledTextFromStart(
   text: string,
   point: number,
   startLine: number,
-  options: { spans?: TextSpan[], theme: Theme, maxLines?: number },
+  options: { spans?: TextSpan[], theme: Theme, maxLines?: number, showLineNumbers?: boolean },
 ): StyledText {
   const region = visibleTextRegionFromStart(text, startLine, options.maxLines)
   return styledRegion(text, region, point, { ...options, mark: null, markActive: false })
@@ -313,7 +323,7 @@ function styledRegion(
   text: string,
   region: { visible: string; visibleStart: number },
   point: number,
-  options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme },
+  options: { mark?: number | null, markActive?: boolean, spans?: TextSpan[], theme: Theme, showLineNumbers?: boolean },
 ): StyledText {
   const visibleEnd = region.visibleStart + region.visible.length
   const spans = options.spans ?? []
@@ -324,7 +334,15 @@ function styledRegion(
   const visibleSpans = allSpans
     .filter(span => span.end > region.visibleStart && span.start < visibleEnd)
     .map(span => ({ ...span, start: Math.max(0, span.start - region.visibleStart), end: Math.min(region.visible.length, span.end - region.visibleStart) }))
-  return applyTheme(region.visible, visibleSpans, options.theme)
+  if (!options.showLineNumbers) return applyTheme(region.visible, visibleSpans, options.theme)
+
+  const firstLine = firstVisibleLineNumber(region.visibleStart, text)
+  const format = formatWithLineNumbers(region.visible, firstLine)
+  const displaySpans = [
+    ...gutterSpans(format.text, format.prefixLen),
+    ...adjustSpansForLineNumbers(visibleSpans, region.visible, format.prefixLen),
+  ]
+  return applyTheme(format.text, displaySpans, options.theme)
 }
 
 export function visibleTextRegionFromStart(text: string, startLine: number, lineBudget = pageScrollLines()): { visible: string, visibleStart: number } {

@@ -1,14 +1,19 @@
 import type { Editor } from "../kernel/editor"
 import type { Evaluator } from "../runtime/evaluator"
 import { installCoreCommands } from "../core/commands"
+import { installMinorModeCommands } from "../modes/minor-mode"
 import { bindDefaultKeybindings } from "./default-bindings"
+import { installUserConfig } from "./user"
+
 export { installDefaultHooks, installLspDeferredHooks } from "./install-hooks"
 export { LSP_AUTO_MODES, LSP_AUTO_EXTENSIONS, shouldAutoStartLsp } from "./lsp-auto-modes"
 
 /** Load built-in commands and default keybindings (same mechanism as user config). */
 export function installDefaultConfig(editor: Editor): Evaluator {
   const evaluator = installCoreCommands(editor)
+  installMinorModeCommands(editor)
   bindDefaultKeybindings(editor)
+  installUserConfig(editor)
   return evaluator
 }
 
@@ -16,3 +21,5 @@ export function installDefaultConfig(editor: Editor): Evaluator {
 export function installDefaultCommands(editor: Editor): Evaluator {
   return installDefaultConfig(editor)
 }
+
+export { installUserConfig } from "./user"

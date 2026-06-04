@@ -6,6 +6,7 @@ import { Emitter } from "./events"
 import { isPrintable, Keymap, KeymapStack, keyToken, type KeyEventLike } from "./keymap"
 import { digitFromKey, PrefixArgumentState } from "./prefix-argument"
 import { enterMode, getMode, modeFeature, modeLineage, type CompletionCandidate, type TextSpan } from "../modes/mode"
+import { allMinorModes, getMinorMode, type MinorMode } from "../modes/minor-mode"
 import { makeDiredBuffer } from "../modes/dired"
 import { defaultTheme, type Theme } from "../display/theme"
 import { fileCompletionCandidates } from "./completion"
@@ -91,6 +92,7 @@ export class Editor {
   overridingTerminalLocalMap: Keymap | null = null
   overridingMap: Keymap | null = null
   readonly prefixArg = new PrefixArgumentState()
+  readonly globalMinorModes = new Set<string>()
   lastKeyEvent: KeyEventLike | null = null
   quotedInsertNext = false
   recenterCycle = 0
@@ -383,10 +385,68 @@ export class Editor {
     if (mapName === "global" || mapName === "global-map") this.keymap.bind(sequence, commandName)
     else if (mapName === "minibuffer" || mapName === "minibuffer-local-map") this.minibufferKeymap.bind(sequence, commandName)
     else {
-      const mode = getMode(mapName.replace(/-map$/, ""))
-      if (!mode?.keymap) throw new Error(`Unknown keymap: ${mapName}`)
-      mode.keymap.bind(sequence, commandName)
+      const base = mapName.replace(/-map$/, "")
+      const mode = getMode(base)
+      if (mode?.keymap) {
+        mode.keymap.bind(sequence, commandName)
+        return
+      }
+      const minor = getMinorMode(base)
+      if (minor?.keymap) {
+        minor.keymap.bind(sequence, commandName)
+        return
+      }
+      throw new Error(`Unknown keymap: ${mapName}`)
     }
+  }
+
+  isMinorModeEnabled(name: string, buffer: BufferModel = this.currentBuffer): boolean {
+    const mode = getMinorMode(name)
+    if (!mode) return false
+    if (this.globalMinorModes.has(name)) return true
+    return buffer.minorModes.has(name)
+  }
+
+  showLineNumbers(buffer: BufferModel = this.currentBuffer): boolean {
+    return this.isMinorModeEnabled("linum-mode", buffer)
+  }
+
+  activeMinorModes(buffer: BufferModel = this.currentBuffer): MinorMode[] {
+    return allMinorModes().filter(mode => this.isMinorModeEnabled(mode.name, buffer))
+  }
+
+  minorModeLighters(buffer: BufferModel = this.currentBuffer): string {
+    return this.activeMinorModes(buffer).map(mode => mode.lighter ?? ` ${mode.name}`).join("")
+  }
+
+  enableMinorMode(name: string, options: { buffer?: BufferModel } = {}): void {
+    const mode = getMinorMode(name)
+    if (!mode) throw new Error(`Unknown minor mode: ${name}`)
+    const buffer = options.buffer ?? this.currentBuffer
+    if (mode.global) this.globalMinorModes.add(name)
+    else buffer.minorModes.add(name)
+    mode.onEnable?.(this, buffer)
+    void this.changed(`minor-mode-enable:${name}`)
+  }
+
+  disableMinorMode(name: string, options: { buffer?: BufferModel } = {}): void {
+    const mode = getMinorMode(name)
+    if (!mode) throw new Error(`Unknown minor mode: ${name}`)
+    const buffer = options.buffer ?? this.currentBuffer
+    if (mode.global) this.globalMinorModes.delete(name)
+    else buffer.minorModes.delete(name)
+    mode.onDisable?.(this, buffer)
+    void this.changed(`minor-mode-disable:${name}`)
+  }
+
+  toggleMinorMode(name: string, options: { buffer?: BufferModel } = {}): boolean {
+    const buffer = options.buffer ?? this.currentBuffer
+    if (this.isMinorModeEnabled(name, buffer)) {
+      this.disableMinorMode(name, options)
+      return false
+    }
+    this.enableMinorMode(name, options)
+    return true
   }
 
   async run(name: string, args: string[] = []): Promise<unknown> {
@@ -861,6 +921,9 @@ export class Editor {
       maps.push({ name: "minibuffer-local-map", keymap: this.minibufferKeymap })
       maps.push({ name: "global-map", keymap: this.keymap })
       return maps
+    }
+    for (const mode of this.activeMinorModes()) {
+      if (mode.keymap) maps.push({ name: `${mode.name}-map`, keymap: mode.keymap })
     }
     for (const mode of modeLineage(this.currentBuffer.mode)) {
       if (mode.keymap) maps.push({ name: `${mode.name}-map`, keymap: mode.keymap })

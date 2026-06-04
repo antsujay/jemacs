@@ -368,9 +368,11 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   editor.command("describe-mode", ({ buffer, editor }) => {
     const def = getMode(buffer.mode)
+    const minors = editor.activeMinorModes(buffer)
     const lines = [
       `Major mode: ${buffer.mode}`,
       def?.parent ? `Parent: ${def.parent}` : "",
+      minors.length ? `Minor modes: ${minors.map(mode => mode.name).join(", ")}` : "",
       `Buffer: ${buffer.name}`,
       buffer.path ? `File: ${buffer.path}` : "",
     ].filter(Boolean)

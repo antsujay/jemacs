@@ -14,6 +14,7 @@ export class BufferModel {
   dirty = false
   readOnly = false
   mode = "text"
+  readonly minorModes = new Set<string>()
   onTextChange?: (event: { start: number; end: number; text: string }) => void
   private undoStack: string[] = []
   private redoStack: string[] = []

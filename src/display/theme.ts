@@ -32,6 +32,7 @@ export const defaultTheme: Theme = {
     modeLine: { fg: "#ffffff", bg: "#264f78", bold: true },
     minibuffer: { fg: "#ffffff", bg: "#3a3a3a" },
     error: { fg: "#f44747", bold: true },
+    lineNumber: { fg: "#858585", italic: true },
   },
 }
 
