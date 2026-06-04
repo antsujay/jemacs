@@ -19,6 +19,10 @@ export function defineTheme(name: string, faces: Partial<Record<FaceName, FaceSt
   return { name, faces }
 }
 
+export function themeFaceBackground(theme: Theme, face: FaceName = "default"): string | undefined {
+  return theme.faces[face]?.bg ?? theme.faces.default?.bg
+}
+
 export function applyTheme(text: string, spans: TextSpan[], theme: Theme): StyledText {
   const defaultStyle = theme.faces.default
   if (!spans.length) return new StyledText([styledChunk(text, defaultStyle)])

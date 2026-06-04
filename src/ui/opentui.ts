@@ -9,7 +9,7 @@ import {
 import type { Editor } from "../kernel/editor"
 import { isearchMatchSpan, isearchPrompt } from "../kernel/isearch"
 import { findWindowLeaf, type WindowLeaf, type WindowNode } from "../kernel/window"
-import { applyTheme, type Theme } from "../display/theme"
+import { applyTheme, themeFaceBackground, type Theme } from "../display/theme"
 import { textWithCursor } from "./text-display"
 import {
   adjustSpansForLineNumbers,
@@ -18,7 +18,7 @@ import {
   gutterSpans,
   regionSpansWithLineNumbers,
 } from "./line-numbers"
-import type { TextSpan } from "../modes/mode"
+import type { FaceName, TextSpan } from "../modes/mode"
 import { keyEventFromOpentui } from "./opentui-key"
 
 export async function startOpenTui(editor: Editor): Promise<void> {
@@ -121,6 +121,7 @@ class EditorUi {
   }
 
   render(): void {
+    this.applyThemeSurfaces()
     const buffer = this.editor.currentBuffer
     const pending = this.editor.keymaps.pendingSequence()
     const depth = this.editor.minibuffer && this.editor.minibufferDepthLevel > 1
@@ -164,6 +165,24 @@ class EditorUi {
       end: echoText.length,
       face: "minibuffer",
     }], this.editor.theme)
+  }
+
+  private applyThemeSurfaces(): void {
+    const theme = this.editor.theme
+    fillBox(this.root, themeFaceBackground(theme))
+    fillBox(this.windowsRoot, themeFaceBackground(theme))
+    this.applyTextBackground(this.title, theme, "title")
+    this.applyTextBackground(this.minibuffer, theme, "minibuffer")
+    this.applyTextBackground(this.echo, theme, "minibuffer")
+    for (const { pane, body } of this.leafPanes.values()) {
+      fillBox(pane, themeFaceBackground(theme))
+      this.applyTextBackground(body, theme)
+    }
+  }
+
+  private applyTextBackground(text: TextRenderable, theme: Theme, face: FaceName = "default"): void {
+    const bg = themeFaceBackground(theme, face)
+    if (bg) text.bg = bg
   }
 
   private renderWindows(layout: WindowNode, availableLines: number): void {
@@ -318,6 +337,12 @@ class EditorUi {
       face: selected ? "modeLine" : "modeLineInactive",
     }], this.editor.theme)
   }
+}
+
+function fillBox(box: BoxRenderable, backgroundColor: string | undefined): void {
+  if (!backgroundColor) return
+  box.backgroundColor = backgroundColor
+  box.shouldFill = true
 }
 
 function pointLineCol(text: string, point: number): { line: number; col: number } {
