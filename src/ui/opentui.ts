@@ -127,14 +127,43 @@ class EditorUi {
       ? ` [${this.editor.minibufferDepthLevel}]`
       : ""
 
-    this.title.content = ` Jemacs OpenTUI — ${buffer.name}${buffer.dirty ? "*" : ""}`
+    const titleText = ` Jemacs OpenTUI — ${buffer.name}${buffer.dirty ? "*" : ""}`
+    this.title.content = applyTheme(titleText, [{
+      start: 0,
+      end: titleText.length,
+      face: "title",
+    }], this.editor.theme)
+
     this.renderWindows(this.editor.windowLayout, contentAreaLines())
-    this.minibuffer.content = this.editor.minibuffer
-      ? `${depth} ${this.editor.minibuffer.prompt}${textWithCursor(this.editor.activeBuffer.text, this.editor.activeBuffer.point)}`
-      : this.editor.isearch
-        ? ` ${textWithCursor(isearchPrompt(this.editor.isearch), this.editor.isearch.string.length)}`
-        : " "
-    this.echo.content = ` ${this.lastMessage}${pending && !this.editor.minibuffer ? `  [${pending}]` : ""}`
+
+    if (this.editor.minibuffer) {
+      const prompt = `${depth} ${this.editor.minibuffer.prompt}`
+      const input = textWithCursor(this.editor.activeBuffer.text, this.editor.activeBuffer.point)
+      const minibufferText = prompt + input
+      this.minibuffer.content = applyTheme(minibufferText, [
+        { start: 0, end: prompt.length, face: "minibufferPrompt" },
+        { start: prompt.length, end: minibufferText.length, face: "minibuffer" },
+      ], this.editor.theme)
+    } else if (this.editor.isearch) {
+      const state = this.editor.isearch
+      const label = state.direction === 1 ? "I-search" : "I-search backward"
+      const prompt = ` ${label}: `
+      const query = textWithCursor(state.string, state.string.length)
+      const isearchText = prompt + query
+      this.minibuffer.content = applyTheme(isearchText, [
+        { start: 0, end: prompt.length, face: "minibufferPrompt" },
+        { start: prompt.length, end: isearchText.length, face: "minibuffer" },
+      ], this.editor.theme)
+    } else {
+      this.minibuffer.content = applyTheme(" ", [], this.editor.theme)
+    }
+
+    const echoText = ` ${this.lastMessage}${pending && !this.editor.minibuffer ? `  [${pending}]` : ""}`
+    this.echo.content = applyTheme(echoText, [{
+      start: 0,
+      end: echoText.length,
+      face: "minibuffer",
+    }], this.editor.theme)
   }
 
   private renderWindows(layout: WindowNode, availableLines: number): void {
@@ -358,6 +387,13 @@ function styledRegion(
 
   const firstLine = firstVisibleLineNumber(region.visibleStart, text)
   const format = formatWithLineNumbers(visible, firstLine)
+  const visibleLineCount = visible.split("\n").length
+  const cursorLine = text.slice(0, Math.min(point, text.length)).split("\n").length
+  const currentLineIndex = options.showCursor
+    && cursorLine >= firstLine
+    && cursorLine < firstLine + visibleLineCount
+    ? cursorLine - firstLine
+    : undefined
   const contentSpans = visibleSpans.filter(span => span.face !== "region")
   const regionBounds = visibleSpans.filter(span => span.face === "region")
   const regionSpans = regionBounds.length
@@ -369,7 +405,7 @@ function styledRegion(
     )
     : []
   const displaySpans = [
-    ...gutterSpans(format.text, format.prefixLen),
+    ...gutterSpans(format.text, format.prefixLen, currentLineIndex),
     ...adjustSpansForLineNumbers(contentSpans, visible, format.prefixLen),
     ...regionSpans,
   ]

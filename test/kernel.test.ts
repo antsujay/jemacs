@@ -5,7 +5,7 @@ import { BufferModel } from "../src/kernel/buffer"
 import { isPrintable, keyToken, Keymap } from "../src/kernel/keymap"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultCommands } from "../src/init/default-commands"
-import { defaultTheme } from "../src/display/theme"
+import { defaultTheme } from "../src/themes"
 import { pageScrollLines, visibleStyledText, visibleText } from "../src/ui/opentui"
 
 test("buffer insert/delete/undo", () => {

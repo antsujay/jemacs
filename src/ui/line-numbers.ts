@@ -49,11 +49,14 @@ export function regionSpansWithLineNumbers(
   return spans
 }
 
-export function gutterSpans(formatted: string, prefixLen: number): TextSpan[] {
+export function gutterSpans(formatted: string, prefixLen: number, currentLineIndex?: number): TextSpan[] {
   const spans: TextSpan[] = []
   let offset = 0
-  for (const line of formatted.split("\n")) {
-    spans.push({ start: offset, end: offset + prefixLen, face: "lineNumber" })
+  const lines = formatted.split("\n")
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const face = currentLineIndex === i ? "lineNumberCurrent" : "lineNumber"
+    spans.push({ start: offset, end: offset + prefixLen, face })
     offset += line.length + 1
   }
   return spans

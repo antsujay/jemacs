@@ -14,31 +14,15 @@ export type Theme = {
   faces: Partial<Record<FaceName, FaceStyle>>
 }
 
-export const defaultTheme: Theme = {
-  name: "jemacs-dark",
-  faces: {
-    default: { fg: "#d4d4d4" },
-    keyword: { fg: "#569cd6", bold: true },
-    string: { fg: "#ce9178" },
-    comment: { fg: "#6a9955", italic: true },
-    builtin: { fg: "#4ec9b0" },
-    function: { fg: "#dcdcaa" },
-    type: { fg: "#4ec9b0" },
-    number: { fg: "#b5cea8" },
-    constant: { fg: "#9cdcfe" },
-    directory: { fg: "#4fc1ff", bold: true },
-    region: { bg: "#3f4756" },
-    isearch: { bg: "#6a5f00", fg: "#ffffff" },
-    modeLine: { fg: "#ffffff", bg: "#264f78", bold: true },
-    modeLineInactive: { fg: "#9d9d9d", bg: "#252526" },
-    minibuffer: { fg: "#ffffff", bg: "#3a3a3a" },
-    error: { fg: "#f44747", bold: true },
-    lineNumber: { fg: "#858585", italic: true },
-  },
+/** Build a named theme from face overrides (Emacs custom-theme style). */
+export function defineTheme(name: string, faces: Partial<Record<FaceName, FaceStyle>>): Theme {
+  return { name, faces }
 }
 
 export function applyTheme(text: string, spans: TextSpan[], theme: Theme): StyledText {
-  if (!spans.length) return new StyledText([plainChunk(text)])
+  const defaultStyle = theme.faces.default
+  if (!spans.length) return new StyledText([styledChunk(text, defaultStyle)])
+
   const ordered = spans
     .filter(span => span.end > span.start && span.start < text.length)
     .map(span => ({ ...span, start: Math.max(0, span.start), end: Math.min(text.length, span.end) }))
@@ -52,7 +36,7 @@ export function applyTheme(text: string, spans: TextSpan[], theme: Theme): Style
     const style = ordered.reduce<FaceStyle | undefined>((merged, span) => {
       if (span.start > start || span.end < end) return merged
       return mergeStyle(merged, theme.faces[span.face])
-    }, undefined)
+    }, defaultStyle)
     chunks.push(styledChunk(text.slice(start, end), style))
   }
   return new StyledText(chunks)
@@ -60,15 +44,14 @@ export function applyTheme(text: string, spans: TextSpan[], theme: Theme): Style
 
 function mergeStyle(base: FaceStyle | undefined, overlay: FaceStyle | undefined): FaceStyle | undefined {
   if (!overlay) return base
+  if (!base) return overlay
   return { ...base, ...overlay }
 }
 
-function plainChunk(text: string): TextChunk {
-  return { __isChunk: true, text }
-}
-
 function styledChunk(text: string, style?: FaceStyle): TextChunk {
-  if (!style) return plainChunk(text)
+  if (!style?.fg && !style?.bg && !style?.bold && !style?.italic && !style?.underline) {
+    return { __isChunk: true, text }
+  }
   return {
     __isChunk: true,
     text,

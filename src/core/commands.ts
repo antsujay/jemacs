@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import { access, appendFile, mkdir } from "node:fs/promises"
 import type { CommandContext } from "../kernel/command"
 import type { Editor } from "../kernel/editor"
+import { getBuiltinTheme } from "../themes"
 import {
   diredCreateDirectory,
   makeDirectory,
@@ -524,10 +525,20 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("tab-bar-switch-to-prev-tab", ({ editor }) => editor.switchTab(-1), "Switch to the previous tab.")
   editor.command("tiling-cycle", ({ editor }) => editor.message(`Layout ${editor.cycleTilingLayout()}`), "Cycle Jemacs tiling layouts.")
 
-  editor.command("load-theme", ({ editor }) => {
-    editor.setTheme(editor.theme)
+  editor.command("load-theme", ({ editor, args }) => {
+    const name = args[0]?.trim()
+    if (name) {
+      const theme = getBuiltinTheme(name)
+      if (!theme) {
+        editor.message(`Unknown theme: ${name}`)
+        return
+      }
+      editor.setTheme(theme)
+    } else {
+      editor.setTheme(editor.theme)
+    }
     editor.message(`Loaded theme ${editor.theme.name}`)
-  }, "Reload the active theme.")
+  }, "Load a built-in theme by name, or reload the active theme.")
 
   editor.command("fzf-git", async ({ editor, args }) => {
     const query = args[0] ?? ""

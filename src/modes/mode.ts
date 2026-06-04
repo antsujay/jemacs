@@ -2,7 +2,27 @@ import type { BufferModel } from "../kernel/buffer"
 import { Keymap } from "../kernel/keymap"
 import { modeHookName, addHook, type HookFn } from "../kernel/hooks"
 
-export type FaceName = "default" | "keyword" | "string" | "comment" | "builtin" | "function" | "type" | "number" | "constant" | "directory" | "region" | "isearch" | "modeLine" | "modeLineInactive" | "minibuffer" | "error" | "lineNumber"
+export type FaceName =
+  | "default"
+  | "keyword"
+  | "string"
+  | "comment"
+  | "builtin"
+  | "function"
+  | "type"
+  | "number"
+  | "constant"
+  | "directory"
+  | "region"
+  | "isearch"
+  | "modeLine"
+  | "modeLineInactive"
+  | "minibuffer"
+  | "minibufferPrompt"
+  | "title"
+  | "error"
+  | "lineNumber"
+  | "lineNumberCurrent"
 
 export type TextSpan = {
   start: number

@@ -6,7 +6,7 @@ import { installDefaultModes } from "../src/modes/default-modes"
 import { defineMinorMode } from "../src/modes/minor-mode"
 import { formatWithLineNumbers, mapVisibleOffset } from "../src/ui/line-numbers"
 import { visibleStyledText } from "../src/ui/opentui"
-import { defaultTheme } from "../src/display/theme"
+import { defaultTheme } from "../src/themes"
 
 test("minor mode keymaps take precedence over major and global maps", () => {
   installDefaultModes()
