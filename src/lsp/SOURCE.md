@@ -29,6 +29,8 @@ bun run generate:lsp-protocol
 | `lsp--client-capabilities` | `capabilities.ts` (typed `ClientCapabilities`) |
 | Buffer sync / diagnostics / completion | `sync.ts`, `diagnostics.ts`, `completion.ts` |
 | `lsp-pylsp.el` | `clients/pylsp.ts` |
+| gopls / rust-analyzer / typescript-language-server / yaml-language-server | `clients/gopls.ts`, `clients/rust-analyzer.ts`, `clients/typescript.ts`, `clients/yaml.ts` |
+| `lsp-find-definition`, peek implementation, code action | `navigation.ts`, `code-actions.ts` |
 
 ## Emacs commands
 

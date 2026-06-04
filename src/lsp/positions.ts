@@ -45,6 +45,9 @@ export function bufferLanguageId(buffer: BufferModel): string {
   const mode = buffer.mode
   if (mode === "python") return "python"
   if (mode === "javascript" || mode === "typescript") return mode
+  if (mode === "go") return "go"
+  if (mode === "rust") return "rust"
+  if (mode === "yaml") return "yaml"
   if (mode === "json") return "json"
   return mode
 }

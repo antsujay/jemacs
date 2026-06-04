@@ -1,12 +1,14 @@
 import type { Editor } from "../kernel/editor"
-import { registerPylspClient } from "./clients/pylsp"
+import { registerAllLspClients } from "./clients"
+import { lspExecuteCodeAction } from "./code-actions"
 import { LspManager } from "./manager"
+import { lspFindImplementation } from "./navigation"
 
 let installed = false
 
 export function installLspMode(editor: Editor): LspManager {
   if (!installed) {
-    registerPylspClient()
+    registerAllLspClients()
     installed = true
   }
   const manager = new LspManager(editor)
@@ -43,6 +45,14 @@ export function installLspMode(editor: Editor): LspManager {
     editor.lsp!.config.logIo = !editor.lsp!.config.logIo
     editor.message(`LSP trace IO ${editor.lsp!.config.logIo ? "enabled" : "disabled"}`)
   }, "Toggle logging of LSP IO.")
+
+  editor.command("lsp-ui-peek-find-implementation", async ({ editor, buffer }) => {
+    await lspFindImplementation(editor, buffer)
+  }, "Go to the LSP implementation of the symbol at point.")
+
+  editor.command("lsp-execute-code-action", async ({ editor, buffer }) => {
+    await lspExecuteCodeAction(editor, buffer)
+  }, "Run an LSP code action at point.")
 
   return manager
 }
