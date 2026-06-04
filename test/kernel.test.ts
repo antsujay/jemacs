@@ -505,6 +505,23 @@ test("styled TUI chunks keep region highlight after movement deactivates the mar
   expect(rendered.chunks.some(chunk => chunk.text === "hello" && chunk.bg)).toBe(true)
 })
 
+test("C-g clears the mark and removes region highlight", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 0
+  buffer.point = 5
+  buffer.markActive = false
+
+  await editor.run("keyboard-quit")
+  expect(buffer.mark).toBeNull()
+  expect(buffer.markActive).toBe(false)
+
+  const rendered = visibleStyledText(buffer.text, buffer.point, { mark: buffer.mark, theme: editor.theme })
+  expect(rendered.chunks.some(chunk => chunk.text === "hello" && chunk.bg)).toBe(false)
+})
+
 test("C-x C-x exchanges point and mark like Emacs", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)

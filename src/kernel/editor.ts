@@ -4,11 +4,32 @@ import { BufferModel } from "./buffer"
 import { CommandRegistry, type CommandFn } from "./command"
 import { Emitter } from "./events"
 import { isPrintable, Keymap, KeymapStack, keyToken, type KeyEventLike } from "./keymap"
-import { enterMode, getMode, modeFeature, modeLineage, type TextSpan } from "../modes/mode"
+import { enterMode, getMode, modeFeature, modeLineage, type CompletionCandidate, type TextSpan } from "../modes/mode"
 import { makeDiredBuffer } from "../modes/dired"
 import { defaultTheme, type Theme } from "../display/theme"
 import { fileCompletionCandidates } from "./completion"
 import { findBackward, findForward, isearchPrompt, type IsearchState } from "./isearch"
+import {
+  cloneWindowNode,
+  createLeafWindow,
+  deleteOtherWindowLeaves,
+  deleteWindowLeaf,
+  findWindowLeaf,
+  findWindowShowingBuffer,
+  listWindowLeaves,
+  nextWindowId,
+  pickReusableWindow,
+  removeBufferFromWindows,
+  scrollWindowLeaf,
+  setWindowLeafBuffer,
+  setWindowLeafDedicated,
+  setWindowLeafPoint,
+  setWindowLeafStartLine,
+  splitWindowLeaf,
+  type WindowNode,
+} from "./window"
+import type { RegisterContents } from "./register"
+import type { LspManager } from "../lsp/manager"
 
 export type EditorEvents = {
   changed: { reason: string }
@@ -47,11 +68,11 @@ export class Editor {
   readonly events = new Emitter<EditorEvents>()
   readonly keymaps = new KeymapStack(() => this.activeKeymaps())
   readonly minibufferHistory = new Map<string, string[]>()
-  readonly registers = new Map<string, number>()
+  readonly registers = new Map<string, RegisterContents>()
   readonly tabs: Array<{ name: string; bufferId: string }> = []
-  readonly windows: string[] = []
+  windowLayout: WindowNode
+  selectedWindowId: string
   theme: Theme = defaultTheme
-  selectedWindow = 0
   selectedTab = 0
   tilingLayout = "tiling-master-left"
   currentBufferId: string
@@ -65,6 +86,7 @@ export class Editor {
   recenterCycle = 0
   macroRecording: string[] | null = null
   lastKbdMacro: string[] = []
+  lsp: LspManager | null = null
   private minibufferDepth = 0
 
   constructor() {
@@ -73,8 +95,142 @@ export class Editor {
     this.addBuffer(scratch)
     this.addBuffer(messages)
     this.currentBufferId = scratch.id
-    this.windows.push(scratch.id)
+    const rootWindow = createLeafWindow(scratch.id, scratch.point)
+    this.windowLayout = rootWindow
+    this.selectedWindowId = rootWindow.id
     this.tabs.push({ name: "1", bufferId: scratch.id })
+  }
+
+  get windows(): string[] {
+    return listWindowLeaves(this.windowLayout).map(leaf => leaf.bufferId)
+  }
+
+  get selectedWindow(): number {
+    return listWindowLeaves(this.windowLayout).findIndex(leaf => leaf.id === this.selectedWindowId)
+  }
+
+  selectedWindowLeaf() {
+    return findWindowLeaf(this.windowLayout, this.selectedWindowId)
+  }
+
+  private persistSelectedWindowPoint(): void {
+    const leaf = this.selectedWindowLeaf()
+    if (!leaf) return
+    const startLine = this.lineAtPoint(this.currentBuffer.point)
+    this.windowLayout = setWindowLeafPoint(this.windowLayout, leaf.id, this.currentBuffer.point)
+    this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, startLine)
+  }
+
+  private lineAtPoint(point: number): number {
+    return Math.max(0, this.currentBuffer.text.slice(0, Math.max(0, Math.min(point, this.currentBuffer.text.length))).split("\n").length - 1)
+  }
+
+  selectWindow(windowId: string): void {
+    if (!findWindowLeaf(this.windowLayout, windowId)) return
+    this.persistSelectedWindowPoint()
+    this.selectedWindowId = windowId
+    this.currentBufferId = findWindowLeaf(this.windowLayout, windowId)!.bufferId
+    this.restoreSelectedWindowPoint()
+  }
+
+  ensureOtherWindowSelected(): void {
+    if (listWindowLeaves(this.windowLayout).length === 1) {
+      this.splitWindowBelow()
+      return
+    }
+    this.nextWindow(1)
+  }
+
+  currentWindowConfiguration(): Extract<RegisterContents, { kind: "window-configuration" }> {
+    this.persistSelectedWindowPoint()
+    return {
+      kind: "window-configuration",
+      layout: cloneWindowNode(this.windowLayout),
+      selectedWindowId: this.selectedWindowId,
+      currentBufferId: this.currentBufferId,
+    }
+  }
+
+  restoreWindowConfiguration(config: Extract<RegisterContents, { kind: "window-configuration" }>): void {
+    this.persistSelectedWindowPoint()
+    this.windowLayout = cloneWindowNode(config.layout)
+    this.selectedWindowId = config.selectedWindowId
+    this.currentBufferId = config.currentBufferId
+    if (!findWindowLeaf(this.windowLayout, this.selectedWindowId)) {
+      this.selectedWindowId = listWindowLeaves(this.windowLayout)[0]!.id
+      this.currentBufferId = findWindowLeaf(this.windowLayout, this.selectedWindowId)!.bufferId
+    }
+    this.restoreSelectedWindowPoint()
+  }
+
+  windowConfigurationToRegister(register: string): void {
+    this.registers.set(register, this.currentWindowConfiguration())
+    this.message(`Saved window configuration to register ${register}`)
+  }
+
+  jumpToRegister(register: string): boolean {
+    const value = this.registers.get(register)
+    if (!value) return false
+    if (value.kind === "point") {
+      this.currentBuffer.point = Math.max(0, Math.min(value.point, this.currentBuffer.text.length))
+      this.windowLayout = setWindowLeafPoint(this.windowLayout, this.selectedWindowId, this.currentBuffer.point)
+      return true
+    }
+    this.restoreWindowConfiguration(value)
+    return true
+  }
+
+  setSelectedWindowDedicated(dedicated: boolean): void {
+    this.windowLayout = setWindowLeafDedicated(this.windowLayout, this.selectedWindowId, dedicated)
+    void this.changed("set-window-dedicated")
+  }
+
+  scrollOtherWindow(delta = 1): boolean {
+    const leaves = listWindowLeaves(this.windowLayout)
+    if (leaves.length <= 1) return false
+    const otherId = nextWindowId(this.windowLayout, this.selectedWindowId, 1)
+    const leaf = findWindowLeaf(this.windowLayout, otherId)
+    if (!leaf) return false
+    const buffer = this.buffers.get(leaf.bufferId)
+    const lineCount = buffer ? buffer.text.split("\n").length : 1
+    const maxStart = Math.max(0, lineCount - 1)
+    const lines = Math.max(1, (process.stdout.rows ?? 30) - 6) * delta
+    this.windowLayout = scrollWindowLeaf(this.windowLayout, otherId, lines, maxStart)
+    void this.changed("scroll-other-window")
+    return true
+  }
+
+  displayBufferInOtherWindow(idOrName: string): BufferModel {
+    const found = this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
+    if (!found) throw new Error(`No such buffer: ${idOrName}`)
+    const existing = findWindowShowingBuffer(this.windowLayout, found.id, this.selectedWindowId)
+    if (existing) {
+      this.selectWindow(existing.id)
+      return found
+    }
+    const reusable = pickReusableWindow(this.windowLayout, this.selectedWindowId)
+    if (reusable) {
+      this.selectWindow(reusable.id)
+    } else {
+      this.ensureOtherWindowSelected()
+    }
+    this.setSelectedWindowBuffer(found.id)
+    return found
+  }
+
+  private restoreSelectedWindowPoint(): void {
+    const leaf = this.selectedWindowLeaf()
+    if (!leaf) return
+    const buffer = this.buffers.get(leaf.bufferId)
+    if (!buffer) return
+    buffer.point = Math.min(leaf.point, buffer.text.length)
+  }
+
+  private setSelectedWindowBuffer(bufferId: string): void {
+    this.persistSelectedWindowPoint()
+    this.currentBufferId = bufferId
+    this.windowLayout = setWindowLeafBuffer(this.windowLayout, this.selectedWindowId, bufferId, this.buffers.get(bufferId)?.point ?? 0)
+    this.restoreSelectedWindowPoint()
   }
 
   get currentBuffer(): BufferModel {
@@ -98,8 +254,7 @@ export class Editor {
   switchToBuffer(idOrName: string): BufferModel {
     const found = this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
     if (!found) throw new Error(`No such buffer: ${idOrName}`)
-    this.currentBufferId = found.id
-    this.windows[this.selectedWindow] = found.id
+    this.setSelectedWindowBuffer(found.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = found.id
     void this.changed("switch-buffer")
     return found
@@ -109,8 +264,7 @@ export class Editor {
     const values = [...this.buffers.values()].filter(b => b.kind !== "minibuffer")
     const i = values.findIndex(b => b.id === this.currentBufferId)
     const next = values[(i + 1) % values.length]!
-    this.currentBufferId = next.id
-    this.windows[this.selectedWindow] = next.id
+    this.setSelectedWindowBuffer(next.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = next.id
     void this.changed("next-buffer")
     return next
@@ -120,8 +274,7 @@ export class Editor {
     const values = [...this.buffers.values()].filter(b => b.kind !== "minibuffer")
     const i = values.findIndex(b => b.id === this.currentBufferId)
     const previous = values[(i - 1 + values.length) % values.length]!
-    this.currentBufferId = previous.id
-    this.windows[this.selectedWindow] = previous.id
+    this.setSelectedWindowBuffer(previous.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = previous.id
     void this.changed("previous-buffer")
     return previous
@@ -135,11 +288,12 @@ export class Editor {
     if (info?.isDirectory()) return this.openDirectory(full)
     const buffer = await BufferModel.fromFile(full)
     this.addBuffer(buffer)
-    this.currentBufferId = buffer.id
-    this.windows[this.selectedWindow] = buffer.id
+    this.lsp?.attachBuffer(buffer)
+    this.setSelectedWindowBuffer(buffer.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = buffer.id
     this.enterMode(buffer, buffer.mode)
     await this.changed("open-file")
+    void this.lsp?.maybeAutoStart(buffer)
     return buffer
   }
 
@@ -149,8 +303,7 @@ export class Editor {
     if (existing) return this.switchToBuffer(existing.id)
     const buffer = await makeDiredBuffer(full)
     this.addBuffer(buffer)
-    this.currentBufferId = buffer.id
-    this.windows[this.selectedWindow] = buffer.id
+    this.setSelectedWindowBuffer(buffer.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = buffer.id
     this.enterMode(buffer, "dired")
     await this.changed("open-directory")
@@ -163,8 +316,7 @@ export class Editor {
       existing.setText(text, false)
       existing.kind = name === "*messages*" ? "messages" : "scratch"
       this.enterMode(existing, mode)
-      this.currentBufferId = existing.id
-      this.windows[this.selectedWindow] = existing.id
+      this.setSelectedWindowBuffer(existing.id)
       if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = existing.id
       void this.changed("scratch-update")
       return existing
@@ -172,8 +324,7 @@ export class Editor {
     const buffer = new BufferModel({ name, text, kind: "scratch", mode })
     this.addBuffer(buffer)
     this.enterMode(buffer, mode)
-    this.currentBufferId = buffer.id
-    this.windows[this.selectedWindow] = buffer.id
+    this.setSelectedWindowBuffer(buffer.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = buffer.id
     void this.changed("scratch")
     return buffer
@@ -328,9 +479,17 @@ export class Editor {
     void this.changed("indent-line")
   }
 
-  completeAtPoint(buffer = this.activeBuffer): boolean {
+  async completeAtPoint(buffer = this.activeBuffer): Promise<boolean> {
+    const lspCandidates = await this.lsp?.completionAtPoint(buffer) ?? []
+    if (lspCandidates.length) return this.applyCompletionCandidates(buffer, lspCandidates)
+
     const complete = modeFeature(buffer.mode, "completeAtPoint")
     const candidates = complete?.(buffer) ?? []
+    if (!candidates.length) return false
+    return this.applyCompletionCandidates(buffer, candidates)
+  }
+
+  private applyCompletionCandidates(buffer: BufferModel, candidates: CompletionCandidate[]): boolean {
     if (!candidates.length) return false
     const symbol = buffer.symbolBoundsAt()
     const texts = candidates.map(candidate => candidate.text)
@@ -348,7 +507,9 @@ export class Editor {
   }
 
   fontLock(buffer = this.currentBuffer): TextSpan[] {
-    return modeFeature(buffer.mode, "fontLock")?.(buffer) ?? []
+    const spans = modeFeature(buffer.mode, "fontLock")?.(buffer) ?? []
+    const lspSpans = this.lsp?.diagnosticSpans(buffer) ?? []
+    return [...spans, ...lspSpans]
   }
 
   setTheme(theme: Theme): void {
@@ -357,21 +518,30 @@ export class Editor {
   }
 
   splitWindowBelow(): void {
-    this.windows.splice(this.selectedWindow + 1, 0, this.currentBufferId)
-    this.selectedWindow++
+    this.persistSelectedWindowPoint()
+    const buffer = this.currentBuffer
+    const result = splitWindowLeaf(this.windowLayout, this.selectedWindowId, "vertical", buffer.id, buffer.point)
+    this.windowLayout = result.layout
+    this.selectedWindowId = result.newWindowId
+    this.restoreSelectedWindowPoint()
     void this.changed("split-window-below")
   }
 
   splitWindowRight(): void {
-    this.splitWindowBelow()
+    this.persistSelectedWindowPoint()
+    const buffer = this.currentBuffer
+    const result = splitWindowLeaf(this.windowLayout, this.selectedWindowId, "horizontal", buffer.id, buffer.point)
+    this.windowLayout = result.layout
+    this.selectedWindowId = result.newWindowId
+    this.restoreSelectedWindowPoint()
+    void this.changed("split-window-right")
   }
 
   deleteOtherWindows(): void {
-    if (this.windows.length <= 1) return
-    const keep = this.windows[this.selectedWindow]!
-    this.windows.splice(0, this.windows.length, keep)
-    this.selectedWindow = 0
-    this.currentBufferId = keep
+    if (listWindowLeaves(this.windowLayout).length <= 1) return
+    this.persistSelectedWindowPoint()
+    this.windowLayout = deleteOtherWindowLeaves(this.windowLayout, this.selectedWindowId)
+    this.restoreSelectedWindowPoint()
     void this.changed("delete-other-windows")
   }
 
@@ -386,10 +556,10 @@ export class Editor {
       return null
     }
     this.buffers.delete(target.id)
-    for (let i = this.windows.length - 1; i >= 0; i--) {
-      if (this.windows[i] === target.id) this.windows.splice(i, 1)
+    this.windowLayout = removeBufferFromWindows(this.windowLayout, target.id, survivors[0]!.id)
+    if (findWindowLeaf(this.windowLayout, this.selectedWindowId) == null) {
+      this.selectedWindowId = listWindowLeaves(this.windowLayout)[0]!.id
     }
-    if (!this.windows.length) this.windows.push(survivors[0]!.id)
     this.tabs.forEach(tab => {
       if (tab.bufferId === target.id) tab.bufferId = survivors[0]!.id
     })
@@ -417,17 +587,24 @@ export class Editor {
   }
 
   nextWindow(delta = 1): void {
-    if (!this.windows.length) return
-    this.selectedWindow = (this.selectedWindow + delta + this.windows.length) % this.windows.length
-    this.currentBufferId = this.windows[this.selectedWindow]!
+    if (listWindowLeaves(this.windowLayout).length <= 1) return
+    this.persistSelectedWindowPoint()
+    this.selectedWindowId = nextWindowId(this.windowLayout, this.selectedWindowId, delta)
+    this.currentBufferId = findWindowLeaf(this.windowLayout, this.selectedWindowId)!.bufferId
+    this.restoreSelectedWindowPoint()
     void this.changed("select-window")
   }
 
   deleteWindow(): void {
-    if (this.windows.length <= 1) return
-    this.windows.splice(this.selectedWindow, 1)
-    this.selectedWindow = Math.min(this.selectedWindow, this.windows.length - 1)
-    this.currentBufferId = this.windows[this.selectedWindow]!
+    if (listWindowLeaves(this.windowLayout).length <= 1) return
+    this.persistSelectedWindowPoint()
+    const next = nextWindowId(this.windowLayout, this.selectedWindowId, 1)
+    const layout = deleteWindowLeaf(this.windowLayout, this.selectedWindowId)
+    if (!layout) return
+    this.windowLayout = layout
+    this.selectedWindowId = findWindowLeaf(layout, next) ? next : listWindowLeaves(layout)[0]!.id
+    this.currentBufferId = findWindowLeaf(this.windowLayout, this.selectedWindowId)!.bufferId
+    this.restoreSelectedWindowPoint()
     void this.changed("delete-window")
   }
 
@@ -441,7 +618,7 @@ export class Editor {
     if (!this.tabs.length) return
     this.selectedTab = (this.selectedTab + delta + this.tabs.length) % this.tabs.length
     this.currentBufferId = this.tabs[this.selectedTab]!.bufferId
-    this.windows[this.selectedWindow] = this.currentBufferId
+    this.windowLayout = setWindowLeafBuffer(this.windowLayout, this.selectedWindowId, this.currentBufferId, this.currentBuffer.point)
     void this.changed("switch-tab")
   }
 
@@ -450,7 +627,7 @@ export class Editor {
     this.tabs.splice(this.selectedTab, 1)
     this.selectedTab = Math.min(this.selectedTab, this.tabs.length - 1)
     this.currentBufferId = this.tabs[this.selectedTab]!.bufferId
-    this.windows[this.selectedWindow] = this.currentBufferId
+    this.windowLayout = setWindowLeafBuffer(this.windowLayout, this.selectedWindowId, this.currentBufferId, this.currentBuffer.point)
     void this.changed("close-tab")
   }
 

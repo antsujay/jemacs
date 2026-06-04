@@ -134,7 +134,7 @@ export function installDefaultCommands(editor: Editor): Evaluator {
     editor.prefixArgument = null
     if (editor.isearch) editor.cancelIsearch()
     if (editor.minibuffer) editor.minibufferCancel()
-    editor.currentBuffer.deactivateMark()
+    editor.currentBuffer.clearMark()
     editor.message("Quit")
   }, "Cancel the active key sequence, minibuffer, isearch, or mark.")
 
@@ -314,8 +314,8 @@ export function installDefaultCommands(editor: Editor): Evaluator {
   editor.command("exit-minibuffer", ({ editor }) => editor.minibufferSubmit(), "Submit the minibuffer.")
   editor.command("abort-recursive-edit", ({ editor }) => editor.minibufferCancel(), "Abort the minibuffer or recursive edit.")
 
-  editor.command("indent-for-tab-command", ({ editor, buffer }) => {
-    if (!editor.completeAtPoint(buffer)) editor.indentLine(buffer)
+  editor.command("indent-for-tab-command", async ({ editor, buffer }) => {
+    if (!(await editor.completeAtPoint(buffer))) editor.indentLine(buffer)
   }, "Complete the symbol at point, or indent the current line.")
 
   editor.command("newline-and-indent", ({ editor, buffer }) => {
