@@ -3,6 +3,8 @@ import { getMode } from "../modes/mode"
 import { enableBuiltinTheme } from "../themes"
 import { gruvboxDarkHardTheme, install as installGruvboxDarkHardTheme } from "../../plugins/gruvbox-dark-hard"
 import { install as installVertico } from "../../plugins/vertico"
+import { install as installTiling } from "../../plugins/tiling"
+import { install as installWindow } from "../../plugins/window"
 
 const packageBackedCommands = [
   "git-link",
@@ -21,6 +23,8 @@ export function installStephenConfig(editor: Editor): void {
   enableBuiltinTheme(gruvboxDarkHardTheme.name)
   editor.setTheme(gruvboxDarkHardTheme)
   installVertico(editor)
+  installWindow(editor)
+  installTiling(editor)
   editor.enableMinorMode("linum-mode")
   editor.enableMinorMode("vertico-mode")
 
