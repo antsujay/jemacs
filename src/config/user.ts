@@ -6,6 +6,7 @@ import type { Evaluator } from "../runtime/evaluator"
 import { loadStartupConfig } from "./startup"
 
 export function userConfigPath(): string {
+  if (process.env.JEMACS_INIT_PATH) return process.env.JEMACS_INIT_PATH
   return join(homedir(), ".jemacs", "init.ts")
 }
 
