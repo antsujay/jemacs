@@ -1,6 +1,6 @@
 import type { Editor, CompletingReadFunction, MinibufferCompletionFrontend } from "../src/kernel/editor"
 import { BufferModel } from "../src/kernel/buffer"
-import { fileCompletionCandidates } from "../src/kernel/completion"
+import { fileCompletionCandidates, splitCompletionInput } from "../src/kernel/completion"
 import { defineMinorMode } from "../src/modes/minor-mode"
 import { defcustom, defvar, getCustom } from "../src/runtime/custom"
 
@@ -9,6 +9,7 @@ type VerticoState = {
   index: number
   scroll: number
   groups: string[]
+  displayCandidates: string[]
   exitInput: boolean
 }
 
@@ -128,17 +129,21 @@ async function verticoRefresh(editor: Editor): Promise<void> {
     return
   }
   const input = editor.activeBuffer.text
+  const fileCompletion = request.completion === "file"
   const candidates = request.completion === "file"
     ? await fileCompletionCandidates(input, request.fileCompletionDirectory ?? process.cwd())
     : request.collection ?? []
+  if (editor.minibuffer !== request) return
   const state = ensureState(editor)
-  state.candidates = sortCandidates(filterCandidates(candidates, input, request.completion === "file"))
-  state.groups = state.candidates.map(candidate => candidateGroup(candidate, request.completion === "file"))
+  state.candidates = sortCandidates(filterCandidates(candidates, input, fileCompletion))
+  state.displayCandidates = state.candidates.map(candidate => displayCandidate(candidate, input, fileCompletion))
+  state.groups = state.candidates.map(candidate => candidateGroup(candidate, fileCompletion))
   state.exitInput = false
+  const preselectPrompt = shouldPreselectPrompt(editor, input, fileCompletion)
   if (state.candidates.length === 0) state.index = promptAllowed(editor) ? -1 : 0
-  else if (state.index < 0 && !promptAllowed(editor)) state.index = 0
+  else if (preselectPrompt) state.index = -1
+  else if (state.index < 0 || !promptAllowed(editor)) state.index = 0
   else if (state.index >= state.candidates.length) state.index = state.candidates.length - 1
-  else if (state.index === 0 && shouldPreselectPrompt(editor, input, request.completion === "file")) state.index = -1
   computeScroll(state)
   showVerticoCompletions(editor, state)
 }
@@ -212,6 +217,7 @@ async function verticoInsert(editor: Editor): Promise<void> {
   if (candidate == null) return
   editor.activeBuffer.setText(candidate, true)
   editor.activeBuffer.point = candidate.length
+  await verticoRefresh(editor)
   await editor.changed("vertico-insert")
 }
 
@@ -245,7 +251,7 @@ function verticoSave(editor: Editor): void {
 
 function showVerticoCompletions(editor: Editor, state: VerticoState): void {
   const count = verticoCount()
-  const visible = state.candidates.slice(state.scroll, state.scroll + count)
+  const visible = state.displayCandidates.slice(state.scroll, state.scroll + count)
   const countText = formatCount(state)
   const lines = visible.map((candidate, offset) => {
     const index = state.scroll + offset
@@ -263,7 +269,7 @@ function showVerticoCompletions(editor: Editor, state: VerticoState): void {
 function ensureState(editor: Editor): VerticoState {
   let state = states.get(editor)
   if (!state) {
-    state = { candidates: [], index: firstCandidateIndex(editor), scroll: 0, groups: [], exitInput: false }
+    state = { candidates: [], index: firstCandidateIndex(editor), scroll: 0, groups: [], displayCandidates: [], exitInput: false }
     states.set(editor, state)
   }
   return state
@@ -282,9 +288,10 @@ function sortCandidates(candidates: string[]): string[] {
   return [...candidates].sort((a, b) => a.length - b.length || a.localeCompare(b))
 }
 
-function displayCandidate(candidate: string): string {
+function displayCandidate(candidate: string, input = "", fileCompletion = false): string {
   const multiline = getCustom<[string, string]>("vertico-multiline") ?? ["<NL>", "..."]
-  return candidate.replace(/\n/g, multiline[0] ?? "<NL>")
+  const display = fileCompletion ? fileDisplayCandidate(candidate, input) : candidate
+  return display.replace(/\n/g, multiline[0] ?? "<NL>")
 }
 
 function formatCount(state: VerticoState): string {
@@ -334,4 +341,13 @@ function candidateGroup(candidate: string, fileCompletion: boolean): string {
   if (!fileCompletion) return ""
   const slash = candidate.lastIndexOf("/", candidate.endsWith("/") ? candidate.length - 2 : candidate.length - 1)
   return slash >= 0 ? candidate.slice(0, slash + 1) : ""
+}
+
+function fileDisplayCandidate(candidate: string, input: string): string {
+  const rawBase = input.endsWith("/")
+    ? input
+    : splitCompletionInput(input).directory
+  const base = rawBase.endsWith("/") ? rawBase : `${rawBase}/`
+  if (candidate.startsWith(base)) return candidate.slice(base.length)
+  return candidate.split("/").filter(Boolean).at(-1) ?? candidate
 }

@@ -937,6 +937,7 @@ export class Editor {
       this.minibufferHistory.set(request.historyName, history)
     }
     request.resolve(value)
+    this.minibufferCompletionDisplay = null
     void this.changed("minibuffer-submit")
   }
 
@@ -944,6 +945,7 @@ export class Editor {
     if (!this.minibuffer) return
     const request = this.minibuffer
     request.resolve(null)
+    this.minibufferCompletionDisplay = null
     void this.changed("minibuffer-cancel")
   }
 

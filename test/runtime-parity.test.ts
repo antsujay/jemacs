@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { Editor } from "../src/kernel/editor"
@@ -59,6 +59,7 @@ test("vertico-mode shows and selects minibuffer candidates", async () => {
   await editor.run("vertico-next")
   editor.minibufferSubmit()
   await expect(promise).resolves.toBe("alphabet")
+  expect(editor.minibufferCompletionDisplay).toBeNull()
 })
 
 test("vertico-mode refreshes candidates while typing", async () => {
@@ -74,6 +75,35 @@ test("vertico-mode refreshes candidates while typing", async () => {
   await editor.handleKey({ name: "backspace" })
   expect(editor.activeBuffer.text).toBe("")
   expect(editor.minibufferCompletionDisplay?.text).toContain("alpha")
+  editor.minibufferCancel()
+  await promise
+})
+
+test("vertico file completion displays relative names and inserts selected directory", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-vertico-file-"))
+  await mkdir(join(dir, "src"))
+  await writeFile(join(dir, "src", "main.ts"), "main")
+  await writeFile(join(dir, "README.md"), "readme")
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  const promise = editor.completingRead("Find file: ", {
+    completion: "file",
+    history: "file",
+    initialValue: `${dir}/`,
+  })
+  await editor.refreshMinibufferCompletions()
+
+  expect(editor.minibufferCompletionDisplay?.text).toContain("src/")
+  expect(editor.minibufferCompletionDisplay?.text).not.toContain(`${dir}/src/`)
+  await editor.handleKey({ name: "s", sequence: "s" })
+  await editor.handleKey({ name: "r", sequence: "r" })
+  await editor.handleKey({ name: "c", sequence: "c" })
+  expect(editor.minibufferCompletionDisplay?.text).toContain("1/1")
+  expect(editor.minibufferCompletionDisplay?.text).toContain("src/")
+  await editor.handleKey({ name: "tab" })
+  expect(editor.activeBuffer.text).toBe(`${dir}/src/`)
+  expect(editor.minibufferCompletionDisplay?.text).toContain("main.ts")
+  expect(editor.minibufferCompletionDisplay?.text).not.toContain("src/")
   editor.minibufferCancel()
   await promise
 })
