@@ -17,6 +17,7 @@ import { findBackward, findForward, isearchPrompt, type IsearchState } from "./i
 import {
   cloneWindowNode,
   createLeafWindow,
+  balanceWindowTree,
   deleteOtherWindowLeaves,
   deleteWindowLeaf,
   findWindowLeaf,
@@ -788,6 +789,13 @@ export class Editor {
     this.windowLayout = deleteOtherWindowLeaves(this.windowLayout, this.selectedWindowId)
     this.restoreSelectedWindowPoint()
     void this.changed("delete-other-windows")
+  }
+
+  balanceWindows(): void {
+    this.persistSelectedWindowPoint()
+    this.windowLayout = balanceWindowTree(this.windowLayout)
+    this.restoreSelectedWindowPoint()
+    void this.changed("balance-windows")
   }
 
   killBuffer(idOrName?: string): BufferModel | null {

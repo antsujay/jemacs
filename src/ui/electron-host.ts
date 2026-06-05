@@ -58,6 +58,7 @@ export class ElectronHost implements UiHost {
   destroy(): void {
     this.window?.close()
     this.window = null
+    app.quit()
   }
 
   getViewport(): ViewportSize {

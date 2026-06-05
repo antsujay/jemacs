@@ -12,6 +12,7 @@ export type WindowLeaf = {
 export type WindowSplit = {
   kind: "split"
   direction: "horizontal" | "vertical"
+  firstRatio?: number
   first: WindowNode
   second: WindowNode
 }
@@ -27,6 +28,7 @@ export function cloneWindowNode(node: WindowNode): WindowNode {
   return {
     kind: "split",
     direction: node.direction,
+    firstRatio: node.firstRatio,
     first: cloneWindowNode(node.first),
     second: cloneWindowNode(node.second),
   }
@@ -48,6 +50,11 @@ export function listWindowLeaves(node: WindowNode): WindowLeaf[] {
   return [...listWindowLeaves(node.first), ...listWindowLeaves(node.second)]
 }
 
+export function windowLeafCount(node: WindowNode): number {
+  if (node.kind === "leaf") return 1
+  return windowLeafCount(node.first) + windowLeafCount(node.second)
+}
+
 export function findWindowLeaf(node: WindowNode, id: WindowId): WindowLeaf | null {
   if (node.kind === "leaf") return node.id === id ? node : null
   return findWindowLeaf(node.first, id) ?? findWindowLeaf(node.second, id)
@@ -58,6 +65,7 @@ export function mapWindowLeaves(node: WindowNode, fn: (leaf: WindowLeaf) => Wind
   return {
     kind: "split",
     direction: node.direction,
+    firstRatio: node.firstRatio,
     first: mapWindowLeaves(node.first, fn),
     second: mapWindowLeaves(node.second, fn),
   }
@@ -93,7 +101,7 @@ export function splitWindowLeaf(
   const inFirst = splitWindowLeaf(node.first, id, direction, bufferId, point)
   if (inFirst.found) {
     return {
-      layout: { kind: "split", direction: node.direction, first: inFirst.layout, second: node.second },
+      layout: { kind: "split", direction: node.direction, firstRatio: node.firstRatio, first: inFirst.layout, second: node.second },
       newWindowId: inFirst.newWindowId,
       found: true,
     }
@@ -101,7 +109,7 @@ export function splitWindowLeaf(
   const inSecond = splitWindowLeaf(node.second, id, direction, bufferId, point)
   if (inSecond.found) {
     return {
-      layout: { kind: "split", direction: node.direction, first: node.first, second: inSecond.layout },
+      layout: { kind: "split", direction: node.direction, firstRatio: node.firstRatio, first: node.first, second: inSecond.layout },
       newWindowId: inSecond.newWindowId,
       found: true,
     }
@@ -115,7 +123,7 @@ export function deleteWindowLeaf(node: WindowNode, id: WindowId): WindowNode | n
   const second = deleteWindowLeaf(node.second, id)
   if (first == null) return second
   if (second == null) return first
-  return { kind: "split", direction: node.direction, first, second }
+  return { kind: "split", direction: node.direction, firstRatio: node.firstRatio, first, second }
 }
 
 export function deleteOtherWindowLeaves(node: WindowNode, id: WindowId): WindowNode {
@@ -173,4 +181,18 @@ export function removeBufferFromWindows(node: WindowNode, bufferId: string, fall
   return mapWindowLeaves(node, leaf => leaf.bufferId === bufferId
     ? { ...leaf, bufferId: fallbackBufferId, point: 0 }
     : leaf)
+}
+
+export function balanceWindowTree(node: WindowNode): WindowNode {
+  if (node.kind === "leaf") return node
+  const first = balanceWindowTree(node.first)
+  const second = balanceWindowTree(node.second)
+  const total = windowLeafCount(first) + windowLeafCount(second)
+  return {
+    kind: "split",
+    direction: node.direction,
+    firstRatio: total <= 0 ? 0.5 : windowLeafCount(first) / total,
+    first,
+    second,
+  }
 }

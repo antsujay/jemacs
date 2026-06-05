@@ -27,6 +27,7 @@ export type WindowPaneModel = {
 export type WindowSplitModel = {
   kind: "split"
   direction: "horizontal" | "vertical"
+  firstRatio?: number
   first: WindowDisplayNode
   second: WindowDisplayNode
 }

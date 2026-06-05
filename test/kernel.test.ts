@@ -733,6 +733,8 @@ test("Stephen config feature slice installs modes, keybindings, windows, tabs, a
   expect(editor.keymap.get("C-x C-r")).toBe("revert-buffer")
   expect(editor.keymap.get("s-f")).toBe("counsel-ag")
   expect(editor.keymaps.describe("C-M-S-<tab>")?.command).toBe("tab-bar-switch-to-prev-tab")
+  expect(editor.keymaps.describe("C-\\")?.command).toBe("tiling-cycle")
+  expect(editor.keymaps.describe("C-x +")?.command).toBe("balance-windows")
 
   const buffer = editor.scratch("registers", "one\ntwo\nthree", "text")
   buffer.point = 4

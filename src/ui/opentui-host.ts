@@ -223,6 +223,7 @@ export class OpenTuiHost implements UiHost {
     seenSplits: Set<string>,
     seenLeaves: Set<string>,
     theme: Theme,
+    grow = 1,
   ): void {
     if (layout.kind === "leaf") {
       const leaf = layout.pane
@@ -242,7 +243,7 @@ export class OpenTuiHost implements UiHost {
       } else {
         this.bodyWindowIds.set(parts.body, leaf.id)
       }
-      this.applyPaneLayout(parts.pane, parentAxis)
+      this.applyPaneLayout(parts.pane, parentAxis, grow)
       this.reparent(parts.pane, parent)
       this.updateLeafBody(parts.body, leaf, theme)
       parts.modeline.content = themedTextToStyledText(leaf.modeline)
@@ -267,14 +268,15 @@ export class OpenTuiHost implements UiHost {
     } else {
       container.flexDirection = axis
     }
-    this.applyPaneLayout(container, parentAxis)
+    this.applyPaneLayout(container, parentAxis, grow)
     this.reparent(container, parent)
 
     const budget = layout.kind === "split"
-      ? this.splitLineBudget(availableLines, layout.direction)
+      ? this.splitLineBudget(availableLines, layout.direction, layout.firstRatio)
       : { first: availableLines, second: availableLines }
-    this.syncWindowNode(container, layout.first, budget.first, axis, `${path}/f`, seenSplits, seenLeaves, theme)
-    this.syncWindowNode(container, layout.second, budget.second, axis, `${path}/s`, seenSplits, seenLeaves, theme)
+    const firstRatio = layout.firstRatio ?? 0.5
+    this.syncWindowNode(container, layout.first, budget.first, axis, `${path}/f`, seenSplits, seenLeaves, theme, firstRatio)
+    this.syncWindowNode(container, layout.second, budget.second, axis, `${path}/s`, seenSplits, seenLeaves, theme, 1 - firstRatio)
     this.ensureSplitChildren(container)
   }
 
@@ -290,8 +292,8 @@ export class OpenTuiHost implements UiHost {
     }
   }
 
-  private applyPaneLayout(pane: BoxRenderable, parentAxis: "row" | "column"): void {
-    pane.flexGrow = 1
+  private applyPaneLayout(pane: BoxRenderable, parentAxis: "row" | "column", grow = 1): void {
+    pane.flexGrow = Math.max(0.05, grow)
     pane.flexShrink = 1
     pane.flexBasis = 0
     pane.minWidth = 0
@@ -300,11 +302,11 @@ export class OpenTuiHost implements UiHost {
     else pane.height = "100%"
   }
 
-  private splitLineBudget(availableLines: number, direction: "horizontal" | "vertical"): { first: number; second: number } {
+  private splitLineBudget(availableLines: number, direction: "horizontal" | "vertical", firstRatio = 0.5): { first: number; second: number } {
     if (direction === "horizontal") {
       return { first: availableLines, second: availableLines }
     }
-    const first = Math.max(3, Math.floor(availableLines / 2))
+    const first = proportionalBudget(availableLines, firstRatio, 3)
     return { first, second: Math.max(3, availableLines - first) }
   }
 
@@ -363,4 +365,10 @@ function fillBox(box: BoxRenderable, backgroundColor: string | undefined): void 
   if (!backgroundColor) return
   box.backgroundColor = backgroundColor
   box.shouldFill = true
+}
+
+function proportionalBudget(total: number, firstRatio: number, min: number): number {
+  if (total <= min * 2) return Math.floor(total / 2)
+  const ratio = Math.max(0.05, Math.min(0.95, firstRatio))
+  return Math.max(min, Math.min(total - min, Math.floor(total * ratio)))
 }

@@ -16,7 +16,7 @@ export type SerializedDisplayModel = {
 
 export type SerializedWindowNode =
   | { kind: "leaf"; pane: SerializedPane }
-  | { kind: "split"; direction: "horizontal" | "vertical"; first: SerializedWindowNode; second: SerializedWindowNode }
+  | { kind: "split"; direction: "horizontal" | "vertical"; firstRatio?: number; first: SerializedWindowNode; second: SerializedWindowNode }
 
 export type SerializedPane = {
   id: string
@@ -70,6 +70,7 @@ function serializeWindowNode(node: WindowDisplayNode): SerializedWindowNode {
   return {
     kind: "split",
     direction: node.direction,
+    firstRatio: node.firstRatio,
     first: serializeWindowNode(node.first),
     second: serializeWindowNode(node.second),
   }

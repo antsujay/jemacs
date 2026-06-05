@@ -6,6 +6,7 @@ import type { Editor } from "../src/kernel/editor"
  */
 const builtins: Array<[name: string, load: () => Promise<{ install: (e: Editor) => void | Promise<void> }>]> = [
   ["motion", () => import("./motion")],
+  ["window", () => import("./window")],
   ["mark-ring", () => import("./mark-ring")],
   ["save-hooks", () => import("./save-hooks")],
   ["comment-dwim", () => import("./comment-dwim")],

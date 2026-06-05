@@ -108,11 +108,12 @@ function buildWindowTree(editor: Editor, layout: WindowNode, availableLines: num
   if (layout.kind === "leaf") {
     return { kind: "leaf", pane: buildLeafPane(editor, layout, availableLines, availableCols), lineBudget: availableLines }
   }
-  const lines = splitLineBudget(availableLines, layout.direction)
-  const cols = splitColBudget(availableCols, layout.direction)
+  const lines = splitLineBudget(availableLines, layout.direction, layout.firstRatio)
+  const cols = splitColBudget(availableCols, layout.direction, layout.firstRatio)
   return {
     kind: "split",
     direction: layout.direction,
+    firstRatio: layout.firstRatio,
     first: buildWindowTree(editor, layout.first, lines.first, cols.first),
     second: buildWindowTree(editor, layout.second, lines.second, cols.second),
   }
@@ -201,19 +202,25 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
   }
 }
 
-function splitLineBudget(availableLines: number, direction: "horizontal" | "vertical"): { first: number; second: number } {
+function splitLineBudget(availableLines: number, direction: "horizontal" | "vertical", firstRatio = 0.5): { first: number; second: number } {
   if (direction === "horizontal") {
     return { first: availableLines, second: availableLines }
   }
-  const first = Math.max(3, Math.floor(availableLines / 2))
+  const first = proportionalBudget(availableLines, firstRatio, 3)
   return { first, second: Math.max(3, availableLines - first) }
 }
 
-function splitColBudget(cols: number | undefined, direction: "horizontal" | "vertical"): { first?: number; second?: number } {
+function splitColBudget(cols: number | undefined, direction: "horizontal" | "vertical", firstRatio = 0.5): { first?: number; second?: number } {
   if (cols == null) return {}
   if (direction === "vertical") return { first: cols, second: cols }
-  const first = Math.floor(cols / 2)
+  const first = proportionalBudget(cols, firstRatio, 1)
   return { first, second: cols - first }
+}
+
+function proportionalBudget(total: number, firstRatio: number, min: number): number {
+  if (total <= min * 2) return Math.floor(total / 2)
+  const ratio = Math.max(0.05, Math.min(0.95, firstRatio))
+  return Math.max(min, Math.min(total - min, Math.floor(total * ratio)))
 }
 
 /** Hard-wrap themed body rows at `cols`, left-padding continuation rows by

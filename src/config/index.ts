@@ -12,6 +12,7 @@ import { bindDefaultKeybindings } from "./default-bindings"
 import { installUserConfig } from "./user"
 import { installStephenConfig } from "./stephen"
 import { installDefaultCustomVariables } from "./custom-init"
+import { install as installWindowPlugin } from "../../plugins/window"
 
 export { installDefaultHooks, installLspDeferredHooks } from "./install-hooks"
 export { LSP_AUTO_MODES, LSP_AUTO_EXTENSIONS, shouldAutoStartLsp } from "./lsp-auto-modes"
@@ -29,6 +30,7 @@ export function installDefaultConfig(editor: Editor, options: DefaultConfigOptio
   installLinumMode()
   installMinorModeCommands(editor)
   installCustomizeCommands(editor)
+  installWindowPlugin(editor)
   bindDefaultKeybindings(editor)
   installDefaultCustomVariables(editor)
   if (options.installStephen ?? false) installStephenConfig(editor)
