@@ -3,7 +3,7 @@ import { BufferModel } from "../kernel/buffer"
 import type { TextSpan } from "../modes/mode"
 import { readFileText } from "../platform/runtime"
 import { keyToken } from "../kernel/keymap"
-import { getCustom } from "../runtime/custom"
+import { saveContextOptions } from "./save-context"
 
 /** Read one keystroke as an Emacs key token (e.g. "y", "C-g", "RET") without
  *  opening a minibuffer. Resolves to `null` on C-g. The next handleKey call is
@@ -70,7 +70,7 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
       await buffer.save({
         confirm: async p => (await readKey(editor, `${p} (y or n) `)) === "y",
         runHook: (h, b) => editor.runHook(h, b),
-        makeBackupFiles: getCustom("make-backup-files"),
+        ...saveContextOptions(),
       })
       editor.message(`Wrote ${path}`)
     } catch (err) {
@@ -113,7 +113,7 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
         try {
           await target.save({
             confirm: async p => (await readKey(editor, `${p} (y or n) `)) === "y",
-            makeBackupFiles: getCustom("make-backup-files"),
+            ...saveContextOptions(),
           })
         } catch (err) { editor.message((err as Error).message); return }
       } else if (ans !== "y") { editor.message("Cancelled"); return }

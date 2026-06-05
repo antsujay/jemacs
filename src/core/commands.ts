@@ -33,6 +33,7 @@ import { installLiveSourceCommands } from "../runtime/live-source"
 import { revertAllDefinitions } from "../runtime/patch-eval"
 import { inspectValue } from "../runtime/inspect"
 import { installEmacsStandardCommands, readKey, type KillRingApi } from "./emacs-standard"
+import { saveContextOptions } from "./save-context"
 import { clearTextScaleAdjustMap, installTextScaleCommands } from "./text-scale"
 import { isPrintable } from "../kernel/keymap"
 import { listWindowLeaves, nextWindowId } from "../kernel/window"
@@ -99,7 +100,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   // errors; callers that bypass that command (save-some-buffers) opt in.
   const saveCtx = (extra?: SaveContext): SaveContext => ({
     confirm: async (p: string) => (await readKey(editor, `${p} (y or n) `)) === "y",
-    makeBackupFiles: getCustom("make-backup-files") as boolean,
+    ...saveContextOptions(),
     ...extra,
   })
 

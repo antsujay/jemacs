@@ -1,6 +1,7 @@
 import { dirname, basename } from "node:path"
-import { copyFile, stat } from "node:fs/promises"
+import { copyFile, mkdir, stat } from "node:fs/promises"
 import { fileExists, readFileText, writeFileText } from "../platform/runtime"
+import { resolveBackupPath, type BackupDirectoryAlist } from "./backup-path"
 import { isTransientMarkModeEnabled } from "./transient-mark"
 
 export type BufferKind = "file" | "directory" | "scratch" | "messages" | "inspector" | "minibuffer" | "grep"
@@ -12,6 +13,8 @@ export type SaveContext = {
   force?: boolean
   /** Resolved make-backup-files; the defcustom lives at the command layer to keep buffer.ts cycle-free. */
   makeBackupFiles?: boolean
+  /** Resolved backup-directory-alist; same layering as makeBackupFiles. */
+  backupDirectoryAlist?: BackupDirectoryAlist
 }
 
 type Op = { from: number; to: number; removed: string; inserted: string; point: number }
@@ -267,7 +270,12 @@ export class BufferModel {
       if (ok !== true) throw new Error(`File ${this.path} changed on disk since visited`)
     }
     if ((ctx.makeBackupFiles ?? true) && !this.backedUp && await fileExists(this.path)) {
-      await copyFile(this.path, this.path + "~")
+      const backupPath = resolveBackupPath(this.path, ctx.backupDirectoryAlist)
+      if (backupPath !== null) {
+        const target = backupPath ?? this.path + "~"
+        await mkdir(dirname(target), { recursive: true })
+        await copyFile(this.path, target)
+      }
       this.backedUp = true
     }
     await writeFileText(this.path, this.text)
