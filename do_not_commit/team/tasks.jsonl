@@ -292,3 +292,5 @@
 {"id": "t-7e2a4f", "status": "done", "ts": 1780687255409}
 {"id": "t-c81b93", "status": "done", "ts": 1780687255409}
 {"id": "t-3d5e0a", "status": "done", "ts": 1780687255409}
+{"id":"t-b6e7f7","ts":1780688407947,"kind":"bug","priority":"unranked","owns":"-","status":"open","title":"isearch lazy-highlight: spans emitted but no theme entry — other matches render invisibly","detail":"tui-drive: open file with many \"a\"s, C-s a, capansi → only the current match has bg #6a5f00; every other \"a\" is plain fg. be88a61 added isearchLazyHighlightSpans() (src/kernel/isearch.ts:117) emitting face \"lazyHighlight\", wired it into build-display-model.ts:151, and added \"lazyHighlight\" to FaceName (src/modes/mode.ts:21) — but src/themes/jemacs-dark.ts has only `isearch:` (line 16), no `lazyHighlight:` entry. With no FaceStyle the spans fall through to default colors. Fix: add `lazyHighlight: { bg: \"#3a3a5a\" }` (or similar dimmer-than-isearch bg) to src/themes/jemacs-dark.ts.","by":"qa","sha":"1342af409509df40113f2fd611d1c3b85faef81e"}
+{"id": "t-b6e7f7", "status": "done", "ts": 1780688507595}
