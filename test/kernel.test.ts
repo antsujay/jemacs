@@ -416,7 +416,7 @@ test("keymap stack gives minibuffer bindings precedence over global bindings", a
   await editor.handleKey({ name: "tab" })
   expect(editor.running).toBe(true)
   expect(editor.activeBuffer.text).toBe("revert-buffer")
-  expect([...editor.buffers.values()].find(b => b.name === "*vertico*")?.text).toContain("revert-buffer")
+  expect(editor.minibufferCompletionDisplay?.text).toContain("revert-buffer")
   await editor.handleKey({ name: "g", ctrl: true })
   await prompt
 })

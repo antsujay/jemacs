@@ -124,6 +124,7 @@ async function verticoRefresh(editor: Editor): Promise<void> {
   if (!request || !editor.isMinorModeEnabled("vertico-mode")) return
   if (!isCompletionPrompt(editor)) {
     states.delete(editor)
+    editor.minibufferCompletionDisplay = null
     return
   }
   const input = editor.activeBuffer.text
@@ -252,9 +253,10 @@ function showVerticoCompletions(editor: Editor, state: VerticoState): void {
     return `${marker}${displayCandidate(candidate)}`
   })
   const body = [countText, ...lines].filter(Boolean).join("\n")
-  const existing = [...editor.buffers.values()].find(b => b.name === "*vertico*")
-  if (existing) existing.setText(body, false)
-  else editor.addBuffer(new BufferModel({ name: "*vertico*", text: body, kind: "scratch", mode: "text" }))
+  editor.minibufferCompletionDisplay = {
+    text: body,
+    selectedLine: state.index >= state.scroll ? state.index - state.scroll + (countText ? 1 : 0) : undefined,
+  }
   void editor.changed("vertico-exhibit")
 }
 

@@ -1,6 +1,6 @@
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { readdir } from "node:fs/promises"
+import { readdir, stat } from "node:fs/promises"
 
 export function expandUserPath(input: string): string {
   if (input.startsWith("~/")) return join(homedir(), input.slice(2))
@@ -20,8 +20,20 @@ export function splitCompletionInput(input: string, baseDirectory = process.cwd(
 }
 
 export async function fileCompletionCandidates(input: string, baseDirectory = process.cwd()): Promise<string[]> {
+  const expanded = expandUserPath(input)
+  const absoluteInput = expanded.startsWith("/") ? expanded : resolve(baseDirectory, expanded)
+  if (await stat(absoluteInput).then(s => s.isDirectory()).catch(() => false)) {
+    const entries = await readdir(absoluteInput, { withFileTypes: true }).catch(() => [])
+    return entries
+      .map(entry => {
+        const path = join(absoluteInput, entry.name)
+        return entry.isDirectory() ? `${path}/` : path
+      })
+      .sort((a, b) => a.localeCompare(b))
+  }
+
   const { directory, prefix } = splitCompletionInput(input, baseDirectory)
-  const dirPath = directory.startsWith("/") ? directory : resolve(process.cwd(), directory)
+  const dirPath = directory.startsWith("/") ? directory : resolve(baseDirectory, directory)
   const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => [])
   return entries
     .filter(entry => entry.name.startsWith(prefix))

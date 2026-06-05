@@ -61,6 +61,7 @@ export function renderWindows(
 export type DomFrameTargets = {
   title: HTMLElement
   windows: HTMLElement
+  minibufferCompletions?: HTMLElement
   minibuffer: HTMLElement
   echo: HTMLElement
 }
@@ -72,6 +73,10 @@ export function presentDomFrame(
 ): void {
   renderThemedText(targets.title, model.title)
   targets.windows.replaceChildren(renderWindows(model.windows, onMouse))
+  if (targets.minibufferCompletions) {
+    renderThemedText(targets.minibufferCompletions, model.minibufferCompletions)
+    targets.minibufferCompletions.style.display = model.minibufferCompletionLines > 0 ? "" : "none"
+  }
   renderThemedText(targets.minibuffer, model.minibuffer)
   renderThemedText(targets.echo, model.echo)
   const bg = model.theme.faces.default?.bg

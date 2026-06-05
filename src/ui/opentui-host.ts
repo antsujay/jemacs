@@ -42,6 +42,7 @@ export class OpenTuiHost implements UiHost {
   private root!: BoxRenderable
   private title!: TextRenderable
   private windowsRoot!: BoxRenderable
+  private minibufferCompletions!: TextRenderable
   private minibuffer!: TextRenderable
   private echo!: TextRenderable
   private splitPanes = new Map<string, BoxRenderable>()
@@ -91,7 +92,9 @@ export class OpenTuiHost implements UiHost {
   present(model: DisplayModel): void {
     this.applyThemeSurfaces(model.theme)
     this.title.content = themedTextToStyledText(model.title)
-    this.renderWindows(model.windows, contentAreaLines(model.viewport.rows), model.theme)
+    this.renderWindows(model.windows, Math.max(2, contentAreaLines(model.viewport.rows) - model.minibufferCompletionLines), model.theme)
+    this.minibufferCompletions.content = themedTextToStyledText(model.minibufferCompletions)
+    this.minibufferCompletions.height = model.minibufferCompletionLines
     this.minibuffer.content = themedTextToStyledText(model.minibuffer)
     this.echo.content = themedTextToStyledText(model.echo)
   }
@@ -162,10 +165,12 @@ export class OpenTuiHost implements UiHost {
       width: "100%",
       height: "100%",
     })
+    this.minibufferCompletions = new TextRenderable(this.renderer, { id: "jemacs-minibuffer-completions", content: "", height: 0 })
     this.minibuffer = new TextRenderable(this.renderer, { id: "jemacs-minibuffer", content: "" })
     this.echo = new TextRenderable(this.renderer, { id: "jemacs-echo", content: "" })
     this.root.add(this.title)
     this.root.add(this.windowsRoot)
+    this.root.add(this.minibufferCompletions)
     this.root.add(this.minibuffer)
     this.root.add(this.echo)
     this.renderer.root.add(this.root)
@@ -175,6 +180,7 @@ export class OpenTuiHost implements UiHost {
     fillBox(this.root, themeFaceBackground(theme))
     fillBox(this.windowsRoot, themeFaceBackground(theme))
     this.applyTextBackground(this.title, theme, "title")
+    this.applyTextBackground(this.minibufferCompletions, theme, "minibuffer")
     this.applyTextBackground(this.minibuffer, theme, "minibuffer")
     this.applyTextBackground(this.echo, theme, "minibuffer")
     for (const { pane, body } of this.leafPanes.values()) {

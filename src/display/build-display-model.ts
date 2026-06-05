@@ -27,7 +27,9 @@ export function buildDisplayModel(editor: Editor, options: BuildDisplayOptions):
   const titleText = ` ${hostLabel} — ${buffer.name}${buffer.dirty ? "*" : ""}`
   const title = applyTheme(titleText, [{ start: 0, end: titleText.length, face: "title" }], editor.theme)
 
-  const areaLines = contentAreaLines(viewport.rows)
+  const completions = buildMinibufferCompletionsChunk(editor)
+  const completionLines = minibufferCompletionLineCount(editor)
+  const areaLines = Math.max(2, contentAreaLines(viewport.rows) - completionLines)
   const windows = buildWindowTree(editor, editor.windowLayout, areaLines)
 
   const minibuffer = buildMinibufferChunk(editor, depth)
@@ -37,12 +39,35 @@ export function buildDisplayModel(editor: Editor, options: BuildDisplayOptions):
   return {
     title,
     windows,
+    minibufferCompletions: completions,
+    minibufferCompletionLines: completionLines,
     minibuffer,
     echo,
     theme: editor.theme,
     viewport,
     hostLabel,
   }
+}
+
+function buildMinibufferCompletionsChunk(editor: Editor) {
+  const display = editor.minibufferCompletionDisplay
+  if (!display?.text) return applyTheme("", [], editor.theme)
+  const text = display.text
+  const spans = []
+  if (display.selectedLine != null) {
+    const lines = text.split("\n")
+    let start = 0
+    for (let i = 0; i < Math.min(display.selectedLine, lines.length); i++) start += lines[i]!.length + 1
+    const end = start + (lines[display.selectedLine]?.length ?? 0)
+    if (end > start) spans.push({ start, end, face: "region" as const })
+  }
+  return applyTheme(text, spans, editor.theme)
+}
+
+function minibufferCompletionLineCount(editor: Editor): number {
+  const text = editor.minibufferCompletionDisplay?.text
+  if (!text) return 0
+  return Math.max(1, text.split("\n").length)
 }
 
 function buildMinibufferChunk(editor: Editor, depth: string) {

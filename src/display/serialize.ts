@@ -5,6 +5,8 @@ export type SerializedThemedText = { chunks: Array<{ text: string; fg?: string; 
 export type SerializedDisplayModel = {
   title: SerializedThemedText
   windows: SerializedWindowNode
+  minibufferCompletions: SerializedThemedText
+  minibufferCompletionLines: number
   minibuffer: SerializedThemedText
   echo: SerializedThemedText
   theme: DisplayModel["theme"]
@@ -37,6 +39,8 @@ export function serializeDisplayModel(model: DisplayModel): SerializedDisplayMod
   return {
     title: serializeThemedText(model.title),
     windows: serializeWindowNode(model.windows),
+    minibufferCompletions: serializeThemedText(model.minibufferCompletions),
+    minibufferCompletionLines: model.minibufferCompletionLines,
     minibuffer: serializeThemedText(model.minibuffer),
     echo: serializeThemedText(model.echo),
     theme: model.theme,

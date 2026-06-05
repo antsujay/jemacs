@@ -4,6 +4,7 @@ import { domKeyFromKeyboardEvent } from "./dom-key"
 
 const titleEl = document.getElementById("jemacs-title")!
 const windowsEl = document.getElementById("jemacs-windows")!
+const minibufferCompletionsEl = document.getElementById("jemacs-minibuffer-completions")!
 const minibufferEl = document.getElementById("jemacs-minibuffer")!
 const echoEl = document.getElementById("jemacs-echo")!
 
@@ -19,7 +20,7 @@ declare global {
 
 function present(model: SerializedDisplayModel): void {
   presentDomFrame(
-    { title: titleEl, windows: windowsEl, minibuffer: minibufferEl, echo: echoEl },
+    { title: titleEl, windows: windowsEl, minibufferCompletions: minibufferCompletionsEl, minibuffer: minibufferEl, echo: echoEl },
     model,
     (windowId, row, col) => {
       window.jemacs.sendInput({ type: "mouse", windowId, row, col, button: 0 })

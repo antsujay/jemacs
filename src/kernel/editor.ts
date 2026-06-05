@@ -78,6 +78,11 @@ export type MinibufferCompletionFrontend = {
   submitValue?: (editor: Editor) => string | undefined
 }
 
+export type MinibufferCompletionDisplay = {
+  text: string
+  selectedLine?: number
+}
+
 export type CompletingReadFunction = (editor: Editor, prompt: string, options: CompletingReadOptions) => Promise<string | null>
 
 export type KeyDispatchResult =
@@ -118,6 +123,7 @@ export class Editor {
   lsp: LspManager | null = null
   completingReadFunction: CompletingReadFunction | null = null
   minibufferCompletionFrontend: MinibufferCompletionFrontend | null = null
+  minibufferCompletionDisplay: MinibufferCompletionDisplay | null = null
   private minibufferDepth = 0
 
   constructor() {
@@ -581,6 +587,7 @@ export class Editor {
         resolve: value => {
           this.buffers.delete(buffer.id)
           this.minibuffer = previous
+          this.minibufferCompletionDisplay = null
           this.minibufferDepth--
           resolve(value)
         },
@@ -975,6 +982,7 @@ export class Editor {
   }
 
   private showCompletions(matches: string[]): void {
+    this.minibufferCompletionDisplay = { text: matches.join("\n") }
     const existing = [...this.buffers.values()].find(b => b.name === "*Completions*")
     const body = matches.join("\n")
     if (existing) existing.setText(body, false)

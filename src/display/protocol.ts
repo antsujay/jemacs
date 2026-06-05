@@ -42,6 +42,8 @@ export type WindowDisplayNode = WindowLeafModel | WindowSplitModel
 export type DisplayModel = {
   title: DisplayChunk
   windows: WindowDisplayNode
+  minibufferCompletions: DisplayChunk
+  minibufferCompletionLines: number
   minibuffer: DisplayChunk
   echo: DisplayChunk
   theme: Theme
