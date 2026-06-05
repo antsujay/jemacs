@@ -19,9 +19,6 @@ export function install(editor: Editor): void {
     editor.message(`Register ${register} does not contain text`)
   }, "Insert contents of register at point.")
 
-  // Core jump-to-register predates text/rectangle kinds and falls through to
-  // restoreWindowConfiguration; re-register so non-location registers are refused
-  // instead of corrupting the window layout.
 
   editor.key("C-x r s", "copy-to-register")
   editor.key("C-x r i", "insert-register")

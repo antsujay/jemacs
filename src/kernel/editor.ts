@@ -1005,12 +1005,23 @@ export class Editor {
       case "backspace":
         if (this.isearch) this.setIsearchString(this.isearch.string.slice(0, -1))
         return { status: "inserted" }
+      case "enter":
       case "return":
         this.endIsearch()
         return { status: "inserted" }
       case "delete":
         return { status: "inserted" }
       default:
+        if (key.meta && (key.name === "p" || key.name === "n")) {
+          const ring = this.searchRing
+          if (!ring.length) { this.message("No previous search string"); return { status: "inserted" } }
+          const cur = ring.indexOf(this.isearch?.string ?? "")
+          const i = key.name === "p"
+            ? (cur < 0 ? ring.length - 1 : Math.max(0, cur - 1))
+            : (cur < 0 ? 0 : Math.min(ring.length - 1, cur + 1))
+          this.setIsearchString(ring[i]!)
+          return { status: "inserted" }
+        }
         if (isPrintable(key)) {
           const text = (key.sequence ?? "").repeat(this.consumePrefixArgument() ?? 1)
           if (this.isearch) this.setIsearchString(this.isearch.string + text)
