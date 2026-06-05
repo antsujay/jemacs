@@ -30,3 +30,6 @@ When porting or replicating a GNU Emacs interactive function:
 - Optional native editor pane: `JEMACS_USE_TEXTAREA=1` (selected window; font-lock via `syncSpans` + `opentui-textarea-sync.ts`).
 - Shared GUI DOM: `src/display/dom-frame.ts` (used by `src/electron/renderer.ts`).
 - Workspace packages: `packages/jemacs-core`, `host-opentui`, `host-electron` (re-exports; app still runs from repo root).
+
+## Verification
+* When verifying non-Electron features, verify that the feature works by starting the OpenTUI version in a tmux instance
