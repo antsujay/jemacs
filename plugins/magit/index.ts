@@ -241,6 +241,7 @@ export function magitDiffFontLock(buffer: BufferModel): TextSpan[] {
   for (const line of buffer.text.split("\n")) {
     const end = offset + line.length
     if (line.startsWith("@@")) spans.push({ start: offset, end, face: "builtin" })
+    else if (line.startsWith("+++") || line.startsWith("---")) spans.push({ start: offset, end, face: "comment" })
     else if (line.startsWith("+")) spans.push({ start: offset, end, face: "string" })
     else if (line.startsWith("-")) spans.push({ start: offset, end, face: "error" })
     else if (/^(Head|Merge|Unstaged|Staged|Recent)\b/.test(line)) spans.push({ start: offset, end, face: "keyword" })

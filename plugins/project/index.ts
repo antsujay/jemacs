@@ -9,12 +9,19 @@ import { compilationStart, lastCompileCommand } from "../compile"
 
 export { findProjectRoot }
 
+const ROOT_MARKERS = [".git", "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "package.json", "go.mod", "Cargo.toml"]
+
 /** Directory-taking, null-returning adapter over `findProjectRoot` so project/magit agree with compile/lsp. */
 export async function projectRoot(dir: string): Promise<string | null> {
   const start = resolve(dir)
   const found = await findProjectRoot(join(start, "_"))
   if (found !== start) return found
-  return access(join(found, ".git")).then(() => found, () => null)
+  // findProjectRoot returns `start` both for "marker at start" and "no marker"; disambiguate.
+  for (const m of ROOT_MARKERS) {
+    const ok = await access(join(found, m)).then(() => true, () => false)
+    if (ok) return found
+  }
+  return null
 }
 
 export async function projectFiles(root: string): Promise<string[]> {
@@ -106,7 +113,7 @@ export function install(editor: Editor): void {
     const root = await projectCurrent(editor)
     if (!root) return
     const cmd = args[0] ?? await editor.prompt("Compile command: ", lastCompileCommand(editor), "compile-command")
-    if (cmd == null) return
+    if (!cmd) return
     await compilationStart(editor, cmd, root)
   }, "Run `compile` with the project root as default-directory.")
 
