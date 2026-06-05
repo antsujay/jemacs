@@ -6,6 +6,7 @@ import type { Editor } from "../src/kernel/editor"
 import { readKey } from "./misc"
 import { readFileText } from "../src/platform/runtime"
 import { defcustom, getCustom } from "../src/runtime/custom"
+import { saveContextOptions } from "../src/core/save-context"
 import {
   diredCreateDirectory,
   diredDoCopy,
@@ -50,7 +51,7 @@ export function install(editor: Editor): void {
   // errors; callers that bypass that command (save-some-buffers) opt in.
   const saveCtx = (extra?: SaveContext): SaveContext => ({
     confirm: async (p: string) => (await readKey(editor, `${p} (y or n) `)) === "y",
-    makeBackupFiles: getCustom("make-backup-files") as boolean,
+    ...saveContextOptions(),
     ...extra,
   })
 

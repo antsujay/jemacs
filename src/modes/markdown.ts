@@ -123,6 +123,7 @@ function installMarkdownCommands(editor: Editor): void {
   }, "Outdent the current line one step.")
 
   editor.command("markdown-outdent-or-delete", ({ buffer }) => {
+    if (buffer.deleteActiveRegion()) return
     const line = buffer.lineBoundsAt()
     const content = line.text.replace(/^\s*/, "")
     if (content.length === 0 && line.text.length > 0) {

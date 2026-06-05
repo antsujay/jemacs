@@ -674,6 +674,50 @@ test("C-x C-x exchanges point and mark like Emacs", async () => {
   expect(buffer.markActive).toBe(true)
 })
 
+test("delete-backward-char deletes the active region like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 0
+  buffer.point = 5
+  buffer.markActive = true
+
+  await editor.run("delete-backward-char")
+  expect(buffer.text).toBe(" world")
+  expect(buffer.point).toBe(0)
+  expect(buffer.markActive).toBe(false)
+})
+
+test("delete-backward-char ignores inactive region under transient-mark-mode", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 0
+  buffer.point = 5
+  buffer.markActive = false
+
+  await editor.run("delete-backward-char")
+  expect(buffer.text).toBe("hell world")
+  expect(buffer.point).toBe(4)
+})
+
+test("delete-char deletes the active region like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 6
+  buffer.point = 11
+  buffer.markActive = true
+
+  await editor.run("delete-char")
+  expect(buffer.text).toBe("hello ")
+  expect(buffer.point).toBe(6)
+  expect(buffer.markActive).toBe(false)
+})
+
 test("exchange-point-and-mark swaps point and mark; motion preserves markActive", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
@@ -743,22 +787,12 @@ test("text-scale-adjust increases buffer scale and binds s-= in Stephen config",
   expect(leaf?.textScale).toBe(1)
 })
 
-test("Stephen protobuf and generic code helpers run inside Jemacs", async () => {
+test("Stephen config installs and rust font-lock works", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   installDefaultModes()
   const editor = new Editor()
   installDefaultCommands(editor)
   installStephenConfig(editor)
-  const buffer = editor.scratch("service.proto", "string a = 9;\nstring b = 42;\n", "protobuf")
-
-  buffer.mark = 0
-  buffer.point = buffer.text.length
-  await editor.run("proto-renumber")
-  expect(buffer.text).toBe("string a = 1;\nstring b = 2;\n")
-
-  buffer.point = buffer.text.length
-  await editor.run("proto-add-rpc", ["DoThing"])
-  expect(buffer.text).toContain("rpc DoThing(DoThingRequest) returns (DoThingResponse);")
 
   const spans = editor.fontLock(editor.scratch("main.rs", "fn main() { return }\n", "rust"))
   expect(spans.some(span => span.face === "keyword")).toBe(true)

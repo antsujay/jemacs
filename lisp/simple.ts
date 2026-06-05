@@ -169,9 +169,13 @@ export function install(editor: Editor): void {
     editor.message("Quoted insert — type a character")
   }, "Read the next input event and insert it literally.")
 
-  editor.command("delete-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteForward(), () => buffer.deleteBackward()), "Delete the character after point.")
+  editor.command("delete-char", ({ buffer, prefixArgument }) => {
+    if (buffer.deleteActiveRegion()) return
+    repeat(prefixArgument, () => buffer.deleteForward(), () => buffer.deleteBackward())
+  }, "Delete the character after point (or the active region).")
 
   editor.command("delete-backward-char", async ({ buffer, editor, prefixArgument }) => {
+    if (buffer.deleteActiveRegion()) return
     if (editor.minibuffer) {
       const n = prefixArgument ?? 1
       const count = Math.max(1, Math.abs(n))

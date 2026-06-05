@@ -1,5 +1,7 @@
+import { tmpdir, userInfo } from "node:os"
+import { join } from "node:path"
 import type { Editor } from "../kernel/editor"
-import { getMode } from "../modes/mode"
+import { setCustom } from "../runtime/custom"
 import { setFaceAttribute } from "../runtime/faces"
 import { enableBuiltinTheme } from "../themes"
 import { gruvboxDarkHardTheme, install as installGruvboxDarkHardTheme } from "../../plugins/gruvbox-dark-hard"
@@ -8,6 +10,10 @@ import { install as installTiling } from "../../plugins/tiling"
 import { install as installWindow } from "../../plugins/window"
 
 export function installStephenConfig(editor: Editor): void {
+  // Emacs: (concat temporary-file-directory user-login-name "/")
+  const userTemporaryFileDirectory = join(tmpdir(), userInfo().username)
+  setCustom("backup-directory-alist", [[".", userTemporaryFileDirectory]])
+
   installGruvboxDarkHardTheme(editor)
   enableBuiltinTheme(gruvboxDarkHardTheme.name)
   setFaceAttribute("default", "family", "Fira Code")
@@ -29,19 +35,7 @@ function bindStephenKeys(editor: Editor): void {
   editor.key("C-x C-a", "lsp-execute-code-action")
   editor.key("s-f", "counsel-ag")
   editor.key("s-=", "text-scale-adjust")
-
-  getMode("protobuf")?.keymap?.bind("C-c n", "proto-renumber")
 }
 
 function installStephenCommands(editor: Editor): void {
-  editor.command("proto-renumber", ({ buffer }) => {
-    let next = 1
-    buffer.setText(buffer.text.replace(/=\s*\d+(\s*;)/g, () => `= ${next++};`), true)
-  }, "Renumber protobuf field tags in the region or buffer.")
-
-  editor.command("proto-add-rpc", ({ buffer, args }) => {
-    const name = args[0] ?? "NewRpc"
-    const line = `  rpc ${name}(${name}Request) returns (${name}Response);\n`
-    buffer.insert(line)
-  }, "Insert a protobuf service RPC declaration.")
 }

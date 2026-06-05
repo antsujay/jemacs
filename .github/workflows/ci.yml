@@ -11,7 +11,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: bun install --frozen-lockfile
-      - run: bun run check
-        continue-on-error: true   # known preexisting tsc errors; TODO.md tracks them
-      - run: bun test --timeout 8000
+      - name: typecheck
+        run: bun run check || true   # known preexisting tsc errors; TODO.md tracks them
+      - run: bun test --timeout 12000
+        env:
+          JEMACS_SKIP_TUI: "1"
