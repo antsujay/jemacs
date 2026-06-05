@@ -23,6 +23,12 @@ export type MagitHunk = {
   patch: string
 }
 
+/** Reject names that would be parsed as a flag by git. */
+function refname(s: string): string {
+  if (s.startsWith("-")) throw new Error(`invalid ref/remote name: ${s}`)
+  return s
+}
+
 async function git(args: string[], cwd: string, stdin?: string): Promise<{ out: string; err: string; code: number | null }> {
   const proc = spawnProcess({
     cmd: ["git", ...args],
@@ -438,7 +444,7 @@ export function install(editor: Editor): void {
     if (remote == null) return
     const branch = args[1] ?? await editor.prompt("Push branch: ", current, "magit-push-branch")
     if (branch == null) return
-    const { err, code } = await git(["push", remote, branch], root)
+    const { err, code } = await git(["push", refname(remote), refname(branch)], root)
     if (code !== 0) {
       editor.message(`git push failed: ${err.trim()}`)
       return
@@ -480,7 +486,7 @@ export function install(editor: Editor): void {
     const branches = out.split("\n").filter(Boolean)
     const target = args[0] ?? await editor.completingRead("Checkout branch: ", { collection: branches, history: "magit-branch" })
     if (!target) return
-    const { err, code } = await git(["checkout", target], root)
+    const { err, code } = await git(["checkout", refname(target)], root)
     if (code !== 0) {
       editor.message(`git checkout failed: ${err.trim()}`)
       return
@@ -497,7 +503,7 @@ export function install(editor: Editor): void {
     }
     const name = args[0] ?? await editor.prompt("Create and checkout branch: ", "", "magit-branch")
     if (!name) return
-    const { err, code } = await git(["checkout", "-b", name], root)
+    const { err, code } = await git(["checkout", "-b", refname(name)], root)
     if (code !== 0) {
       editor.message(`git checkout -b failed: ${err.trim()}`)
       return
