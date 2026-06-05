@@ -22,21 +22,6 @@ export function install(editor: Editor): void {
   // Core jump-to-register predates text/rectangle kinds and falls through to
   // restoreWindowConfiguration; re-register so non-location registers are refused
   // instead of corrupting the window layout.
-  editor.command("jump-to-register", async ({ editor, args }) => {
-    const register = args[0] ?? await editor.prompt("Jump to register: ", "f", "register")
-    if (!register) return
-    const value = editor.registers.get(register)
-    if (!value) { editor.message(`Register ${register} is empty`); return }
-    if (value.kind === "point") {
-      if (value.bufferId && editor.buffers.has(value.bufferId)) editor.switchToBuffer(value.bufferId)
-      const buffer = editor.currentBuffer
-      buffer.point = Math.max(0, Math.min(value.point, buffer.text.length))
-      editor.setSelectedWindowPoint(buffer.point)
-      return
-    }
-    if (value.kind === "window-configuration") { editor.restoreWindowConfiguration(value); return }
-    editor.message(`Register ${register} does not contain a location`)
-  }, "Jump to a saved point or window configuration register.")
 
   editor.key("C-x r s", "copy-to-register")
   editor.key("C-x r i", "insert-register")

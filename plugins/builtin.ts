@@ -35,6 +35,7 @@ const builtins: Array<[name: string, load: () => Promise<{ install: (e: Editor) 
   ["osc52", () => import("./osc52")],
   ["term-v2", () => import("./term-v2")],
   ["avy", () => import("./avy")],
+  ["register-text", () => import("./register-text")],
   ["org", () => import("./org")],
   ["lean4", () => import("./lean4")],
 ]
