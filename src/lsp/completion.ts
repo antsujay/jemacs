@@ -37,7 +37,13 @@ export async function lspCompletionAtPoint(
 
       if (!items.length) continue
 
-      const sorted = [...items].sort((a, b) => (a.sortText ?? a.label).localeCompare(b.sortText ?? b.label))
+      // RA et al. return unfiltered lists; the client must filter against the typed prefix.
+      const matching = symbol.text
+        ? items.filter(item => (item.filterText ?? item.label).startsWith(symbol.text))
+        : items
+      if (!matching.length) continue
+
+      const sorted = [...matching].sort((a, b) => (a.sortText ?? a.label).localeCompare(b.sortText ?? b.label))
       return sorted.map(item => {
         const insert = item.textEdit?.newText ?? item.insertText ?? item.label
         const range = item.textEdit?.range

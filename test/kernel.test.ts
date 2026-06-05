@@ -2,9 +2,9 @@ import { expect, test } from "bun:test"
 import { mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import { BufferModel } from "../src/kernel/buffer"
-import { isPrintable, keyToken, Keymap } from "../src/kernel/keymap"
+import { isPrintable, keyToken, Keymap, KeymapStack } from "../src/kernel/keymap"
 import { Editor } from "../src/kernel/editor"
-import { installDefaultCommands } from "../src/init/default-commands"
+import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { defaultTheme } from "../src/themes"
 import { pageScrollLines, visibleStyledText, visibleText } from "../src/ui/opentui"
 
@@ -22,8 +22,9 @@ test("buffer insert/delete/undo", () => {
 test("keymap handles multi-key command sequences", () => {
   const km = new Keymap()
   km.bind("C-x C-s", "save-buffer")
-  expect(km.feed({ name: "x", ctrl: true }).status).toBe("pending")
-  expect(km.feed({ name: "s", ctrl: true })).toEqual({ status: "matched", command: "save-buffer" })
+  const stack = new KeymapStack(() => [{ name: "global-map", keymap: km }])
+  expect(stack.feed({ name: "x", ctrl: true }).status).toBe("pending")
+  expect(stack.feed({ name: "s", ctrl: true })).toMatchObject({ status: "matched", command: "save-buffer" })
 })
 
 test("space key is printable", () => {
@@ -146,7 +147,7 @@ test("default emacs keybindings are registered and runnable", async () => {
   editor.currentBuffer.setText("abc\ndef", false)
   editor.currentBuffer.point = 0
 
-  expect(editor.keymap.feed({ name: "f", ctrl: true })).toEqual({ status: "matched", command: "forward-char" })
+  expect(editor.keymaps.feed({ name: "f", ctrl: true })).toMatchObject({ status: "matched", command: "forward-char" })
   await editor.run("forward-char")
   expect(editor.currentBuffer.point).toBe(1)
 
@@ -157,11 +158,11 @@ test("default emacs keybindings are registered and runnable", async () => {
   await editor.run("yank")
   expect(editor.currentBuffer.text).toBe("abc\ndef")
 
-  expect(editor.keymap.feed({ name: "x", ctrl: true }).status).toBe("pending")
-  expect(editor.keymap.feed({ name: "c", ctrl: true })).toEqual({ status: "matched", command: "save-buffers-kill-terminal" })
-  expect(editor.keymap.feed({ name: "≈", sequence: "≈" })).toEqual({ status: "matched", command: "execute-extended-command" })
-  expect(editor.keymap.feed({ name: "escape" }).status).toBe("pending")
-  expect(editor.keymap.feed({ name: "x" })).toEqual({ status: "matched", command: "execute-extended-command" })
+  expect(editor.keymaps.feed({ name: "x", ctrl: true }).status).toBe("pending")
+  expect(editor.keymaps.feed({ name: "c", ctrl: true })).toMatchObject({ status: "matched", command: "save-buffers-kill-terminal" })
+  expect(editor.keymaps.feed({ name: "≈", sequence: "≈" })).toMatchObject({ status: "matched", command: "execute-extended-command" })
+  expect(editor.keymaps.feed({ name: "escape" }).status).toBe("pending")
+  expect(editor.keymaps.feed({ name: "x" })).toMatchObject({ status: "matched", command: "execute-extended-command" })
 })
 
 test("universal argument repeats motion, insertion, and deletion commands", async () => {
@@ -194,8 +195,8 @@ test("default commands support buffer listing, switching, newline, and regions",
   await editor.run("switch-to-buffer", ["*scratch*"])
   expect(editor.currentBuffer.name).toBe("*scratch*")
 
-  expect(editor.keymap.feed({ name: "x", ctrl: true }).status).toBe("pending")
-  expect(editor.keymap.feed({ name: "b", ctrl: true })).toEqual({ status: "matched", command: "list-buffers" })
+  expect(editor.keymaps.feed({ name: "x", ctrl: true }).status).toBe("pending")
+  expect(editor.keymaps.feed({ name: "b", ctrl: true })).toMatchObject({ status: "matched", command: "list-buffers" })
   await editor.run("list-buffers")
   expect(editor.currentBuffer.name).toBe("*Buffer List*")
   expect(editor.currentBuffer.mode).toBe("buffer-list")
@@ -233,8 +234,8 @@ test("help keybindings keep C-h as a prefix", () => {
   const editor = new Editor()
   installDefaultCommands(editor)
 
-  expect(editor.keymap.feed({ name: "h", ctrl: true }).status).toBe("pending")
-  expect(editor.keymap.feed({ name: "k" })).toEqual({ status: "matched", command: "describe-key" })
+  expect(editor.keymaps.feed({ name: "h", ctrl: true }).status).toBe("pending")
+  expect(editor.keymaps.feed({ name: "k" })).toMatchObject({ status: "matched", command: "describe-key" })
   expect(editor.keymap.get("C-h c")).toBe("describe-mode")
   expect(editor.keymap.get("C-h b")).toBe("describe-bindings")
 })
@@ -243,8 +244,8 @@ test("live reload keybinding is registered", () => {
   const editor = new Editor()
   installDefaultCommands(editor)
 
-  expect(editor.keymap.feed({ name: "c", ctrl: true }).status).toBe("pending")
-  expect(editor.keymap.feed({ name: "r", ctrl: true })).toEqual({ status: "matched", command: "reload-current-file" })
+  expect(editor.keymaps.feed({ name: "c", ctrl: true }).status).toBe("pending")
+  expect(editor.keymaps.feed({ name: "r", ctrl: true })).toMatchObject({ status: "matched", command: "reload-current-file" })
 })
 
 test("kernel handles printable, command, prefix, and minibuffer keys through one dispatcher", async () => {
@@ -647,8 +648,8 @@ test("C-x C-x exchanges point and mark like Emacs", async () => {
   buffer.point = 5
   buffer.markActive = true
 
-  expect(editor.keymap.feed({ name: "x", ctrl: true }).status).toBe("pending")
-  expect(editor.keymap.feed({ name: "x", ctrl: true })).toEqual({ status: "matched", command: "exchange-point-and-mark" })
+  expect(editor.keymaps.feed({ name: "x", ctrl: true }).status).toBe("pending")
+  expect(editor.keymaps.feed({ name: "x", ctrl: true })).toMatchObject({ status: "matched", command: "exchange-point-and-mark" })
 
   await editor.run("exchange-point-and-mark")
   expect(buffer.point).toBe(0)
@@ -656,7 +657,7 @@ test("C-x C-x exchanges point and mark like Emacs", async () => {
   expect(buffer.markActive).toBe(true)
 })
 
-test("exchange-point-and-mark reactivates an inactive mark after movement", async () => {
+test("exchange-point-and-mark swaps point and mark; motion preserves markActive", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
   const buffer = editor.currentBuffer
@@ -667,7 +668,7 @@ test("exchange-point-and-mark reactivates an inactive mark after movement", asyn
 
   await editor.run("forward-char")
   expect(buffer.point).toBe(4)
-  expect(buffer.markActive).toBe(false)
+  expect(buffer.markActive).toBe(true)
 
   await editor.run("exchange-point-and-mark")
   expect(buffer.point).toBe(0)

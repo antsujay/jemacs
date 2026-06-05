@@ -1,5 +1,6 @@
 import type { BufferModel } from "./buffer"
 import type { Editor } from "./editor"
+import type { KeyEventLike } from "./keymap"
 import { registerCatalogEntry } from "../runtime/definitions"
 import type { SourceLocation } from "../runtime/source"
 import { captureCallerSource } from "../runtime/source"
@@ -9,6 +10,9 @@ export type CommandContext = {
   buffer: BufferModel
   args: string[]
   prefixArgument: number | null
+  /** Key that triggered this command via dispatchKey; null when run programmatically.
+   *  Prefer this over editor.lastKeyEvent, which a later key can overwrite mid-dispatch. */
+  keyEvent: KeyEventLike | null
 }
 
 export type CommandFn = (ctx: CommandContext) => unknown | Promise<unknown>
@@ -66,7 +70,7 @@ export class CommandRegistry {
   }
 
   restoreAll(): void {
-    for (const name of this.commands.names()) this.restore(name)
+    for (const name of this.names()) this.restore(name)
   }
 
   get(name: string): CommandSpec | undefined {

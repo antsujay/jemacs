@@ -10,9 +10,6 @@ export type SourceLocation = {
   column?: number
 }
 
-/** @deprecated Use SourceLocation */
-export type CommandSource = SourceLocation
-
 const INTERNAL_STACK = /[/\\](?:kernel|runtime)[/\\](?:editor|command)\.ts:/
 
 export function captureCallerSource(skipFrames = 2): SourceLocation | undefined {
@@ -83,8 +80,6 @@ export function commandNameFromForm(form: string): string | null {
   return definitionRefFromForm(form)?.name ?? null
 }
 
-/** @deprecated */
-export const visitCommandSource = visitSource
 
 function findFormAnchor(text: string, point: number): number | null {
   const before = text.slice(0, point)

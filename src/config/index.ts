@@ -28,9 +28,4 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   return evaluator
 }
 
-/** @deprecated Use `installDefaultConfig`; kept for reload hooks and older plugins. */
-export function installDefaultCommands(editor: Editor): Evaluator {
-  return installDefaultConfig(editor)
-}
-
 export { installUserConfig } from "./user"

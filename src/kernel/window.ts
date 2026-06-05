@@ -63,33 +63,50 @@ export function mapWindowLeaves(node: WindowNode, fn: (leaf: WindowLeaf) => Wind
   }
 }
 
+export type SplitResult = { layout: WindowNode; newWindowId: WindowId; found: boolean }
+
 export function splitWindowLeaf(
   node: WindowNode,
   id: WindowId,
   direction: WindowSplit["direction"],
   bufferId: string,
   point: number,
-): { layout: WindowNode; newWindowId: WindowId } {
+): SplitResult {
   if (node.kind === "leaf") {
-    if (node.id !== id) throw new Error(`No such window: ${id}`)
-    const newLeaf = createLeafWindow(bufferId, point)
+    if (node.id !== id) return { layout: node, newWindowId: id, found: false }
+    // Original leaf stays first (left/top) and keeps its id; the fresh leaf
+    // goes second (right/bottom) and inherits the original's viewport.
+    const newLeaf: WindowLeaf = {
+      kind: "leaf",
+      id: crypto.randomUUID(),
+      bufferId,
+      point,
+      startLine: node.startLine,
+      dedicated: false,
+    }
     return {
       layout: { kind: "split", direction, first: node, second: newLeaf },
       newWindowId: newLeaf.id,
+      found: true,
     }
   }
-  if (findWindowLeaf(node.first, id)) {
-    const result = splitWindowLeaf(node.first, id, direction, bufferId, point)
+  const inFirst = splitWindowLeaf(node.first, id, direction, bufferId, point)
+  if (inFirst.found) {
     return {
-      layout: { kind: "split", direction: node.direction, first: result.layout, second: node.second },
-      newWindowId: result.newWindowId,
+      layout: { kind: "split", direction: node.direction, first: inFirst.layout, second: node.second },
+      newWindowId: inFirst.newWindowId,
+      found: true,
     }
   }
-  const result = splitWindowLeaf(node.second, id, direction, bufferId, point)
-  return {
-    layout: { kind: "split", direction: node.direction, first: node.first, second: result.layout },
-    newWindowId: result.newWindowId,
+  const inSecond = splitWindowLeaf(node.second, id, direction, bufferId, point)
+  if (inSecond.found) {
+    return {
+      layout: { kind: "split", direction: node.direction, first: node.first, second: inSecond.layout },
+      newWindowId: inSecond.newWindowId,
+      found: true,
+    }
   }
+  return { layout: node, newWindowId: id, found: false }
 }
 
 export function deleteWindowLeaf(node: WindowNode, id: WindowId): WindowNode | null {
@@ -122,10 +139,11 @@ export function nextEligibleWindowId(
   predicate: (leaf: WindowLeaf) => boolean,
 ): WindowId | null {
   const leaves = listWindowLeaves(node).filter(predicate)
-  if (leaves.length <= 1) return null
+  if (!leaves.length) return null
   const index = leaves.findIndex(leaf => leaf.id === currentId)
   const currentIndex = index === -1 ? 0 : index
-  return leaves[(currentIndex + delta + leaves.length) % leaves.length]!.id
+  const next = leaves[(currentIndex + delta + leaves.length) % leaves.length]!
+  return next.id === currentId ? null : next.id
 }
 
 export function setWindowLeafBuffer(node: WindowNode, id: WindowId, bufferId: string, point: number): WindowNode {

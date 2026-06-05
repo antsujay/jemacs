@@ -28,7 +28,7 @@ export function stdioConnection(
           while (true) {
             const { value, done } = await reader.read()
             if (done) break
-            if (value) onData(decoder.decode(value))
+            if (value) onData(decoder.decode(value, { stream: true }))
           }
         } finally {
           reader.releaseLock()

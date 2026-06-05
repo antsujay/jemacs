@@ -1,13 +1,16 @@
 import type { Editor } from "../kernel/editor"
 import { isearchMatchSpan } from "../kernel/isearch"
 import { findWindowLeaf, type WindowLeaf, type WindowNode } from "../kernel/window"
+import { diagnosticsForBuffer } from "../lsp/diagnostics"
+import { positionToPoint } from "../lsp/positions"
+import { modeFeature } from "../modes/mode"
 import { textWithCursor } from "../ui/text-display"
 import { windowClickState } from "./click-to-point"
 import { visibleStyledTextFromStart } from "./buffer-view"
 import type { DisplayModel, WindowDisplayNode } from "./protocol"
 import { bufferHighlightSpans } from "./buffer-highlights"
 import { applyTheme } from "./theme"
-import { plainThemedText } from "./themed-text"
+import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-text"
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
 
 export type BuildDisplayOptions = {
@@ -24,14 +27,21 @@ export function buildDisplayModel(editor: Editor, options: BuildDisplayOptions):
     ? ` [${editor.minibufferDepthLevel}]`
     : ""
 
-  const titleText = ` ${hostLabel} — ${buffer.name}${buffer.dirty ? "*" : ""}`
+  const titleText = ` ${hostLabel} — ${editor.bufferDisplayName(buffer)}${buffer.dirty ? "*" : ""}`
   const title = applyTheme(titleText, [{ start: 0, end: titleText.length, face: "title" }], editor.theme)
 
-  const areaLines = contentAreaLines(viewport.rows)
-  const windows = buildWindowTree(editor, editor.windowLayout, areaLines)
+  // Minibuffer may carry a multi-line completion overlay (fido); steal those rows from the window stack.
+  const overlayRows = editor.minibuffer ? editor.activeBuffer.text.split("\n").length - 1 : 0
+  const areaLines = Math.max(2, contentAreaLines(viewport.rows) - overlayRows)
+  const windows = buildWindowTree(editor, editor.windowLayout, areaLines, viewport.cols)
 
   const minibuffer = buildMinibufferChunk(editor, depth)
-  const echoText = ` ${lastMessage}${pending && !editor.minibuffer ? `  [${pending}]` : ""}`
+  // The minibuffer chunk owns the prompt row while a minibuffer or isearch is
+  // live; echoing lastMessage there too double-draws the prompt (t-e95ff513).
+  const promptActive = editor.minibuffer || editor.isearch
+  // Eldoc-style: when nothing else claims the echo area, surface the diagnostic at point.
+  const echoMsg = promptActive ? "" : lastMessage || diagnosticEchoAtPoint(editor)
+  const echoText = ` ${echoMsg}${pending && !editor.minibuffer ? `  [${pending}]` : ""}`
   const echo = applyTheme(echoText, [{ start: 0, end: echoText.length, face: "minibuffer" }], editor.theme)
 
   return {
@@ -69,20 +79,21 @@ function buildMinibufferChunk(editor: Editor, depth: string) {
   return applyTheme(" ", [], editor.theme)
 }
 
-function buildWindowTree(editor: Editor, layout: WindowNode, availableLines: number): WindowDisplayNode {
+function buildWindowTree(editor: Editor, layout: WindowNode, availableLines: number, availableCols?: number): WindowDisplayNode {
   if (layout.kind === "leaf") {
-    return { kind: "leaf", pane: buildLeafPane(editor, layout, availableLines), lineBudget: availableLines }
+    return { kind: "leaf", pane: buildLeafPane(editor, layout, availableLines, availableCols), lineBudget: availableLines }
   }
-  const { first, second } = splitLineBudget(availableLines, layout.direction)
+  const lines = splitLineBudget(availableLines, layout.direction)
+  const cols = splitColBudget(availableCols, layout.direction)
   return {
     kind: "split",
     direction: layout.direction,
-    first: buildWindowTree(editor, layout.first, first),
-    second: buildWindowTree(editor, layout.second, second),
+    first: buildWindowTree(editor, layout.first, lines.first, cols.first),
+    second: buildWindowTree(editor, layout.second, lines.second, cols.second),
   }
 }
 
-function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number) {
+function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number, availableCols?: number) {
   const selected = leaf.id === editor.selectedWindowId
   const maxLines = windowBodyLines(availableLines)
   const buffer = editor.buffers.get(leaf.bufferId)
@@ -114,25 +125,40 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number)
     if (match) spans.push(match)
   }
   const showLineNumbers = buffer.kind !== "minibuffer" && editor.showLineNumbers(buffer)
-  const mark = selected ? buffer.mark : null
+  const mark = selected && buffer.markActive ? buffer.mark : null
   const syncSpans = bufferHighlightSpans(point, mark, spans)
-  const body = visibleStyledTextFromStart(buffer.text, point, startLine, {
-    mark,
-    spans,
-    theme: editor.theme,
-    maxLines,
-    showLineNumbers,
-    showCursor: selected,
-  })
+  // Selective-display (org folding etc.): mode may project buffer text/offsets onto a shorter body.
+  const filt = modeFeature(buffer.mode, "displayFilter")?.(buffer)
+  const dText = filt?.text ?? buffer.text
+  const dPoint = filt ? filt.map(point) : point
+  const dMark = filt && mark != null ? filt.map(mark) : mark
+  const dSpans = filt ? spans.map(s => ({ ...s, start: filt.map(s.start), end: filt.map(s.end) })) : spans
+  const clickState = windowClickState(dText, startLine, maxLines, showLineNumbers)
+  // Hosts hard-wrap overflowing rows at column 0, which paints continuation
+  // text into the next line's gutter (t-16be1a86). Pre-wrap here so every
+  // continuation row carries the gutter's left padding.
+  const body = wrapBodyRows(
+    visibleStyledTextFromStart(dText, dPoint, startLine, {
+      mark: dMark,
+      spans: dSpans,
+      theme: editor.theme,
+      maxLines,
+      showLineNumbers,
+      showCursor: selected,
+    }),
+    availableCols,
+    clickState.gutterPrefixLen,
+  )
   const lighters = editor.minorModeLighters(buffer)
-  const modelineText = ` ${buffer.mode}${lighters}  ${buffer.name}${dirty}${leaf.dedicated ? " [D]" : ""}  line ${line}, col ${col}${selected && buffer.mark != null ? `  mark=${buffer.mark}` : ""}`
+  const region = selected && buffer.markActive && buffer.mark != null
+    ? `  (${Math.abs(point - buffer.mark)} chars)`
+    : ""
+  const modelineText = ` ${buffer.mode}${lighters}  ${editor.bufferDisplayName(buffer)}${dirty}${leaf.dedicated ? " [D]" : ""}  line ${line}, col ${col}${region}`
   const modeline = applyTheme(modelineText, [{
     start: 0,
     end: modelineText.length,
     face: selected ? "modeLine" : "modeLineInactive",
   }], editor.theme)
-
-  const clickState = windowClickState(buffer.text, startLine, maxLines, showLineNumbers)
 
   return {
     id: leaf.id,
@@ -155,6 +181,53 @@ function splitLineBudget(availableLines: number, direction: "horizontal" | "vert
   }
   const first = Math.max(3, Math.floor(availableLines / 2))
   return { first, second: Math.max(3, availableLines - first) }
+}
+
+function splitColBudget(cols: number | undefined, direction: "horizontal" | "vertical"): { first?: number; second?: number } {
+  if (cols == null) return {}
+  if (direction === "vertical") return { first: cols, second: cols }
+  const first = Math.floor(cols / 2)
+  return { first, second: cols - first }
+}
+
+/** Hard-wrap themed body rows at `cols`, left-padding continuation rows by
+ *  `padLen` so they align under the buffer text, not the line-number gutter. */
+function wrapBodyRows(body: ThemedText, cols: number | undefined, padLen: number): ThemedText {
+  if (cols == null || cols <= padLen + 1) return body
+  const pad = " ".repeat(padLen)
+  const out: ThemedChunk[] = []
+  let col = 0
+  for (const chunk of body.chunks) {
+    let run = ""
+    const flush = () => { if (run) { out.push({ ...chunk, text: run }); run = "" } }
+    for (const ch of chunk.text) {
+      if (ch === "\n") { run += ch; col = 0; continue }
+      if (col >= cols) {
+        flush()
+        out.push({ text: "\n" + pad })
+        col = padLen
+      }
+      run += ch
+      col++
+    }
+    flush()
+  }
+  return { chunks: out }
+}
+
+/** First diagnostic message whose range covers point in the selected buffer, else "". */
+function diagnosticEchoAtPoint(editor: Editor): string {
+  const buffer = editor.currentBuffer
+  const lsp = editor.lsp
+  if (!lsp || !buffer.path) return ""
+  for (const ws of lsp.bufferWorkspaces(buffer)) {
+    for (const diag of diagnosticsForBuffer(buffer, ws)) {
+      const start = positionToPoint(buffer.text, diag.range.start)
+      const end = positionToPoint(buffer.text, diag.range.end)
+      if (buffer.point >= start && buffer.point < end) return diag.message
+    }
+  }
+  return ""
 }
 
 function pointLineCol(text: string, point: number): { line: number; col: number } {

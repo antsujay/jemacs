@@ -66,6 +66,6 @@ export async function invokeWithAdvice(commandName: string, fn: CommandFn, ctx: 
   const list = adviceByCommand.get(commandName) ?? []
   for (const hook of list) await hook.before?.(ctx)
   const result = await fn(ctx)
-  for (const hook of list) await hook.after?.(ctx)
+  for (let i = list.length - 1; i >= 0; i--) await list[i].after?.(ctx)
   return result
 }
