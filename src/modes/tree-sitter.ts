@@ -97,13 +97,20 @@ const JAVA_NUMBER_NODES = new Set([
 type LanguageSpec = {
   language: Language
   highlightsPath?: string
+  extraHighlights?: string
   highlight?: (root: SyntaxNode) => TextSpan[]
 }
+
+// TS parsed with the JS grammar leaves TS-only keywords (and `export` preceding them) as plain identifiers.
+const TS_EXTRA_HIGHLIGHTS = `
+([(identifier) (statement_identifier)] @keyword
+ (#match? @keyword "^(export|type|interface|enum|declare|namespace|abstract|readonly)$"))
+`
 
 const languageSpecs: Map<string, LanguageSpec> = new Map([
   ["python", { language: Python as Language, highlightsPath: queryPath("tree-sitter-python") }],
   ["javascript", { language: JavaScript as Language, highlightsPath: queryPath("tree-sitter-javascript") }],
-  ["typescript", { language: JavaScript as Language, highlightsPath: queryPath("tree-sitter-javascript") }],
+  ["typescript", { language: JavaScript as Language, highlightsPath: queryPath("tree-sitter-javascript"), extraHighlights: TS_EXTRA_HIGHLIGHTS }],
   ["html", { language: HTML as Language, highlight: highlightHtml }],
   ["java", { language: Java as Language, highlight: highlightJava }],
   ["markdown", { language: Markdown as Language }],
@@ -147,11 +154,13 @@ function parserFor(language: string, grammar: Language): Parser {
 
 function queryFor(spec: LanguageSpec): Parser.Query | undefined {
   if (!spec.highlightsPath) return undefined
-  let query = queries.get(spec.highlightsPath)
+  const extra = spec.extraHighlights ?? ""
+  const key = spec.highlightsPath + extra
+  let query = queries.get(key)
   if (!query) {
-    const source = readFileSync(spec.highlightsPath, "utf8")
+    const source = readFileSync(spec.highlightsPath, "utf8") + extra
     query = new Parser.Query(spec.language, source)
-    queries.set(spec.highlightsPath, query)
+    queries.set(key, query)
   }
   return query
 }

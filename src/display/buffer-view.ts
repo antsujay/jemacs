@@ -75,10 +75,16 @@ function styledRegion(
       end: Math.min(region.visible.length, span.end - region.visibleStart),
     }))
   let visible = region.visible
+  let shiftedSpans = visibleSpans
   if (options.showCursor && point >= region.visibleStart && point <= visibleEnd) {
-    visible = textWithCursor(region.visible, point - region.visibleStart)
+    const cursorPos = point - region.visibleStart
+    visible = textWithCursor(region.visible, cursorPos)
+    if (visible.length > region.visible.length) {
+      const shift = (n: number) => (n >= cursorPos ? n + 1 : n)
+      shiftedSpans = visibleSpans.map(s => ({ ...s, start: shift(s.start), end: shift(s.end) }))
+    }
   }
-  if (!options.showLineNumbers) return applyTheme(visible, visibleSpans, options.theme)
+  if (!options.showLineNumbers) return applyTheme(visible, shiftedSpans, options.theme)
 
   const firstLine = firstVisibleLineNumber(region.visibleStart, text)
   const format = formatWithLineNumbers(visible, firstLine)
@@ -89,8 +95,8 @@ function styledRegion(
     && cursorLine < firstLine + visibleLineCount
     ? cursorLine - firstLine
     : undefined
-  const contentSpans = visibleSpans.filter(span => span.face !== "region")
-  const regionBounds = visibleSpans.filter(span => span.face === "region")
+  const contentSpans = shiftedSpans.filter(span => span.face !== "region")
+  const regionBounds = shiftedSpans.filter(span => span.face === "region")
   const regionSpans = regionBounds.length
     ? regionSpansWithLineNumbers(
       Math.min(...regionBounds.map(span => span.start)),

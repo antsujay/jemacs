@@ -27,7 +27,7 @@ export async function readInteractiveArgs(editor: Editor, form: string): Promise
       continue
     }
     if (code === "b" || code === "B") {
-      const names = [...editor.buffers.values()].map(b => b.name).sort()
+      const names = [...editor.buffers.values()].map(b => editor.bufferDisplayName(b)).sort()
       const value = await editor.completingRead(prompt, { collection: names })
       if (value == null) throw new Error("Quit")
       args.push(value)

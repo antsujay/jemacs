@@ -61,7 +61,7 @@ test("minibuffer typing shows icomplete candidates", async () => {
   await promise
 })
 
-test("toggle-transient-mark-mode flips movement deactivation", async () => {
+test("motion preserves markActive (transient-mark-mode semantics)", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
   setTransientMarkModeEnabled(true)
@@ -69,10 +69,7 @@ test("toggle-transient-mark-mode flips movement deactivation", async () => {
   buffer.setText("abcdef", false)
   buffer.setMark()
   buffer.move(1)
-  expect(buffer.markActive).toBe(false)
-
-  await editor.run("toggle-transient-mark-mode")
-  buffer.setMark()
-  buffer.move(1)
   expect(buffer.markActive).toBe(true)
+  buffer.insert("x")
+  expect(buffer.markActive).toBe(false)
 })

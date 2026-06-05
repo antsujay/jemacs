@@ -31,9 +31,9 @@ export class PrefixArgumentState {
     return parseInt(this.digitString, 10)
   }
 
-  /** True when `C-u` / digits are pending and not yet consumed by a command. */
+  /** True when `C-u` / `M--` / digits are pending and not yet consumed by a command. */
   isActive(): boolean {
-    return this.value != null || this.digitString != null
+    return this.value != null || this.digitString != null || this.negative
   }
 
   /** After `C-u`, bare digit keys build the argument instead of self-inserting. */
@@ -51,6 +51,7 @@ export class PrefixArgumentState {
       return this.negative ? -n : n
     }
     if (this.value != null) return this.negative ? -this.value : this.value
+    if (this.negative) return -1
     return null
   }
 

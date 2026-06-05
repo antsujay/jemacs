@@ -16,11 +16,11 @@ export type DiredEntry = {
 
 export type DiredMark = "marked" | "delete"
 
-const diredEntryLines = new WeakMap<BufferModel, DiredEntry[]>()
+export const diredEntryLines = new WeakMap<BufferModel, DiredEntry[]>()
 const diredMarks = new WeakMap<BufferModel, Map<string, DiredMark>>()
 
-const HEADER_LINES = 2
-const NAME_OFFSET = 22
+export const HEADER_LINES = 2
+export const NAME_OFFSET = 22
 
 export function installDiredMode(): void {
   const keymap = new Keymap("dired-map")
@@ -46,7 +46,11 @@ export function installDiredMode(): void {
 }
 
 export async function makeDiredBuffer(path: string): Promise<BufferModel> {
-  const dir = resolve(path)
+  let dir = resolve(path)
+  // fido file-completion can resolve to a file; visit its parent rather than
+  // letting readdir throw ENOTDIR (matches Emacs `dired` on a file path).
+  const info = await stat(dir).catch(() => null)
+  if (info && !info.isDirectory()) dir = dirname(dir)
   const buffer = new BufferModel({ name: `${basename(dir) || dir}/`, path: dir, kind: "directory", mode: "dired" })
   buffer.readOnly = true
   diredMarks.set(buffer, new Map())
@@ -54,12 +58,27 @@ export async function makeDiredBuffer(path: string): Promise<BufferModel> {
   return buffer
 }
 
+/** Entry point for the `dired` command: stat PATH and open it as a dired
+ *  listing (or visit it as a file). Reports fs errors via `editor.message`
+ *  instead of letting them propagate. */
+export async function diredOpen(editor: Editor, path: string): Promise<void> {
+  const full = resolve(expandUserPath(path))
+  try {
+    const info = await stat(full)
+    if (info.isDirectory()) await editor.openDirectory(full)
+    else await editor.openFile(full)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    editor.message(`${full}: ${code === "ENOTDIR" ? "Not a directory" : (err as Error).message}`)
+  }
+}
+
 export async function refreshDiredBuffer(buffer: BufferModel): Promise<void> {
   if (!buffer.path) throw new Error(`Dired buffer ${buffer.name} has no directory path`)
   const previousMarks = diredMarks.get(buffer) ?? new Map()
   const names = await readdir(buffer.path)
   const entries: DiredEntry[] = []
-  for (const name of [".", "..", ...names.sort((a, b) => a.localeCompare(b))]) {
+  for (const name of ["..", ...names.sort((a, b) => a.localeCompare(b))]) {
     const entry = await entryFor(buffer.path, name)
     if (entry) entries.push(entry)
   }

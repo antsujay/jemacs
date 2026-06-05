@@ -1,6 +1,6 @@
 import type { BufferModel } from "../kernel/buffer"
 import { Keymap } from "../kernel/keymap"
-import { modeHookName, addHook, type HookFn } from "../kernel/hooks"
+import { modeHookName, addHook, removeHook, type HookFn } from "../kernel/hooks"
 import { registerCatalogEntry } from "../runtime/definitions"
 import type { SourceLocation } from "../runtime/source"
 import { captureCallerSource } from "../runtime/source"
@@ -55,6 +55,7 @@ export const modes = new Map<string, Mode>()
 
 const modeBaselines = new Map<string, Mode>()
 const modePatched = new Set<string>()
+const modeHookFns = new Map<string, HookFn[]>()
 
 export function defineMode(mode: Mode, source?: SourceLocation): Mode {
   const loc = source ?? captureCallerSource(3)
@@ -66,12 +67,17 @@ export function defineMode(mode: Mode, source?: SourceLocation): Mode {
   modes.set(installed.name, installed)
   modePatched.delete(installed.name)
   registerCatalogEntry({ kind: "mode", name: installed.name, source: loc, doc: installed.parent ? `Child of ${installed.parent}` : undefined })
+  const hookName = modeHookName(installed.name)
+  for (const fn of modeHookFns.get(installed.name) ?? []) removeHook(hookName, fn)
+  modeHookFns.delete(installed.name)
   if (mode.hooks?.length) {
-    const hookName = modeHookName(installed.name)
+    const fns: HookFn[] = []
     for (const hook of mode.hooks) {
       const fn: HookFn = ({ buffer }) => hook(buffer)
       addHook(hookName, fn)
+      fns.push(fn)
     }
+    modeHookFns.set(installed.name, fns)
   }
   return installed
 }

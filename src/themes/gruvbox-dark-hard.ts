@@ -44,7 +44,8 @@ export const gruvboxDarkHardTheme = defineTheme("gruvbox-dark-hard", {
   minibuffer: { fg: gruvboxDarkHardPalette.light1, bg: gruvboxDarkHardPalette.dark1 },
   minibufferPrompt: { fg: gruvboxDarkHardPalette.bright_green, bold: true },
   title: { fg: gruvboxDarkHardPalette.light3, bg: gruvboxDarkHardPalette.dark0 },
-  error: { fg: gruvboxDarkHardPalette.bright_red, bold: true },
+  // Underline only — must layer over font-lock fg, not repaint it as `keyword` (t-1f96245b).
+  error: { underline: true },
   lineNumber: { fg: gruvboxDarkHardPalette.dark4, bg: gruvboxDarkHardPalette.dark1 },
   lineNumberCurrent: { fg: gruvboxDarkHardPalette.bright_orange, bg: gruvboxDarkHardPalette.dark2 },
 })

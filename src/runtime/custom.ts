@@ -35,6 +35,8 @@ export function defcustom<T>(name: string, type: CustomType, value: T, doc?: str
 }
 
 export function defvar<T>(name: string, value: T, doc?: string): CustomVariable<T> {
+  const existing = variables.get(name)
+  if (existing) return existing as CustomVariable<T>
   const type: CustomType = typeof value === "boolean"
     ? "boolean"
     : typeof value === "number"
