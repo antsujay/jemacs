@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { makeEditor } from "./helper"
 import { fakeLspClient, fakeLspServer } from "../harness/fake-lsp"
 import { BufferModel } from "../../src/kernel/buffer"
+import { listWindowLeaves } from "../../src/kernel/window"
 import { LspManager } from "../../src/lsp/manager"
 import { startWorkspace } from "../../src/lsp/workspace"
 import { getMode } from "../../src/modes/mode"
@@ -114,7 +115,7 @@ test("$/lean/plainGoal at point populates *lean-info* in other window", async ()
   expect(info!.text).toBe("n : Nat\n⊢ n + 0 = n")
   // Source buffer keeps focus; *lean-info* is in another window.
   expect(editor.currentBuffer.id).toBe(buffer.id)
-  expect(editor.windows).toContain(info!.id)
+  expect(listWindowLeaves(editor.windowLayout).map(l => l.bufferId)).toContain(info!.id)
 })
 
 test("post-command-hook debounces plainGoal requests by 200ms", async () => {

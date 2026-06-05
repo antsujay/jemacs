@@ -163,7 +163,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   editor.command("set-mark-command", ({ buffer, editor }) => {
     buffer.setMark()
-    editor.message(`Mark set at ${buffer.point}`)
+    editor.message("Mark set")
   }, "Set mark at point.")
 
   editor.command("exchange-point-and-mark", ({ buffer, editor, prefixArgument }) => {
@@ -187,6 +187,8 @@ export function installCoreCommands(editor: Editor): Evaluator {
     editor.message("Quit")
   }, "Cancel the active key sequence, minibuffer, isearch, or mark.")
 
+  // Shadowed by plugins/isearch-regexp in production; retained because
+  // kernel.test.ts exercises isearch in a core-only (no-plugins) setup.
   editor.command("isearch-forward", ({ editor }) => {
     if (editor.isearch?.direction === 1) editor.isearchRepeat()
     else editor.startIsearch(1)
@@ -409,16 +411,28 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   editor.command("eval-region", async ({ buffer, editor }) => {
     const code = buffer.selectedOrAll()
-    const result = await evaluator.eval(code, buffer.path ?? buffer.name)
-    editor.message(`Eval => ${summarize(result)}`)
-    return result
+    try {
+      const result = await evaluator.eval(code, buffer.path ?? buffer.name)
+      editor.message(`Eval => ${summarize(result)}`)
+      return result
+    } catch (err) {
+      const e = err as Error
+      editor.scratch("*Backtrace*", e.stack ?? String(e), "text")
+      editor.message(`Eval error: ${e.message}`)
+    }
   }, "Evaluate the selection, or the whole buffer if no selection is active.")
 
   editor.command("eval-expression", async ({ editor, args }) => {
     const expression = args.join(" ") || await editor.prompt("Eval expression: ", "", "eval-expression")
     if (!expression) return
-    const result = await evaluator.evalExpression(expression)
-    editor.scratch("*eval-result*", inspectValue(result), "text")
+    try {
+      const result = await evaluator.evalExpression(expression)
+      editor.scratch("*eval-result*", inspectValue(result), "text")
+    } catch (err) {
+      const e = err as Error
+      editor.scratch("*Backtrace*", e.stack ?? String(e), "text")
+      editor.message(`Eval error: ${e.message}`)
+    }
   }, "Evaluate a JavaScript expression and display its result.")
 
   editor.command("execute-extended-command", async ({ editor, args }) => {
@@ -540,7 +554,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   }, "Move up one line and unmark or unflag.")
   editor.command("quit-window", ({ editor }) => {
     editor.deleteWindow()
-    if (editor.windows.length === 1) cycleBuffer(editor, 1)
+    if (listWindowLeaves(editor.windowLayout).length === 1) cycleBuffer(editor, 1)
   }, "Bury the current special buffer and select another buffer.")
 
   const otherWindow = (editor: Editor, delta: number) => {
@@ -569,11 +583,6 @@ export function installCoreCommands(editor: Editor): Evaluator {
   }
   editor.command("tab-bar-switch-to-next-tab", ({ editor }) => switchTab(editor, 1), "Switch to the next tab.")
   editor.command("tab-bar-switch-to-prev-tab", ({ editor }) => switchTab(editor, -1), "Switch to the previous tab.")
-  editor.command("tiling-cycle", ({ editor }) => {
-    const layouts = ["tiling-master-left", "tiling-master-top", "tiling-even-horizontal", "tiling-even-vertical", "tiling-tile-4"]
-    editor.tilingLayout = layouts[(layouts.indexOf(editor.tilingLayout) + 1) % layouts.length]!
-    editor.message(`Layout ${editor.tilingLayout}`)
-  }, "Cycle Jemacs tiling layouts.")
 
   editor.command("load-theme", ({ editor, args }) => {
     const name = args[0]?.trim()
@@ -651,33 +660,6 @@ export function installCoreCommands(editor: Editor): Evaluator {
       `Faces: ${Object.keys(theme.faces).sort().join(", ")}`,
     ].join("\n"), "help")
   }, "Describe a Custom theme.")
-
-  editor.command("fzf-git", async ({ editor, args }) => {
-    const query = args[0] ?? ""
-    const proc = spawnProcess({ cmd: ["git", "ls-files"], cwd: process.cwd(), stdout: "pipe", stderr: "pipe" })
-    const output = proc.stdout ? await new Response(proc.stdout).text() : ""
-    const files = output.split("\n").filter(file => file && file.includes(query))
-    const choice = args[1] ?? await editor.completingRead("Git file: ", { collection: files, history: "file", initialValue: query })
-    if (choice) await editor.openFile(choice)
-  }, "Find a tracked Git file with completion.")
-
-  editor.command("counsel-ag", async ({ editor, args }) => {
-    const pattern = args[0] ?? await editor.prompt("Search project: ", "", "search")
-    if (!pattern) return
-    const proc = spawnProcess({
-      cmd: ["rg", "--line-number", "--column", "--no-heading", "--", pattern],
-      cwd: process.cwd(),
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const [stdout, stderr] = await Promise.all([
-      proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
-      proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
-    ])
-    const exit = await proc.exited
-    const text = exit === 0 || stdout ? stdout : stderr
-    editor.scratch("*grep*", text || "No matches\n", "text").kind = "grep"
-  }, "Search the project with ripgrep.")
 
   editor.command("copy-region-to-clipboard-mac", async ({ buffer, editor }) => {
     const text = buffer.selectedText() || buffer.lineBoundsAt().text

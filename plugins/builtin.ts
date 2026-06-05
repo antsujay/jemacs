@@ -30,7 +30,6 @@ const builtins: Array<[name: string, load: () => Promise<{ install: (e: Editor) 
   ["completion-preview", () => import("./completion-preview")],
   ["magit", () => import("./magit")],
   ["dogfood", () => import("./dogfood")],
-  ["term", () => import("./term")],
   ["wdired", () => import("./wdired")],
   ["smerge", () => import("./smerge")],
   ["osc52", () => import("./osc52")],

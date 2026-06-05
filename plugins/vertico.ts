@@ -15,8 +15,6 @@ type VerticoState = {
 
 const states = new WeakMap<Editor, VerticoState>()
 const installedEditors = new WeakSet<Editor>()
-const previousCompletingReadFunctions = new WeakMap<Editor, CompletingReadFunction | null>()
-const previousFrontends = new WeakMap<Editor, MinibufferCompletionFrontend | null>()
 
 const verticoCompletingRead: CompletingReadFunction = async (editor, prompt, options) => {
   const promise = editor.prompt(prompt, options.initialValue ?? "", options.history, {
@@ -42,24 +40,12 @@ export function install(editor: Editor): void {
     lighter: " Vertico",
     global: true,
     onEnable: editor => {
-      if (!previousCompletingReadFunctions.has(editor)) {
-        previousCompletingReadFunctions.set(editor, editor.completingReadFunction)
-      }
-      if (!previousFrontends.has(editor)) {
-        previousFrontends.set(editor, editor.minibufferCompletionFrontend)
-      }
-      editor.completingReadFunction = verticoCompletingRead
-      editor.minibufferCompletionFrontend = verticoFrontend
+      editor.pushCompletingReadFunction(verticoCompletingRead)
+      editor.pushMinibufferCompletionFrontend(verticoFrontend)
     },
     onDisable: editor => {
-      if (editor.completingReadFunction === verticoCompletingRead) {
-        editor.completingReadFunction = previousCompletingReadFunctions.get(editor) ?? null
-      }
-      if (editor.minibufferCompletionFrontend === verticoFrontend) {
-        editor.minibufferCompletionFrontend = previousFrontends.get(editor) ?? null
-      }
-      previousCompletingReadFunctions.delete(editor)
-      previousFrontends.delete(editor)
+      editor.popCompletingReadFunction(verticoCompletingRead)
+      editor.popMinibufferCompletionFrontend(verticoFrontend)
       states.delete(editor)
     },
   })

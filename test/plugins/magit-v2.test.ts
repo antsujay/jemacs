@@ -6,7 +6,8 @@ import { makeEditor } from "./helper"
 import { keySeq } from "../harness"
 import { spawnProcess } from "../../src/platform/runtime"
 import { getMode } from "../../src/modes/mode"
-import { install, logShaAtPoint, entryAtPoint } from "../../plugins/magit"
+import { install, logShaAtPoint, entryAtPoint, magitDiffFontLock } from "../../plugins/magit"
+import { listWindowLeaves } from "../../src/kernel/window"
 
 let repo: string
 let remote: string
@@ -75,6 +76,51 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(log).toBeDefined()
   expect(log?.keymap?.get("return")).toBe("magit-log-show-commit")
   expect(log?.keymap?.get("q")).toBe("magit-bury-buffer")
+
+  expect(getMode("magit-status")?.fontLock).toBe(magitDiffFontLock)
+  expect(getMode("magit-log")?.fontLock).toBe(magitDiffFontLock)
+  const revision = getMode("magit-revision")
+  expect(revision?.parent).toBe("magit-special")
+  expect(revision?.fontLock).toBe(magitDiffFontLock)
+  expect(revision?.keymap?.get("q")).toBe("magit-bury-buffer")
+})
+
+test("magitDiffFontLock colors @@/+/- and section headers", () => {
+  const text = [
+    "Head:     main initial",
+    "",
+    "Unstaged changes (1)",
+    "modified   a.txt",
+    "@@ -1 +1,2 @@",
+    " one",
+    "+two",
+    "-three",
+    "",
+    "Recent commits",
+    "abc1234 initial",
+  ].join("\n")
+  const spans = magitDiffFontLock({ text } as never)
+  const faceAt = (needle: string) => spans.find(s => s.start === text.indexOf(needle))?.face
+  expect(faceAt("Head:")).toBe("keyword")
+  expect(faceAt("Unstaged changes")).toBe("keyword")
+  expect(faceAt("Recent commits")).toBe("keyword")
+  expect(faceAt("@@ -1")).toBe("builtin")
+  expect(faceAt("+two")).toBe("string")
+  expect(faceAt("-three")).toBe("error")
+  expect(faceAt("modified   a.txt")).toBeUndefined()
+  expect(faceAt(" one")).toBeUndefined()
+})
+
+test("magit-status buffer reaches diff font-lock through editor.fontLock", async () => {
+  const editor = ed()
+  await writeFile(join(repo, "a.txt"), "one\ntwo\n")
+  await editor.run("magit-status", [repo])
+  const buf = editor.currentBuffer
+  const spans = editor.fontLock(buf)
+  const added = buf.text.indexOf("+two")
+  expect(spans.some(s => s.start === added && s.face === "string")).toBe(true)
+  const hunk = buf.text.indexOf("@@")
+  expect(spans.some(s => s.start === hunk && s.face === "builtin")).toBe(true)
 })
 
 test("P p pushes to a bare remote with prompted defaults (origin, current branch)", async () => {
@@ -113,11 +159,14 @@ test("l l opens *magit-log* in magit-log mode; RET shows the commit", async () =
   expect(sha).toMatch(/^[0-9a-f]{7,}$/)
 
   await editor.handleKey({ name: "return" })
-  buf = editor.currentBuffer
-  expect(buf.name).toBe(`*magit-commit: ${sha}*`)
-  expect(buf.readOnly).toBe(true)
-  expect(buf.text).toContain("initial")
-  expect(buf.text).toContain("a.txt")
+  // RET opens the revision in a split below and keeps the log selected (t-e6d604ba).
+  expect(editor.currentBuffer.name).toBe("*magit-log*")
+  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
+  const rev = [...editor.buffers.values()].find(b => b.name === `*magit-commit: ${sha}*`)!
+  expect(rev.mode).toBe("magit-revision")
+  expect(rev.readOnly).toBe(true)
+  expect(rev.text).toContain("initial")
+  expect(rev.text).toContain("a.txt")
 })
 
 test("b c creates and checks out; b b checks out an existing branch", async () => {

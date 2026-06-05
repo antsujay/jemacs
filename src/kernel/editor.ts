@@ -124,7 +124,6 @@ export class Editor {
   selectedWindowId: string
   theme: Theme = defaultTheme
   selectedTab = 0
-  tilingLayout = "tiling-master-left"
   minibuffer: MinibufferRequest | null = null
   isearch: IsearchState | null = null
   running = true
@@ -138,14 +137,17 @@ export class Editor {
   macroRecording: string[] | null = null
   lastKbdMacro: string[] = []
   lsp: LspManager | null = null
-  completingReadFunction: CompletingReadFunction | null = null
-  minibufferCompletionFrontend: MinibufferCompletionFrontend | null = null
+  /** Stack of completing-read overrides; top wins. push/pop instead of save/restore so
+   *  enable A → enable B → disable A → disable B doesn't resurrect A's function. */
+  private readonly completingReadFns: CompletingReadFunction[] = []
+  private readonly completionFrontends: MinibufferCompletionFrontend[] = []
   minibufferCompletionDisplay: MinibufferCompletionDisplay | null = null
   completer: Completer | null = null
   /** Gutter predicate consulted by build-display-model; modes (linum) install the policy. */
   showLineNumbers: (buffer?: BufferModel) => boolean = () => false
   /** Command currently executing (emacs `this-command`). */
   thisCommand: string | null = null
+  private readonly searchRing: string[] = []
   private minibufferDepth = 0
   private readonly displayNames = new Map<string, string>()
   /** Buffer ids most-recently-selected first; killBuffer's fallback source. */
@@ -175,12 +177,31 @@ export class Editor {
     this.tabs.push({ name: "1", bufferId: scratch.id })
   }
 
-  get windows(): string[] {
-    return listWindowLeaves(this.windowLayout).map(leaf => leaf.bufferId)
+  get completingReadFunction(): CompletingReadFunction | null {
+    return this.completingReadFns.at(-1) ?? null
+  }
+  /** Direct assignment replaces the stack — single-plugin compat only. Prefer push/pop. */
+  set completingReadFunction(fn: CompletingReadFunction | null) {
+    this.completingReadFns.length = 0
+    if (fn) this.completingReadFns.push(fn)
+  }
+  pushCompletingReadFunction(fn: CompletingReadFunction): void { this.completingReadFns.push(fn) }
+  popCompletingReadFunction(fn: CompletingReadFunction): void {
+    const i = this.completingReadFns.lastIndexOf(fn)
+    if (i !== -1) this.completingReadFns.splice(i, 1)
   }
 
-  get selectedWindow(): number {
-    return listWindowLeaves(this.windowLayout).findIndex(leaf => leaf.id === this.selectedWindowId)
+  get minibufferCompletionFrontend(): MinibufferCompletionFrontend | null {
+    return this.completionFrontends.at(-1) ?? null
+  }
+  set minibufferCompletionFrontend(fe: MinibufferCompletionFrontend | null) {
+    this.completionFrontends.length = 0
+    if (fe) this.completionFrontends.push(fe)
+  }
+  pushMinibufferCompletionFrontend(fe: MinibufferCompletionFrontend): void { this.completionFrontends.push(fe) }
+  popMinibufferCompletionFrontend(fe: MinibufferCompletionFrontend): void {
+    const i = this.completionFrontends.lastIndexOf(fe)
+    if (i !== -1) this.completionFrontends.splice(i, 1)
   }
 
   selectedWindowLeaf() {
@@ -613,7 +634,16 @@ export class Editor {
     const fed = this.keymaps.feed(key)
     if (fed.status === "matched") {
       const wasRecording = this.macroRecording
-      await this.run(fed.command, [], key)
+      const isearchBefore = this.isearch
+      try {
+        await this.run(fed.command, [], key)
+      } finally {
+        // A non-isearch command pressed during isearch ends the search; isearch-* commands
+        // manage state themselves and keyboard-quit cancels it, so only end if untouched.
+        if (isearchBefore && this.isearch === isearchBefore && !fed.command.startsWith("isearch")) {
+          this.endIsearch()
+        }
+      }
       if (wasRecording && this.macroRecording) this.macroRecording.push(fed.command)
       return { status: "command", command: fed.command }
     }
@@ -642,32 +672,37 @@ export class Editor {
     options: { collection?: string[]; completion?: "file"; defaultDirectory?: string } = {},
   ): Promise<string | null> {
     const previous = this.minibuffer
-    this.minibufferDepth++
-    return await new Promise(resolve => {
-      const buffer = new BufferModel({ name: ` *Minibuffer-${this.minibufferDepth}*`, text: initialValue, kind: "minibuffer", mode: "minibuffer" })
-      buffer.point = buffer.text.length
-      this.addBuffer(buffer)
-      this.enterMode(buffer, "minibuffer")
-      this.minibuffer = {
-        prompt,
-        bufferId: buffer.id,
-        historyName,
-        historyIndex: null,
-        collection: options.collection,
-        completion: options.completion,
-        fileCompletionDirectory: options.completion === "file"
-          ? (options.defaultDirectory ?? this.currentBuffer.directory() ?? process.cwd())
-          : undefined,
-        resolve: value => {
-          this.buffers.delete(buffer.id)
-          this.minibuffer = previous
-          this.minibufferCompletionDisplay = null
-          this.minibufferDepth--
-          resolve(value)
-        },
+    return await new Promise((resolve, reject) => {
+      const depth = ++this.minibufferDepth
+      const buffer = new BufferModel({ name: ` *Minibuffer-${depth}*`, text: initialValue, kind: "minibuffer", mode: "minibuffer" })
+      const cleanup = () => {
+        this.buffers.delete(buffer.id)
+        this.minibuffer = previous
+        this.minibufferCompletionDisplay = null
+        this.minibufferDepth--
       }
-      void this.events.emit("minibuffer", { prompt })
-      void this.changed("minibuffer-open")
+      try {
+        buffer.point = buffer.text.length
+        this.addBuffer(buffer)
+        this.enterMode(buffer, "minibuffer")
+        this.minibuffer = {
+          prompt,
+          bufferId: buffer.id,
+          historyName,
+          historyIndex: null,
+          collection: options.collection,
+          completion: options.completion,
+          fileCompletionDirectory: options.completion === "file"
+            ? (options.defaultDirectory ?? this.currentBuffer.directory() ?? process.cwd())
+            : undefined,
+          resolve: value => { cleanup(); resolve(value) },
+        }
+        void this.events.emit("minibuffer", { prompt })
+        void this.changed("minibuffer-open")
+      } catch (err) {
+        cleanup()
+        reject(err)
+      }
     })
   }
 
@@ -893,7 +928,7 @@ export class Editor {
     void this.changed("delete-window")
   }
 
-  consumePrefixArgument(): number | null {
+  private consumePrefixArgument(): number | null {
     return this.prefixArg.consume()
   }
 
@@ -906,7 +941,13 @@ export class Editor {
 
   isearchRepeat(): void {
     const state = this.isearch
-    if (!state?.string) return
+    if (!state) return
+    if (!state.string) {
+      const last = this.searchRing.at(-1)
+      if (!last) return
+      this.setIsearchString(last)
+      return
+    }
     const buffer = this.buffers.get(state.bufferId)
     if (!buffer) return
     const from = state.direction === 1 ? buffer.point + 1 : buffer.point - 1
@@ -932,6 +973,8 @@ export class Editor {
 
   endIsearch(): void {
     if (!this.isearch) return
+    const s = this.isearch.string
+    if (s && this.searchRing.at(-1) !== s) this.searchRing.push(s)
     this.isearch = null
     void this.changed("isearch-end")
   }
@@ -963,6 +1006,16 @@ export class Editor {
   }
 
   private async handleIsearchKey(key: KeyEventLike): Promise<KeyDispatchResult | null> {
+    const state = this.isearch
+    if (state && key.ctrl && !key.meta && key.name === "w") {
+      const buffer = this.buffers.get(state.bufferId)
+      if (buffer) {
+        const from = buffer.point + (state.direction === 1 ? state.string.length : 0)
+        const m = /^\W?\w*/.exec(buffer.text.slice(from))
+        if (m && m[0]) this.setIsearchString(state.string + m[0])
+      }
+      return { status: "inserted" }
+    }
     switch (key.name) {
       case "backspace":
         if (this.isearch) this.setIsearchString(this.isearch.string.slice(0, -1))

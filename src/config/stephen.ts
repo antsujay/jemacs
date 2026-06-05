@@ -38,7 +38,6 @@ function bindStephenKeys(editor: Editor): void {
   editor.key("C-c t", "lsp-find-definition")
   editor.key("C-c C-t", "lsp-ui-peek-find-implementation")
   editor.key("C-x C-a", "lsp-execute-code-action")
-  editor.key("C-\\", "tiling-cycle")
   editor.key("s-f", "counsel-ag")
   editor.key("s-m", "gptel-menu")
   editor.key("s-g", "gptel")

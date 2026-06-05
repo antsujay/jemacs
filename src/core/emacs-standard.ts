@@ -1,5 +1,6 @@
 import type { Editor } from "../kernel/editor"
 import { BufferModel } from "../kernel/buffer"
+import type { TextSpan } from "../modes/mode"
 import { readFileText } from "../platform/runtime"
 import { keyToken } from "../kernel/keymap"
 import { getCustom } from "../runtime/custom"
@@ -130,6 +131,9 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     editor.recenterTopBottom()
     editor.message("Recenter")
   }, "Center point vertically in the window.")
+  let qrBuffer: BufferModel | null = null
+  let qrCurrent: TextSpan[] = []
+  editor.addOverlaySource(b => (b === qrBuffer ? qrCurrent : []))
   editor.command("query-replace", async ({ buffer, editor, args }) => {
     const from = args[0] ?? await editor.prompt("Query replace: ", "", "query-replace")
     if (!from) return
@@ -138,11 +142,13 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     let index = buffer.point
     let count = 0
     let all = false
+    qrBuffer = buffer
     const trail: Array<{ at: number; replaced: boolean }> = []
     while (index <= buffer.text.length) {
       const at = buffer.text.indexOf(from, index)
       if (at === -1) break
       buffer.point = at
+      qrCurrent = [{ start: at, end: at + from.length, face: "isearch" }]
       const key = all ? "y" : await readKey(editor, `Query replacing ${from} with ${to}: (y n q ! . ^) `)
       if (key === null || key === "q" || key === "enter" || key === "esc") break
       if (key === "y" || key === "space" || key === "!" || key === ".") {
@@ -163,23 +169,24 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
       }
       // any other key: re-prompt at the same match
     }
+    qrCurrent = []
+    qrBuffer = null
     editor.message(`Replaced ${count} occurrence${count === 1 ? "" : "s"}`)
   }, "Replace occurrences with confirmation.")
-  editor.command("revert-buffer", async ({ buffer, editor }) => {
+  editor.command("revert-buffer", async ({ buffer, editor, args }) => {
     if (!buffer.path) {
       editor.message("Current buffer is not visiting a file")
       return
     }
-    if (buffer.dirty) {
-      const ans = await readKey(editor, "Buffer modified; revert anyway? (y or n) ")
+    // Emacs gates on confirmation when modified (files.el:7102); auto-revert passes noconfirm to bypass.
+    if (buffer.dirty && !args[0]) {
+      const ans = await readKey(editor, `Discard edits and reread from ${buffer.path}? (y or n) `)
       if (ans !== "y") { editor.message("Revert cancelled"); return }
     }
-    const text = await readFileText(buffer.path)
-    buffer.setText(text, false)
-    buffer.dirty = false
+    await buffer.revert()
     buffer.point = Math.min(buffer.point, buffer.text.length)
     editor.message(`Reverted ${editor.bufferDisplayName(buffer)}`)
-  }, "Reload the current file from disk.")
+  }, "Reload the current file from disk, confirming first if the buffer is modified.")
   editor.command("apropos-command", async ({ editor, args }) => {
     const pattern = args[0] ?? await editor.prompt("Apropos: ", "", "apropos")
     if (!pattern) return

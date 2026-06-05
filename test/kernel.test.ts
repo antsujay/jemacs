@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import { BufferModel } from "../src/kernel/buffer"
 import { isPrintable, keyToken, Keymap, KeymapStack } from "../src/kernel/keymap"
+import { listWindowLeaves } from "../src/kernel/window"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { installStephenConfig } from "../src/config/stephen"
@@ -732,7 +733,6 @@ test("Stephen config feature slice installs modes, keybindings, windows, tabs, a
   expect(editor.keymap.get("C-x C-r")).toBe("revert-buffer")
   expect(editor.keymap.get("s-f")).toBe("counsel-ag")
   expect(editor.keymaps.describe("C-M-S-<tab>")?.command).toBe("tab-bar-switch-to-prev-tab")
-  expect(editor.keymaps.describe("C-\\")?.command).toBe("tiling-cycle")
 
   const buffer = editor.scratch("registers", "one\ntwo\nthree", "text")
   buffer.point = 4
@@ -742,13 +742,11 @@ test("Stephen config feature slice installs modes, keybindings, windows, tabs, a
   expect(buffer.point).toBe(4)
 
   await editor.run("split-window-below")
-  expect(editor.windows).toHaveLength(2)
+  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
   await editor.run("next-window-any-frame")
-  expect(editor.selectedWindow).toBe(0)
+  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[0]!.id)
   await editor.run("tab-bar-new-tab")
   expect(editor.tabs).toHaveLength(2)
-  await editor.run("tiling-cycle")
-  expect(editor.tilingLayout).toBe("tiling-master-top")
 })
 
 test("Stephen protobuf and generic code helpers run inside Jemacs", async () => {

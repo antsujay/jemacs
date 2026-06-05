@@ -2,17 +2,19 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type { Editor } from "../../src/kernel/editor"
+import { findProjectRoot } from "../../src/lsp/project-root"
 import { spawnProcess } from "../../src/platform/runtime"
 import { defcustom, getCustom } from "../../src/runtime/custom"
+import { compilationStart, lastCompileCommand } from "../compile"
 
+export { findProjectRoot }
+
+/** Directory-taking, null-returning adapter over `findProjectRoot` so project/magit agree with compile/lsp. */
 export async function projectRoot(dir: string): Promise<string | null> {
-  let current = resolve(dir)
-  for (;;) {
-    if (await access(join(current, ".git")).then(() => true, () => false)) return current
-    const parent = dirname(current)
-    if (parent === current) return null
-    current = parent
-  }
+  const start = resolve(dir)
+  const found = await findProjectRoot(join(start, "_"))
+  if (found !== start) return found
+  return access(join(found, ".git")).then(() => found, () => null)
 }
 
 export async function projectFiles(root: string): Promise<string[]> {
@@ -62,8 +64,6 @@ async function projectCurrent(editor: Editor, override?: string): Promise<string
 export function install(editor: Editor): void {
   defcustom("project-list-file", "string", join(homedir(), ".jemacs", "projects.json"),
     "File where the list of known project roots is persisted.")
-  defcustom("compile-command", "string", "make -k ",
-    "Default shell command for project-compile.")
 
   editor.command("project-root", async ({ editor, args }) => {
     const root = await projectCurrent(editor, args[0])
@@ -105,31 +105,10 @@ export function install(editor: Editor): void {
   editor.command("project-compile", async ({ editor, args }) => {
     const root = await projectCurrent(editor)
     if (!root) return
-    const cmd = args[0] ?? await editor.prompt(
-      "Compile command: ",
-      getCustom<string>("compile-command") ?? "make -k ",
-      "compile",
-    )
-    if (!cmd) return
-    const proc = spawnProcess({ cmd: ["sh", "-c", cmd], cwd: root, stdout: "pipe", stderr: "pipe" })
-    const [stdout, stderr] = await Promise.all([
-      proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
-      proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
-    ])
-    const exit = await proc.exited
-    const status = exit === 0 ? "finished" : `exited abnormally with code ${exit}`
-    const body = [
-      `-*- mode: compilation; default-directory: "${root}" -*-`,
-      `Compilation started`,
-      "",
-      cmd,
-      stdout + stderr,
-      `Compilation ${status}`,
-      "",
-    ].join("\n")
-    editor.scratch("*compilation*", body, "text").kind = "grep"
-    editor.message(`Compilation ${status}`)
-  }, "Run a shell command in the project root and show its output in *compilation*.")
+    const cmd = args[0] ?? await editor.prompt("Compile command: ", lastCompileCommand(editor), "compile-command")
+    if (cmd == null) return
+    await compilationStart(editor, cmd, root)
+  }, "Run `compile` with the project root as default-directory.")
 
   editor.key("C-x p f", "project-find-file")
   editor.key("C-x C-z", "project-find-file")

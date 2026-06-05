@@ -34,12 +34,21 @@ export function visibleTextRegionFromStart(
   text: string,
   startLine: number,
   lineBudget: number,
+  /** Pass `buffer.lineStarts` when `text === buffer.text` to skip the O(n) scan. */
+  lineStarts?: readonly number[],
 ): { visible: string; visibleStart: number } {
-  const lines = text.split("\n")
-  const start = Math.max(0, Math.min(startLine, Math.max(0, lines.length - lineBudget)))
-  const visibleStart = lines.slice(0, start).join("\n").length + (start > 0 ? 1 : 0)
-  const visible = lines.slice(start, start + lineBudget).join("\n")
-  return { visible, visibleStart }
+  const ls = lineStarts ?? scanLineStarts(text)
+  const start = Math.max(0, Math.min(startLine, Math.max(0, ls.length - lineBudget)))
+  const visibleStart = ls[start]!
+  const end = start + lineBudget
+  const visibleEnd = end < ls.length ? ls[end]! - 1 : text.length
+  return { visible: text.slice(visibleStart, visibleEnd), visibleStart }
+}
+
+function scanLineStarts(text: string): number[] {
+  const ls = [0]
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) ls.push(i + 1)
+  return ls
 }
 
 export function visibleTextRegion(

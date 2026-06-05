@@ -134,6 +134,19 @@ export function install(editor: Editor): void {
     buffer.locals.set(PREV_ON_CHANGE, buffer.onTextChange)
     const prev = buffer.onTextChange
     buffer.onTextChange = ev => {
+      // Columns [0, NAME_OFFSET) are conceptually read-only. We can't veto the
+      // splice, so warn — and if the edit stays on one line, pin the marker to
+      // the edit start so finish-edit still reads whatever is left as the name.
+      const sameLine = !ev.text.includes("\n") && buffer.text.lastIndexOf("\n", ev.end - 1) < ev.start
+      for (const m of markers) {
+        if (m.offset < 0) continue
+        const ls = lineStart(buffer.text, m.offset)
+        if (ev.start >= ls && ev.start < m.offset) {
+          editor.message("Read-only: edit the filename column only")
+          if (sameLine && m.offset < ev.end) m.offset = ev.start
+          break
+        }
+      }
       adjustMarkers(markers, ev.start, ev.end, ev.text)
       prev?.(ev)
     }

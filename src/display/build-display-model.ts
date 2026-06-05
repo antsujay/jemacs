@@ -1,5 +1,5 @@
 import type { Editor } from "../kernel/editor"
-import { isearchMatchSpan } from "../kernel/isearch"
+import { isearchLazyHighlightSpans, isearchMatchSpan } from "../kernel/isearch"
 import { findWindowLeaf, type WindowLeaf, type WindowNode } from "../kernel/window"
 import { diagnosticsForBuffer } from "../lsp/diagnostics"
 import { positionToPoint } from "../lsp/positions"
@@ -148,6 +148,7 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
   if (selected && editor.isearch) {
     const match = isearchMatchSpan(buffer, editor.isearch)
     if (match) spans.push(match)
+    spans.push(...isearchLazyHighlightSpans(buffer, editor.isearch))
   }
   const showLineNumbers = buffer.kind !== "minibuffer" && editor.showLineNumbers(buffer)
   const mark = selected && buffer.markActive ? buffer.mark : null

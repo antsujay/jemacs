@@ -1,7 +1,7 @@
 import { basename } from "node:path"
 import type { Editor } from "../../src/kernel/editor"
 import type { BufferModel } from "../../src/kernel/buffer"
-import { defineMode } from "../../src/modes/mode"
+import { defineMode, type TextSpan } from "../../src/modes/mode"
 import { Keymap } from "../../src/kernel/keymap"
 import { spawnProcess } from "../../src/platform/runtime"
 import { projectRoot } from "../project"
@@ -234,6 +234,21 @@ function magitRoot(buffer: BufferModel): string | null {
   return (buffer.locals.get("magit-root") as string | undefined) ?? null
 }
 
+/** Line-based diff highlighting for status/revision buffers; repurposes existing faces (string=added, error=removed). */
+export function magitDiffFontLock(buffer: BufferModel): TextSpan[] {
+  const spans: TextSpan[] = []
+  let offset = 0
+  for (const line of buffer.text.split("\n")) {
+    const end = offset + line.length
+    if (line.startsWith("@@")) spans.push({ start: offset, end, face: "builtin" })
+    else if (line.startsWith("+")) spans.push({ start: offset, end, face: "string" })
+    else if (line.startsWith("-")) spans.push({ start: offset, end, face: "error" })
+    else if (/^(Head|Merge|Unstaged|Staged|Recent)\b/.test(line)) spans.push({ start: offset, end, face: "keyword" })
+    offset = end + 1
+  }
+  return spans
+}
+
 /** Extract the 7+ hex sha at point from a `--graph --oneline` line. */
 export function logShaAtPoint(buffer: BufferModel): string | null {
   const line = lineAt(buffer)
@@ -284,7 +299,7 @@ export function install(editor: Editor): void {
   statusMap.bind("k", "magit-discard")
   statusMap.bind("x", "magit-reset")
   statusMap.bind("tab", "magit-toggle-fold")
-  defineMode({ name: "magit-status", parent: "magit-special", keymap: statusMap })
+  defineMode({ name: "magit-status", parent: "magit-special", keymap: statusMap, fontLock: magitDiffFontLock })
 
   const commitMap = new Keymap("magit-commit-map")
   commitMap.bind("C-c C-c", "magit-commit-finish")
@@ -296,7 +311,11 @@ export function install(editor: Editor): void {
   logMap.bind("RET", "magit-log-show-commit")
   logMap.bind("g", "magit-log")
   logMap.bind("q", "magit-bury-buffer")
-  defineMode({ name: "magit-log", parent: "magit-special", keymap: logMap })
+  defineMode({ name: "magit-log", parent: "magit-special", keymap: logMap, fontLock: magitDiffFontLock })
+
+  const revisionMap = new Keymap("magit-revision-map")
+  revisionMap.bind("q", "magit-bury-buffer")
+  defineMode({ name: "magit-revision", parent: "magit-special", keymap: revisionMap, fontLock: magitDiffFontLock })
 
   editor.command("magit-undefined", ({ editor }) => {
     editor.message("Buffer is read-only")
@@ -387,7 +406,7 @@ export function install(editor: Editor): void {
     // Show what's being committed in a split, like real magit.
     const msgWindow = editor.selectedWindowId
     editor.splitWindowBelow()
-    const diffBuf = editor.scratch("*magit-diff: staged*", diff || "(nothing staged)\n", "text")
+    const diffBuf = editor.scratch("*magit-diff: staged*", diff || "(nothing staged)\n", "magit-revision")
     diffBuf.readOnly = true
     diffBuf.point = 0
     editor.selectWindow(msgWindow)
@@ -470,11 +489,14 @@ export function install(editor: Editor): void {
       return
     }
     const { out } = await git(["show", "--stat", "-p", sha], root)
-    const buf = editor.scratch(`*magit-commit: ${sha}*`, out, "text")
+    const logWindow = editor.selectedWindowId
+    editor.splitWindowBelow()
+    const buf = editor.scratch(`*magit-commit: ${sha}*`, out, "magit-revision")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
     buf.point = 0
-  }, "Show the commit at point.")
+    editor.selectWindow(logWindow)
+  }, "Show the commit at point in a split below, keeping the log selected.")
 
   editor.command("magit-branch-checkout", async ({ editor, buffer, args }) => {
     const root = magitRoot(buffer)

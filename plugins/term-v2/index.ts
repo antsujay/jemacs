@@ -2,14 +2,44 @@ import type { Editor } from "../../src/kernel/editor"
 import type { BufferModel } from "../../src/kernel/buffer"
 import type { FaceName, TextSpan } from "../../src/modes/mode"
 import { defineMode, getMode } from "../../src/modes/mode"
-import { Keymap } from "../../src/kernel/keymap"
+import { Keymap, normalizeSequence, type KeyEventLike } from "../../src/kernel/keymap"
+import { addAdvice } from "../../src/runtime/advice"
 import { spawnPty, type Pty } from "../term/pty"
-import { keyToPtyBytes, termRawMap } from "../term"
 import { Terminal as XTerm, type IBuffer, type IBufferCell } from "@xterm/headless"
 
-// Key handling is identical to v1; v2 only swaps the renderer. Re-export so
-// term-v2 stays a drop-in module surface for tests/consumers.
-export { keyToPtyBytes, termRawMap }
+/** Emacs term-raw-map: every key resolves to term-send-raw; C-c is the only
+ *  prefix escape. Installed as overriding-terminal-local-map so nothing falls
+ *  through to global editing commands (C-k → kill-line etc.). */
+class TermRawMap extends Keymap {
+  override get(seq: string): string | undefined {
+    const n = normalizeSequence(seq)
+    const explicit = super.get(n)
+    if (explicit) return explicit
+    if (!n || n === "C-c") return undefined
+    const toks = n.split(" ")
+    // Single key, or any key after the C-c escape (Emacs term-raw-escape-map's
+    // default [t] binding) — falling through would self-insert into a read-only
+    // buffer. Explicit C-c bindings on this map shadow the fallback.
+    if (toks.length === 1 || (toks.length === 2 && toks[0] === "C-c")) return "term-send-raw"
+    return undefined
+  }
+  override hasPrefix(seq: string): boolean {
+    return normalizeSequence(seq) === "C-c" || super.hasPrefix(seq)
+  }
+}
+export const termRawMap = new TermRawMap("term-raw-map")
+termRawMap.bind("C-c C-c", "term-interrupt")
+termRawMap.bind("C-c C-k", "term-kill")
+termRawMap.bind("C-c C-s", "term-send-string")
+termRawMap.bind("C-c C-j", "term-line-mode")
+
+/** Map a key event to the bytes the pty should receive. */
+export function keyToPtyBytes(k: KeyEventLike): string {
+  if (k.sequence) return k.sequence
+  if (k.name === "space") return " "
+  if (k.name === "enter" || k.name === "return") return "\r"
+  return k.raw ?? k.name
+}
 
 export type TermSession = {
   pty: Pty
@@ -24,7 +54,7 @@ export type TermSession = {
   txBuf?: string
   txScheduled?: boolean
 }
-const sessions = new WeakMap<BufferModel, TermSession>()
+export const sessions = new WeakMap<BufferModel, TermSession>()
 
 export const TERM_SPANS_LOCAL = "term-spans"
 
@@ -183,8 +213,8 @@ export function makeXTerm(rows: number, cols: number): XTerm {
 }
 
 export function install(editor: Editor): void {
-  // Reuse the keymap term v1 already populated; defineMode would otherwise
-  // replace the mode entry wholesale and discard those bindings (t-7e9391).
+  // Idempotent re-install: keep an already-registered term-map so a second
+  // install() (tests, plugin reload) preserves any extra bindings on it.
   const termMap = getMode("term")?.keymap ?? new Keymap("term-map")
   defineMode({
     name: "term",
@@ -233,10 +263,18 @@ export function install(editor: Editor): void {
     editor.overridingTerminalLocalMap = null
   })
 
-  editor.command("term-send-raw", ({ buffer, editor, args }) => {
-    // Capture before anything that might yield — under rapid input
-    // editor.lastKeyEvent can be overwritten before this body runs.
-    const k = editor.lastKeyEvent
+  // Universal escape: a stuck term override soft-locks the whole editor, so
+  // keyboard-quit must always be able to tear it down (t-f2e861cb).
+  addAdvice("keyboard-quit", {
+    after: ({ editor }) => {
+      if (editor.overridingTerminalLocalMap === termRawMap) editor.overridingTerminalLocalMap = null
+    },
+  })
+
+  editor.command("term-send-raw", ({ buffer, editor, args, keyEvent }) => {
+    // ctx.keyEvent is captured at dispatch; editor.lastKeyEvent can already be
+    // the *next* key under rapid input (t-414394c1). Fallback covers M-x.
+    const k = keyEvent ?? editor.lastKeyEvent
     const s = sessions.get(buffer)
     if (!s) return editor.message("No term session")
     const bytes = args[0] ?? (k ? keyToPtyBytes(k) : null)
