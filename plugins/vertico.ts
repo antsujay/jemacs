@@ -135,7 +135,7 @@ async function verticoRefresh(editor: Editor): Promise<void> {
     : request.collection ?? []
   if (editor.minibuffer !== request) return
   const state = ensureState(editor)
-  state.candidates = sortCandidates(filterCandidates(candidates, input, fileCompletion))
+  state.candidates = sortCandidates(filterCandidates(editor, candidates, input, fileCompletion))
   state.displayCandidates = state.candidates.map(candidate => displayCandidate(candidate, input, fileCompletion))
   state.groups = state.candidates.map(candidate => candidateGroup(candidate, fileCompletion))
   state.exitInput = false
@@ -275,8 +275,11 @@ function ensureState(editor: Editor): VerticoState {
   return state
 }
 
-function filterCandidates(candidates: string[], input: string, fileCompletion: boolean): string[] {
+function filterCandidates(editor: Editor, candidates: string[], input: string, fileCompletion: boolean): string[] {
   if (fileCompletion) return candidates
+  // Honour the active completion-style (fido/orderless set editor.completer); the
+  // kernel's own path is short-circuited by our frontend.refresh so we must consult it here.
+  if (editor.completer) return editor.completer(input, candidates)
   const needle = input.trim().toLowerCase()
   if (!needle) return candidates
   return candidates.filter(candidate => candidate.toLowerCase().startsWith(needle))

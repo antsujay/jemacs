@@ -2,13 +2,14 @@ import { registerCatalogEntry } from "./definitions"
 import type { SourceLocation } from "./source"
 import { captureCallerSource } from "./source"
 
-export type CustomType = "boolean" | "string" | "number"
+export type CustomType = "boolean" | "string" | "number" | "sexp"
 
 export type CustomVariable<T = unknown> = {
   name: string
   type: CustomType
   value: T
   doc?: string
+  group?: string
   source?: SourceLocation
   baselineValue?: unknown
   savedValue?: unknown
@@ -18,33 +19,36 @@ export type CustomVariable<T = unknown> = {
 
 const variables = new Map<string, CustomVariable>()
 
-export function defcustom<T>(name: string, type: CustomType, value: T, doc?: string): CustomVariable<T> {
+export function defcustom<T>(name: string, type: CustomType, value: T, doc?: string, group?: string): CustomVariable<T> {
   const source = captureCallerSource(3)
   const existing = variables.get(name)
   if (existing) {
     existing.value = value as unknown
     existing.type = type
     if (doc) existing.doc = doc
+    if (group) existing.group = group
     if (source) existing.source = source
     if (!existing.patched) existing.baselineValue = value as unknown
     registerCatalogEntry({ kind: "variable", name, source: existing.source, patched: existing.patched, doc: existing.doc })
     return existing as CustomVariable<T>
   }
-  const variable: CustomVariable<T> = { name, type, value, doc, source, baselineValue: value, patched: false }
+  const variable: CustomVariable<T> = { name, type, value, doc, group, source, baselineValue: value, patched: false }
   variables.set(name, variable as CustomVariable)
   registerCatalogEntry({ kind: "variable", name, source, doc, patched: false })
   return variable
 }
 
-export function defvar<T>(name: string, value: T, doc?: string): CustomVariable<T> {
+export function defvar<T>(name: string, value: T, doc?: string, group?: string): CustomVariable<T> {
   const existing = variables.get(name)
   if (existing) return existing as CustomVariable<T>
   const type: CustomType = typeof value === "boolean"
     ? "boolean"
     : typeof value === "number"
       ? "number"
-      : "string"
-  return defcustom(name, type, value, doc)
+      : typeof value === "object"
+        ? "sexp"
+        : "string"
+  return defcustom(name, type, value, doc, group)
 }
 
 export function getCustom<T>(name: string): T | undefined {

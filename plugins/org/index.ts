@@ -110,43 +110,66 @@ export function orgVisibleSpans(buffer: BufferModel): Array<{ start: number; end
   return out
 }
 
+type DisplayFilterResult = { text: string; map: (n: number) => number }
+type DisplayFilterCache = { text: string; ranges: FoldRange[]; result: DisplayFilterResult }
+const ORG_FILTER_CACHE = "org--display-filter-cache"
+
 /** Mode `displayFilter`: collapse folded line ranges, append `...` to the
  *  preceding visible line, and remap buffer offsets onto the shorter text.
  *  Hidden offsets clamp to the end of the preceding visible line so spans
- *  there become zero-width and the cursor lands on the ellipsis. */
-export function orgDisplayFilter(buffer: BufferModel): { text: string; map: (n: number) => number } | null {
+ *  there become zero-width and the cursor lands on the ellipsis.
+ *
+ *  Called every render; the rebuild is O(n) and `map` is invoked twice per
+ *  font-lock span, so the result is memoized in buffer.locals keyed on
+ *  (text, fold-ranges) identity — both change exactly when `_splice` or
+ *  `setFolded` runs. */
+export function orgDisplayFilter(buffer: BufferModel): DisplayFilterResult | null {
   const ranges = foldedRanges(buffer)
   if (!ranges.length) return null
   const src = buffer.text
+  const cached = buffer.locals.get(ORG_FILTER_CACHE) as DisplayFilterCache | undefined
+  if (cached && cached.text === src && cached.ranges === ranges) return cached.result
+
   const lines = src.split("\n")
-  const hidden = (i: number) => ranges.some(([a, b]) => i >= a && i <= b)
+  const L = lines.length
+  const lineHidden = new Uint8Array(L)
+  for (const [a, b] of ranges)
+    for (let i = Math.max(0, a); i <= b && i < L; i++) lineHidden[i] = 1
 
-  const bufStart: number[] = []
-  for (let o = 0, i = 0; i < lines.length; i++) { bufStart.push(o); o += lines[i]!.length + 1 }
+  const bufStart: number[] = new Array(L)
+  const lineLen: number[] = new Array(L)
+  for (let o = 0, i = 0; i < L; i++) { bufStart[i] = o; lineLen[i] = lines[i]!.length; o += lineLen[i]! + 1 }
 
-  const dispStart: number[] = new Array(lines.length)
+  const dispStart: number[] = new Array(L)
   const parts: string[] = []
   let dispLen = 0
   let lastVisibleEnd = 0
-  for (let i = 0; i < lines.length; i++) {
-    if (hidden(i)) { dispStart[i] = lastVisibleEnd; continue }
+  for (let i = 0; i < L; i++) {
+    if (lineHidden[i]) { dispStart[i] = lastVisibleEnd; continue }
     if (dispLen > 0) { parts.push("\n"); dispLen += 1 }
     dispStart[i] = dispLen
     parts.push(lines[i]!)
-    dispLen += lines[i]!.length
+    dispLen += lineLen[i]!
     lastVisibleEnd = dispLen
-    if (i + 1 < lines.length && hidden(i + 1)) { parts.push("..."); dispLen += 3 }
+    if (i + 1 < L && lineHidden[i + 1]) { parts.push("..."); dispLen += 3 }
   }
   const text = parts.join("")
 
   const map = (n: number): number => {
     const nn = Math.max(0, Math.min(n, src.length))
-    let i = 0
-    while (i + 1 < bufStart.length && bufStart[i + 1]! <= nn) i++
-    if (hidden(i)) return dispStart[i]!
-    return dispStart[i]! + Math.min(nn - bufStart[i]!, lines[i]!.length)
+    // upper_bound(bufStart, nn) - 1 → line containing nn.
+    let lo = 0, hi = L
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (bufStart[mid]! <= nn) lo = mid + 1; else hi = mid
+    }
+    const i = lo - 1
+    if (lineHidden[i]) return dispStart[i]!
+    return dispStart[i]! + Math.min(nn - bufStart[i]!, lineLen[i]!)
   }
-  return { text, map }
+  const result = { text, map }
+  buffer.locals.set(ORG_FILTER_CACHE, { text: src, ranges, result } satisfies DisplayFilterCache)
+  return result
 }
 
 type CycleState = "folded" | "children" | "subtree"

@@ -230,12 +230,21 @@ export async function diredDoCopy(editor: Editor, buffer: BufferModel, prefixArg
   if (!target) return
   const destDir = resolve(target)
   await mkdir(destDir, { recursive: true })
-  for (const entry of entries) {
-    const dest = join(destDir, basename(entry.path))
-    await cp(entry.path, dest, { recursive: entry.isDirectory, force: true })
+  const failed: { entry: DiredEntry; err: Error }[] = []
+  let ok = 0
+  try {
+    for (const entry of entries) {
+      try {
+        await cp(entry.path, join(destDir, basename(entry.path)), { recursive: entry.isDirectory, force: true })
+        ok++
+      } catch (err) {
+        failed.push({ entry, err: err as Error })
+      }
+    }
+  } finally {
+    await refreshDiredBuffer(buffer)
+    editor.message(`Copied ${ok} file(s) to ${destDir}${formatFailures(failed)}`)
   }
-  await refreshDiredBuffer(buffer)
-  editor.message(`Copied ${entries.length} file(s) to ${destDir}`)
 }
 
 export async function diredDoRename(editor: Editor, buffer: BufferModel, prefixArgument: number | null): Promise<void> {
@@ -262,11 +271,21 @@ export async function diredDoRename(editor: Editor, buffer: BufferModel, prefixA
   if (!target) return
   const destDir = resolve(target)
   await mkdir(destDir, { recursive: true })
-  for (const entry of entries) {
-    await rename(entry.path, join(destDir, basename(entry.path)))
+  const failed: { entry: DiredEntry; err: Error }[] = []
+  let ok = 0
+  try {
+    for (const entry of entries) {
+      try {
+        await rename(entry.path, join(destDir, basename(entry.path)))
+        ok++
+      } catch (err) {
+        failed.push({ entry, err: err as Error })
+      }
+    }
+  } finally {
+    await refreshDiredBuffer(buffer)
+    editor.message(`Moved ${ok} file(s) to ${destDir}${formatFailures(failed)}`)
   }
-  await refreshDiredBuffer(buffer)
-  editor.message(`Moved ${entries.length} file(s) to ${destDir}`)
 }
 
 /** GNU `make-directory`: create DIR under PARENT (interactive prompt when NAME omitted). */
@@ -349,6 +368,12 @@ async function diredRemoveEntries(editor: Editor, buffer: BufferModel, entries: 
   }
   void editor
   void buffer
+}
+
+function formatFailures(failed: { entry: DiredEntry; err: Error }[]): string {
+  if (!failed.length) return ""
+  const detail = failed.map(f => `${f.entry.name} [${(f.err as NodeJS.ErrnoException).code ?? f.err.message}]`).join(", ")
+  return ` (${failed.length} failed: ${detail})`
 }
 
 function diredSpecialEntry(entry: DiredEntry): boolean {

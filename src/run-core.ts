@@ -58,9 +58,15 @@ export async function runJemacsCore(editor: Editor, host: UiHost): Promise<Jemac
   host.onInput(binding.onInput)
   host.onResize(() => binding.present())
 
+  let scheduled = false
   editor.events.on("changed", () => {
-    binding.present()
-    if (!editor.running) host.destroy()
+    if (scheduled) return
+    scheduled = true
+    queueMicrotask(() => {
+      scheduled = false
+      binding.present()
+      if (!editor.running) host.destroy()
+    })
   })
 
   binding.present()

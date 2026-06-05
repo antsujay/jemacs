@@ -79,6 +79,9 @@ export type MinibufferCompletionFrontend = {
   refresh?: (editor: Editor) => void | Promise<void>
   complete?: (editor: Editor) => void | Promise<void>
   submitValue?: (editor: Editor) => string | undefined
+  /** Nav bindings consulted ahead of minibuffer-local-map while this frontend is active,
+   *  so plugins don't fight over the shared map at install() time. */
+  keymap?: Keymap
 }
 
 export type MinibufferCompletionDisplay = {
@@ -1176,6 +1179,8 @@ export class Editor {
     if (this.overridingTerminalLocalMap) maps.push({ name: "overriding-terminal-local-map", keymap: this.overridingTerminalLocalMap })
     if (this.overridingMap) maps.push({ name: "overriding-map", keymap: this.overridingMap })
     if (this.minibuffer) {
+      const frontendMap = this.minibufferCompletionFrontend?.keymap
+      if (frontendMap) maps.push({ name: frontendMap.name, keymap: frontendMap })
       maps.push({ name: "minibuffer-local-map", keymap: this.minibufferKeymap })
       maps.push({ name: "global-map", keymap: this.keymap })
       return maps
