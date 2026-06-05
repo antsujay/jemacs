@@ -29,19 +29,7 @@ function bindStephenKeys(editor: Editor): void {
   editor.key("C-x C-a", "lsp-execute-code-action")
   editor.key("s-f", "counsel-ag")
   editor.key("s-=", "text-scale-adjust")
-
-  getMode("protobuf")?.keymap?.bind("C-c n", "proto-renumber")
 }
 
 function installStephenCommands(editor: Editor): void {
-  editor.command("proto-renumber", ({ buffer }) => {
-    let next = 1
-    buffer.setText(buffer.text.replace(/=\s*\d+(\s*;)/g, () => `= ${next++};`), true)
-  }, "Renumber protobuf field tags in the region or buffer.")
-
-  editor.command("proto-add-rpc", ({ buffer, args }) => {
-    const name = args[0] ?? "NewRpc"
-    const line = `  rpc ${name}(${name}Request) returns (${name}Response);\n`
-    buffer.insert(line)
-  }, "Insert a protobuf service RPC declaration.")
 }

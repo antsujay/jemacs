@@ -254,7 +254,10 @@ export function installCoreCommands(editor: Editor): Evaluator {
     for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
   }, "Move point backward one word.")
   editor.command("newline", ({ buffer }) => buffer.insert("\n"), "Insert a newline at point.")
-  editor.command("delete-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteForward(), () => buffer.deleteBackward()), "Delete the character after point.")
+  editor.command("delete-char", ({ buffer, prefixArgument }) => {
+    if (buffer.deleteActiveRegion()) return
+    repeat(prefixArgument, () => buffer.deleteForward(), () => buffer.deleteBackward())
+  }, "Delete the character after point.")
   editor.command("delete-backward-char", async ({ buffer, editor, prefixArgument }) => {
     if (editor.minibuffer) {
       const n = prefixArgument ?? 1
@@ -265,6 +268,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
       }
       return
     }
+    if (buffer.deleteActiveRegion()) return
     repeat(prefixArgument, () => buffer.deleteBackward(), () => buffer.deleteForward())
   }, "Delete the character before point.")
   const killWords = (buffer: CommandContext["buffer"], n: number) => {

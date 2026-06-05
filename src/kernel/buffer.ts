@@ -235,6 +235,20 @@ export class BufferModel {
     return true
   }
 
+  /** Emacs `use-region-p`: active when mark differs from point and (if transient-mark-mode) mark is active. */
+  useRegion(): boolean {
+    if (this.mark == null || this.mark === this.point) return false
+    return !isTransientMarkModeEnabled() || this.markActive
+  }
+
+  /** Emacs `delete-active-region`: delete the active region without pushing the kill ring. */
+  deleteActiveRegion(): boolean {
+    if (!this.useRegion()) return false
+    const [start, end] = [this.mark!, this.point].sort((x, y) => x - y)
+    this.deleteRange(start, end)
+    return true
+  }
+
   selectedText(): string {
     if (this.mark == null || this.mark === this.point) return ""
     const [a, b] = [this.mark, this.point].sort((x, y) => x - y)

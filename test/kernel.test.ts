@@ -674,6 +674,50 @@ test("C-x C-x exchanges point and mark like Emacs", async () => {
   expect(buffer.markActive).toBe(true)
 })
 
+test("delete-backward-char deletes the active region like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 0
+  buffer.point = 5
+  buffer.markActive = true
+
+  await editor.run("delete-backward-char")
+  expect(buffer.text).toBe(" world")
+  expect(buffer.point).toBe(0)
+  expect(buffer.markActive).toBe(false)
+})
+
+test("delete-backward-char ignores inactive region under transient-mark-mode", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 0
+  buffer.point = 5
+  buffer.markActive = false
+
+  await editor.run("delete-backward-char")
+  expect(buffer.text).toBe("hell world")
+  expect(buffer.point).toBe(4)
+})
+
+test("delete-char deletes the active region like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 6
+  buffer.point = 11
+  buffer.markActive = true
+
+  await editor.run("delete-char")
+  expect(buffer.text).toBe("hello ")
+  expect(buffer.point).toBe(6)
+  expect(buffer.markActive).toBe(false)
+})
+
 test("exchange-point-and-mark swaps point and mark; motion preserves markActive", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
