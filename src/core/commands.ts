@@ -81,7 +81,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
     const path = args[0] ?? await editor.completingRead("Find file: ", {
       completion: "file",
       history: "file",
-      initialValue: editor.currentBuffer.directory() ?? process.cwd(),
+      initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()),
     })
     if (!path) return
     await editor.openFile(path)
@@ -170,17 +170,19 @@ export function installCoreCommands(editor: Editor): Evaluator {
     const sign = editor.prefixArg.isNegative() ? "-" : ""
     editor.message(`Argument ${sign}${value}`)
   }, "Add a digit to the numeric prefix argument.")
-  editor.command("self-insert-command", ({ buffer, editor, prefixArgument }) => {
+  editor.command("self-insert-command", async ({ buffer, editor, prefixArgument }) => {
     const key = editor.lastKeyEvent
     if (!key) return
+    const text = (key.sequence ?? "").repeat(Math.max(1, Math.abs(prefixArgument ?? 1)))
     if (editor.quotedInsertNext && isPrintable(key)) {
       editor.quotedInsertNext = false
-      buffer.insert(key.sequence ?? "")
+      if (editor.minibuffer) await editor.minibufferInsert(text)
+      else buffer.insert(text)
       return
     }
     if (!isPrintable(key)) return
-    const count = Math.max(1, Math.abs(prefixArgument ?? 1))
-    buffer.insert((key.sequence ?? "").repeat(count))
+    if (editor.minibuffer) await editor.minibufferInsert(text)
+    else buffer.insert(text)
   }, "Insert the character you type.")
   editor.command("previous-history-element", ({ editor }) => editor.minibufferPreviousHistory(), "Move to the previous minibuffer history element.")
   editor.command("next-history-element", ({ editor }) => editor.minibufferNextHistory(), "Move to the next minibuffer history element.")
@@ -196,7 +198,14 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("backward-word", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.moveWord(-1)), "Move point backward one word.")
   editor.command("newline", ({ buffer }) => buffer.insert("\n"), "Insert a newline at point.")
   editor.command("delete-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteForward()), "Delete the character after point.")
-  editor.command("delete-backward-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteBackward()), "Delete the character before point.")
+  editor.command("delete-backward-char", async ({ buffer, editor, prefixArgument }) => {
+    if (editor.minibuffer) {
+      const count = Math.max(1, prefixArgument ?? 1)
+      for (let i = 0; i < count; i++) await editor.minibufferBackspace()
+      return
+    }
+    repeat(prefixArgument, () => buffer.deleteBackward())
+  }, "Delete the character before point.")
   editor.command("backward-kill-word", ({ buffer, prefixArgument }) => {
     let killed = ""
     repeat(prefixArgument, () => {
@@ -307,7 +316,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
     const path = args[0] ?? await editor.completingRead("Find file in other window: ", {
       completion: "file",
       history: "file",
-      initialValue: editor.currentBuffer.directory() ?? process.cwd(),
+      initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()),
     })
     if (!path) return
     editor.ensureOtherWindowSelected()
@@ -399,7 +408,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   }, "Switch to the Python shell buffer placeholder.")
 
   editor.command("dired", async ({ editor, args }) => {
-    const path = args[0] ?? await editor.completingRead("Dired: ", { completion: "file", history: "file", initialValue: editor.currentBuffer.directory() ?? process.cwd() })
+    const path = args[0] ?? await editor.completingRead("Dired: ", { completion: "file", history: "file", initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()) })
     if (!path) return
     await editor.openDirectory(path)
   }, "Open a directory in Dired.")
@@ -600,6 +609,10 @@ export function installCoreCommands(editor: Editor): Evaluator {
 function repeat(prefixArgument: number | null, fn: () => void): void {
   const count = Math.max(1, prefixArgument ?? 1)
   for (let i = 0; i < count; i++) fn()
+}
+
+function directoryInitialValue(directory: string): string {
+  return directory.endsWith("/") ? directory : `${directory}/`
 }
 
 function summarize(value: unknown): string {

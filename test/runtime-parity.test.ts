@@ -61,6 +61,23 @@ test("vertico-mode shows and selects minibuffer candidates", async () => {
   await expect(promise).resolves.toBe("alphabet")
 })
 
+test("vertico-mode refreshes candidates while typing", async () => {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  const promise = editor.prompt("Choose: ", "", undefined, { collection: ["alpha", "alphabet", "beta"] })
+  await editor.refreshMinibufferCompletions()
+  expect(editor.minibufferCompletionDisplay?.text).toContain("alpha")
+  await editor.handleKey({ name: "b", sequence: "b" })
+  expect(editor.activeBuffer.text).toBe("b")
+  expect(editor.minibufferCompletionDisplay?.text).toContain("beta")
+  expect(editor.minibufferCompletionDisplay?.text).not.toContain("alpha")
+  await editor.handleKey({ name: "backspace" })
+  expect(editor.activeBuffer.text).toBe("")
+  expect(editor.minibufferCompletionDisplay?.text).toContain("alpha")
+  editor.minibufferCancel()
+  await promise
+})
+
 test("vertico-mode can be disabled to use icomplete candidates", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)

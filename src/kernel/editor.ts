@@ -898,11 +898,11 @@ export class Editor {
     return null
   }
 
-  minibufferInsert(s: string): void {
+  async minibufferInsert(s: string): Promise<void> {
     if (!this.minibuffer) return
     this.activeBuffer.insert(s)
-    void this.refreshMinibufferCompletions()
-    void this.changed("minibuffer-input")
+    await this.refreshMinibufferCompletions()
+    await this.changed("minibuffer-input")
   }
 
   /** Incremental completion (icomplete-style) while typing in the minibuffer. */
@@ -920,11 +920,11 @@ export class Editor {
     if (matches.length > 1) this.showCompletions(matches)
   }
 
-  minibufferBackspace(): void {
+  async minibufferBackspace(): Promise<void> {
     if (!this.minibuffer) return
     this.activeBuffer.deleteBackward()
-    void this.refreshMinibufferCompletions()
-    void this.changed("minibuffer-backspace")
+    await this.refreshMinibufferCompletions()
+    await this.changed("minibuffer-backspace")
   }
 
   minibufferSubmit(): void {

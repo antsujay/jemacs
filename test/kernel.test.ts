@@ -347,6 +347,15 @@ test("find-file prompt defaults to cwd when buffer has no directory", async () =
   await prompt
 })
 
+test("find-file command starts minibuffer at cwd slash", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const prompt = editor.run("find-file")
+  expect(editor.activeBuffer.text).toBe(`${process.cwd()}/`)
+  editor.minibufferCancel()
+  await prompt
+})
+
 test("find-file minibuffer supports readline bindings like C-a", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
