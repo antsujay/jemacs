@@ -200,7 +200,7 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     editor.scratch("*Help*", lines.join("\n") || "No matches", "text")
   }, "Show commands matching a pattern.")
   editor.command("help-command", ({ editor }) => {
-    editor.message("Help (C-h …): b bindings, c mode, k key, f function, v variable, a apropos, e messages, i info")
+    editor.message("Help (C-h …): b bindings, c mode, k key, f function, v variable, a apropos, e messages")
   }, "Display help key prefix summary.")
   editor.command("help-for-help", ({ editor }) => {
     const lines = [
@@ -212,14 +212,10 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
       "C-h v    describe-variable (custom; RET → source)",
       "C-h a    apropos-command",
       "C-h e    view-echo-area-messages",
-      "C-h i    info",
       "C-h C-h  help-for-help",
     ]
     editor.scratch("*Help*", lines.join("\n"), "text")
   }, "Describe help commands.")
-  editor.command("info", ({ editor }) => {
-    editor.message("Info manual reader is not bundled in Jemacs yet.")
-  }, "Read Info documentation (placeholder).")
   editor.command("count-lines-page", ({ buffer, editor }) => {
     const lines = buffer.text.split("\n").length
     editor.message(`${lines} lines in buffer`)

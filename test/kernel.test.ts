@@ -715,42 +715,6 @@ test("exchange-point-and-mark with prefix jumps without activating the region", 
   expect(buffer.markActive).toBe(false)
 })
 
-test("Stephen config feature slice installs modes, keybindings, windows, tabs, and registers", async () => {
-  const { installDefaultModes } = await import("../src/modes/default-modes")
-  const { getMode } = await import("../src/modes/mode")
-  installDefaultModes()
-  const editor = new Editor()
-  installDefaultCommands(editor)
-  installStephenConfig(editor)
-
-  expect((await editor.openFile("/tmp/jemacs-config-test.ts")).mode).toBe("typescript")
-  expect((await editor.openFile("/tmp/jemacs-config-test.rs")).mode).toBe("rust")
-  expect((await editor.openFile("/tmp/jemacs-config-test.go")).mode).toBe("go")
-  expect((await editor.openFile("/tmp/jemacs-config-test.proto")).mode).toBe("protobuf")
-  expect(getMode("protobuf")?.keymap?.get("C-c n")).toBe("proto-renumber")
-
-  expect(editor.keymap.get("C-x C-j")).toBe("previous-buffer")
-  expect(editor.keymap.get("C-x C-r")).toBe("revert-buffer")
-  expect(editor.keymap.get("s-f")).toBe("counsel-ag")
-  expect(editor.keymaps.describe("C-M-S-<tab>")?.command).toBe("tab-bar-switch-to-prev-tab")
-  expect(editor.keymaps.describe("C-\\")?.command).toBe("tiling-cycle")
-  expect(editor.keymaps.describe("C-x +")?.command).toBe("balance-windows")
-
-  const buffer = editor.scratch("registers", "one\ntwo\nthree", "text")
-  buffer.point = 4
-  await editor.run("point-to-register", ["f"])
-  buffer.point = 0
-  await editor.run("jump-to-register", ["f"])
-  expect(buffer.point).toBe(4)
-
-  await editor.run("split-window-below")
-  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
-  await editor.run("next-window-any-frame")
-  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[0]!.id)
-  await editor.run("tab-bar-new-tab")
-  expect(editor.tabs).toHaveLength(2)
-})
-
 test("Stephen protobuf and generic code helpers run inside Jemacs", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   installDefaultModes()

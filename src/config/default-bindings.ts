@@ -125,7 +125,6 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("C-M-x", "eval-defun")
   editor.key("C-h v", "describe-variable")
   editor.key("C-h a", "apropos-command")
-  editor.key("C-h i", "info")
   editor.key("C-h C-h", "help-for-help")
 }
 

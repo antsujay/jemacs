@@ -233,8 +233,15 @@ export function installCustomizeCommands(editor: Editor): void {
 
   editor.command("customize-create-theme", ({ editor, args }) => {
     const name = args[0]
-    if (name && getBuiltinTheme(name)) showCustomizeThemesBuffer(editor, [name], `Custom Theme: ${name}`)
-    else editor.scratch("*Custom Theme*", "Custom theme creation is not implemented for new themes.\n", "custom-theme-choose-mode")
+    if (!name) {
+      editor.message("No theme specified")
+      return
+    }
+    if (!getBuiltinTheme(name)) {
+      editor.message(`Unknown theme: ${name}`)
+      return
+    }
+    showCustomizeThemesBuffer(editor, [name], `Custom Theme: ${name}`)
   }, "Create or edit a custom theme.")
 
   editor.command("widget-browse", ({ editor, args }) => {

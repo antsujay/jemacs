@@ -475,9 +475,6 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   editor.command("python-beginning-of-defun", ({ buffer }) => pythonBeginningOfDefun(buffer), "Move to the beginning of the current Python def or class.")
   editor.command("python-end-of-defun", ({ buffer }) => pythonEndOfDefun(buffer), "Move to the end of the current Python def or class.")
-  editor.command("python-shell-switch-to-shell", ({ editor }) => {
-    editor.scratch("*Python*", "Python shell integration is not implemented yet.\n", "text")
-  }, "Switch to the Python shell buffer placeholder.")
 
   editor.command("dired", async ({ editor, args }) => {
     const path = args[0] ?? await editor.completingRead("Dired: ", { completion: "file", history: "file", initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()) })

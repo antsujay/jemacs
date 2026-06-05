@@ -20,7 +20,6 @@ export function installPythonMode(): void {
   const keymap = new Keymap("python-map")
   keymap.bind("C-M-a", "python-beginning-of-defun")
   keymap.bind("C-M-e", "python-end-of-defun")
-  keymap.bind("C-c C-z", "python-shell-switch-to-shell")
   defineMode({
     name: "python",
     parent: "prog-mode",

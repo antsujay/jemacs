@@ -4,7 +4,7 @@ Jemacs targets **GNU Emacs–style architecture**: a display-agnostic kernel (bu
 
 Use checkboxes to track work. Implementation landed **2026-06-04** unless noted.
 
-*Last updated: 2026-06-04 (textarea font-lock, dom-frame, workspaces, runtime parity).*
+*Last updated: 2026-06-05 (removed stub commands; tracked below as to implement).*
 
 ---
 
@@ -222,6 +222,30 @@ flowchart TB
 - [x] Advice — `runtime/advice.ts` + `invokeWithAdvice` in `Editor.run`
 - [x] load-path — `runtime/load-path.ts` + evaluator plugin resolution
 - [ ] **python.el** port (deferred — use `python` mode + LSP instead)
+
+---
+
+## To implement
+
+Stub commands and placeholder bindings were removed so missing behavior is explicit (no echo-area “placeholder” messages). Implement as plugins or core commands; restore Stephen/default keys when real.
+
+### Core / modes
+
+- [ ] **`info`** (`C-h i`) — GNU Info manual reader
+- [ ] **`python-shell-switch-to-shell`** (`C-c C-z` in `python-mode`) — Python REPL buffer (`python.el` shell integration)
+- [ ] **`customize-create-theme`** (new themes) — create/edit non-builtin Custom themes (builtin theme edit via `M-x customize-create-theme THEME` still works)
+
+### External packages (Stephen config keys)
+
+- [ ] **`git-link`** (`C-c g l`) — magit/git-link
+- [ ] **`magit-find-main`** (`C-c g m`) — jump to repo default branch
+- [ ] **`projectile-command-map`** (`C-c p`) — projectile dispatch
+- [ ] **`ace-jump-word-mode`** (`C-c SPC`) — avy-style word jump (see also shipped `avy-goto-char` / `C-;`)
+- [ ] **`ace-jump-char-mode`** (`C-c C-x SPC`) — avy-style char jump
+- [ ] **`yafolding-toggle-element`** (`C-c RET`) — fold element at point
+- [ ] **`gptel-menu`** (`s-m`) — LLM chat menu
+- [ ] **`gptel`** (`s-g`) — LLM chat
+- [ ] **`restart-emacs`** (`s-r`) — restart editor process
 
 ---
 
