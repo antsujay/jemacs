@@ -17,6 +17,7 @@ function paneBodies(node: WindowDisplayNode): string[] {
 
 test("t-16be1a86: wrapped continuation rows carry gutter-width left padding", () => {
   const editor = makeEditor()
+  editor.enableMinorMode("linum-mode")
   // line 5 is the 64-char comment from examples/go-cli/task/filter.go
   const buf = editor.scratch("filter.go", [
     "package task",
@@ -56,6 +57,7 @@ test("t-16be1a86: wrapped continuation rows carry gutter-width left padding", ()
 
 test("t-16be1a86: single window without cols leaves body unwrapped", () => {
   const editor = makeEditor()
+  editor.enableMinorMode("linum-mode")
   const buf = editor.scratch("long.txt", "x".repeat(200) + "\nshort\n", "text")
   buf.kind = "file"
   const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24 } })
