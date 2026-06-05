@@ -4,7 +4,8 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultConfig } from "../src/config"
-import { defcustom, getCustom, setCustom } from "../src/runtime/custom"
+import { getMode } from "../src/modes/mode"
+import { defcustom, getCustom, getCustomVariable, setCustom } from "../src/runtime/custom"
 import { parseInteractiveForm } from "../src/runtime/interactive"
 import { addAdvice } from "../src/runtime/advice"
 import { addToLoadPath, clearLoadPath, getLoadPath } from "../src/runtime/load-path"
@@ -136,4 +137,38 @@ test("toggle-transient-mark-mode flips movement deactivation", async () => {
   buffer.setMark()
   buffer.move(1)
   expect(buffer.markActive).toBe(true)
+})
+
+test("customize displays user options and updates values", async () => {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  defcustom("jemacs-customize-test-flag", "boolean", false, "test customize flag")
+
+  await editor.run("customize-variable", ["jemacs-customize-test-flag"])
+  expect(editor.currentBuffer.name).toBe("*Customize*")
+  expect(editor.currentBuffer.mode).toBe("customize-mode")
+  expect(getMode("customize-mode")?.keymap?.get("s")).toBe("customize-set")
+  expect(getMode("customize-mode")?.keymap?.get("S-s")).toBe("customize-save")
+  expect(editor.currentBuffer.text).toContain("Variable: jemacs-customize-test-flag")
+  expect(editor.currentBuffer.text).toContain("State: STANDARD")
+
+  const setPromise = editor.run("customize-set")
+  editor.activeBuffer.setText("true", true)
+  editor.minibufferSubmit()
+  await setPromise
+  expect(getCustom<boolean>("jemacs-customize-test-flag")).toBe(true)
+  expect(getCustomVariable("jemacs-customize-test-flag")?.customized).toBe(true)
+  expect(editor.currentBuffer.text).toContain("State: SET for current session")
+
+  const savePromise = editor.run("customize-save")
+  editor.activeBuffer.setText("false", true)
+  editor.minibufferSubmit()
+  await savePromise
+  expect(getCustom<boolean>("jemacs-customize-test-flag")).toBe(false)
+  expect(getCustomVariable("jemacs-customize-test-flag")?.savedValue).toBe(false)
+  expect(editor.currentBuffer.text).toContain("State: SAVED and set")
+
+  await editor.run("customize-reset")
+  expect(getCustom<boolean>("jemacs-customize-test-flag")).toBe(false)
+  expect(getCustomVariable("jemacs-customize-test-flag")?.customized).toBe(false)
 })

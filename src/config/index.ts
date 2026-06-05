@@ -7,6 +7,7 @@ import { addToLoadPath } from "../runtime/load-path"
 import { installCoreCommands } from "../core/commands"
 import { installLinumMode } from "../modes/linum-mode"
 import { installMinorModeCommands } from "../modes/minor-mode"
+import { installCustomizeCommands } from "../modes/customize"
 import { bindDefaultKeybindings } from "./default-bindings"
 import { installUserConfig } from "./user"
 import { installStephenConfig } from "./stephen"
@@ -23,6 +24,7 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   const evaluator = installCoreCommands(editor)
   installLinumMode()
   installMinorModeCommands(editor)
+  installCustomizeCommands(editor)
   bindDefaultKeybindings(editor)
   installDefaultCustomVariables(editor)
   installStephenConfig(editor)

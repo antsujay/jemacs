@@ -11,7 +11,9 @@ export type CustomVariable<T = unknown> = {
   doc?: string
   source?: SourceLocation
   baselineValue?: unknown
+  savedValue?: unknown
   patched?: boolean
+  customized?: boolean
 }
 
 const variables = new Map<string, CustomVariable>()
@@ -51,6 +53,37 @@ export function setCustom<T>(name: string, value: T): void {
   const variable = variables.get(name)
   if (!variable) throw new Error(`Unknown custom variable: ${name}`)
   variable.value = value as unknown
+  variable.customized = true
+  registerCatalogEntry({ kind: "variable", name, source: variable.source, patched: variable.patched, doc: variable.doc })
+}
+
+export function saveCustom<T>(name: string, value?: T): void {
+  const variable = variables.get(name)
+  if (!variable) throw new Error(`Unknown custom variable: ${name}`)
+  if (arguments.length >= 2) variable.value = value as unknown
+  variable.savedValue = variable.value
+  variable.customized = true
+  registerCatalogEntry({ kind: "variable", name, source: variable.source, patched: variable.patched, doc: variable.doc })
+}
+
+export function resetCustom(name: string): boolean {
+  const variable = variables.get(name)
+  if (!variable) return false
+  const baseline = variable.baselineValue
+  if (baseline === undefined) return false
+  variable.value = baseline
+  variable.customized = false
+  registerCatalogEntry({ kind: "variable", name, source: variable.source, patched: variable.patched, doc: variable.doc })
+  return true
+}
+
+export function resetCustomToSaved(name: string): boolean {
+  const variable = variables.get(name)
+  if (!variable || variable.savedValue === undefined) return false
+  variable.value = variable.savedValue
+  variable.customized = true
+  registerCatalogEntry({ kind: "variable", name, source: variable.source, patched: variable.patched, doc: variable.doc })
+  return true
 }
 
 export function patchCustom<T>(name: string, value: T): void {

@@ -3,7 +3,7 @@
  */
 export { Editor } from "../kernel/editor"
 export { BufferModel } from "../kernel/buffer"
-export { defcustom, defvar, getCustom, setCustom, patchCustom, restoreCustom, listCustomVariables } from "./custom"
+export { defcustom, defvar, getCustom, setCustom, saveCustom, resetCustom, resetCustomToSaved, patchCustom, restoreCustom, listCustomVariables } from "./custom"
 export { defineMode, getMode, modeLineage, modes } from "../modes/mode"
 export { addHook, removeHook, clearHooks, modeHookName } from "../kernel/hooks"
 export { addAdvice, clearAdvice } from "./advice"
