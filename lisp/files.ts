@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import type { SaveContext } from "../src/kernel/buffer"
 import type { CommandContext } from "../src/kernel/command"
 import type { Editor } from "../src/kernel/editor"
+import { createPluginContext, type PluginContext } from "../src/runtime/plugin-context"
 import { readKey } from "./misc"
 import { readFileText } from "../src/platform/runtime"
 import { defcustom, getCustom } from "../src/runtime/custom"
@@ -44,7 +45,7 @@ function directoryInitialValue(directory: string): string {
   return directory.endsWith("/") ? directory : `${directory}/`
 }
 
-export function install(editor: Editor): void {
+export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   // SaveContext shared by every command-layer save path so the mtime-clash
   // confirm and make-backup-files defcustom apply uniformly. Hooks are *not*
   // included by default — save-buffer's hooks are advice-driven and swallow

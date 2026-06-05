@@ -32,6 +32,19 @@ export function addAdvice(commandName: string, advice: CommandAdvice, source?: S
   return id
 }
 
+export function removeAdvice(id: string): boolean {
+  const entry = tracked.get(id)
+  if (!entry) return false
+  const list = adviceByCommand.get(entry.commandName)
+  if (list) {
+    const index = list.indexOf(entry.advice)
+    if (index >= 0) list.splice(index, 1)
+    if (list.length === 0) adviceByCommand.delete(entry.commandName)
+  }
+  tracked.delete(id)
+  return true
+}
+
 export function clearAdvice(commandName?: string): void {
   if (commandName) {
     adviceByCommand.delete(commandName)

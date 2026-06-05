@@ -1,9 +1,10 @@
 import { homedir } from "node:os"
 import type { Editor } from "../src/kernel/editor"
+import { createPluginContext, type PluginContext } from "../src/runtime/plugin-context"
 import { listWindowLeaves, nextWindowId } from "../src/kernel/window"
 import { bufferListEntryAtPoint, showBufferList } from "../src/modes/buffer-list"
 
-export function install(editor: Editor): void {
+export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   const otherWindow = (editor: Editor, delta: number) => {
     if (listWindowLeaves(editor.windowLayout).length <= 1) return
     editor.selectWindow(nextWindowId(editor.windowLayout, editor.selectedWindowId, delta))

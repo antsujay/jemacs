@@ -346,3 +346,15 @@
 {"id":"t-audit-55c1a57f","ts":1780702150357,"kind":"refactor","priority":"p1","owns":"src/runtime/advice.ts","status":"open","title":"Advice still before/after only — :around/:override missing","detail":"DESIGN.md Sequencing step 3. Needed so plugins can replace commands without redefining.","by":"deep-audit"}
 {"id":"t-audit-f20d060e","ts":1780702150357,"kind":"refactor","priority":"p2","owns":"src/modes/* + src/runtime/generic.ts","status":"open","title":"Dual per-mode dispatch: Mode fields coexist with defgeneric","detail":"generic.ts exists. Migrate Mode.{indentLine,completeAtPoint,...} fields to defmethod; delete the closed fields.","by":"deep-audit"}
 {"id":"t-audit-2907f4d9","ts":1780702150357,"kind":"structural","priority":"p0","owns":"src/runtime/plugin-context.ts + evaluator.ts + advice.ts + plugins/builtin.ts + lisp/* + plugins/*","status":"open","title":"Wire PluginContext disposable-registration end-to-end (DESIGN.md Sequencing step 1+2)","detail":"The one structural change that collapses the addHook/addAdvice/timer-accumulation defect class. (a) Complete plugin-context.ts: export removeAdvice and push disposer in ctx.advice; make ctx.command/ctx.key push undo thunks; add ctx.minorMode. (b) evaluator.loadPlugin: look up prior ctx in contexts Map and call .dispose() before re-install. (c) Route ALL boot paths through loadPlugin — plugins/builtin.ts, lisp/index.ts loadup, live-source.ts:93 — so every install() receives a tracked ctx. (d) Sweep all 40 install(editor) signatures to install(editor, ctx) and replace direct addHook/addAdvice/setInterval with ctx.hook/ctx.advice/ctx.onDispose. Closes audit tasks 5,25,26,28,32,33,34,35,38,41,42 (11 tasks, 5 of them p0); enables clean fixes for 27,29,31.","by":"deep-audit"}
+{"id": "t-audit-74741fd3", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-129fda4c", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-0de99b86", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-d6c16765", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-db79ef5e", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-66bc6157", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-0e5cccae", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-27058cba", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-0d9f7dfc", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-2907f4d9", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-2520d967", "status": "done", "ts": 1780703339039}
+{"id": "t-audit-4a948630", "status": "done", "ts": 1780703339039}

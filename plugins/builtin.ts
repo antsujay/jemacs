@@ -1,10 +1,18 @@
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { Editor } from "../src/kernel/editor"
+import { trackedContext, type PluginContext } from "../src/runtime/plugin-context"
+
+// Second arg is PluginContext for every plugin except compile (which keeps
+// CompileDeps positional-2 for test injection); both are optional so the
+// builtin loader can pass ctx uniformly without a per-plugin adapter.
+type InstallFn = (editor: Editor, ctx?: PluginContext) => void | Promise<void>
 
 /**
  * Explicit, ordered load list. Order matters: state providers first
  * (mark-ring, persist), then editing primitives, then UI, then LSP.
  */
-const builtins: Array<[name: string, load: () => Promise<{ install: (e: Editor) => void | Promise<void> }>]> = [
+const builtins: Array<[name: string, load: () => Promise<{ install: InstallFn }>]> = [
   ["motion", () => import("./motion")],
   ["window", () => import("./window")],
   ["mark-ring", () => import("./mark-ring")],
@@ -27,7 +35,7 @@ const builtins: Array<[name: string, load: () => Promise<{ install: (e: Editor) 
   ["which-key", () => import("./which-key")],
   ["eldoc", () => import("./eldoc")],
   ["project", () => import("./project")],
-  ["compile", () => import("./compile")],
+  ["compile", () => import("./compile").then(m => ({ install: (e, ctx) => m.install(e, {}, ctx) }))],
   ["completion-preview", () => import("./completion-preview")],
   ["magit", () => import("./magit")],
   ["dogfood", () => import("./dogfood")],
@@ -42,11 +50,16 @@ const builtins: Array<[name: string, load: () => Promise<{ install: (e: Editor) 
   ["tiling", () => import("./tiling")],
 ]
 
+const HERE = dirname(fileURLToPath(import.meta.url))
+
 export async function installBuiltinPlugins(editor: Editor): Promise<void> {
   for (const [name, load] of builtins) {
     try {
       const mod = await load()
-      await mod.install(editor)
+      // Key by resolved index path so a later evaluator.loadPlugin on the same
+      // file finds and disposes this boot-time context before re-installing.
+      const ctx = trackedContext(editor, join(HERE, name, "index.ts"))
+      await mod.install(editor, ctx)
     } catch (err) {
       editor.message(`plugin ${name} failed: ${(err as Error).message}`)
       console.error(`[plugins/builtin] ${name}:`, err)

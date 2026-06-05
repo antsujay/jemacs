@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from "node:path"
 import type { Editor } from "../../src/kernel/editor"
+import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 import type { BufferModel } from "../../src/kernel/buffer"
 import { defineMode } from "../../src/modes/mode"
 import { Keymap } from "../../src/kernel/keymap"
@@ -99,7 +100,7 @@ async function nextError(editor: Editor, n: number, reset: boolean): Promise<voi
   editor.message(`${label} error (${target + 1}/${s.locations.length}): ${loc.file}:${loc.line}`)
 }
 
-export function install(editor: Editor): void {
+export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   const keymap = new Keymap("grep-map")
   keymap.bind("enter", "compile-goto-error")
   keymap.bind("return", "compile-goto-error")

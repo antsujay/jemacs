@@ -1,8 +1,9 @@
 import type { Editor } from "../../src/kernel/editor"
-import { addHook } from "../../src/kernel/hooks"
+import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 
-export function install(editor: Editor): void {
+export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   editor.startAutoSave()
+  ctx.onDispose(() => editor.stopAutoSave())
 
   editor.command("recover-this-file", async ({ editor: ed }) => {
     await ed.recoverThisFile()
@@ -13,7 +14,7 @@ export function install(editor: Editor): void {
     ed.message(n ? `Auto-saved ${n} buffer${n === 1 ? "" : "s"}` : "(No buffers need auto-saving)")
   }, "Auto-save all dirty file-visiting buffers now.")
 
-  addHook("after-save-hook", async ({ editor: ed, buffer }) => {
+  ctx.hook("after-save-hook", async ({ editor: ed, buffer }) => {
     await ed.deleteAutoSaveFile(buffer)
   })
 }

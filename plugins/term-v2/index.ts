@@ -1,10 +1,9 @@
 import type { Editor } from "../../src/kernel/editor"
+import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 import type { BufferModel } from "../../src/kernel/buffer"
 import type { FaceName, TextSpan } from "../../src/modes/mode"
 import { defineMode, getMode } from "../../src/modes/mode"
 import { Keymap, normalizeSequence, type KeyEventLike } from "../../src/kernel/keymap"
-import { addAdvice } from "../../src/runtime/advice"
-import { addHook } from "../../src/kernel/hooks"
 import { spawnPty, type Pty } from "../term/pty"
 import { Terminal as XTerm, type IBuffer, type IBufferCell } from "@xterm/headless"
 
@@ -213,7 +212,7 @@ export function makeXTerm(rows: number, cols: number): XTerm {
   return new XTerm({ rows, cols, allowProposedApi: true, scrollback: 10_000 })
 }
 
-export function install(editor: Editor): void {
+export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   // Idempotent re-install: keep an already-registered term-map so a second
   // install() (tests, plugin reload) preserves any extra bindings on it.
   const termMap = getMode("term")?.keymap ?? new Keymap("term-map")
@@ -266,7 +265,7 @@ export function install(editor: Editor): void {
 
   // Universal escape: a stuck term override soft-locks the whole editor, so
   // keyboard-quit must always be able to tear it down (t-f2e861cb).
-  addAdvice("keyboard-quit", {
+  ctx.advice("keyboard-quit", {
     after: ({ editor }) => {
       if (editor.overridingTerminalLocalMap === termRawMap) editor.overridingTerminalLocalMap = null
     },
@@ -298,7 +297,7 @@ export function install(editor: Editor): void {
   // Keep the pty's winsize in sync with the displaying window. The display
   // layer stashes the leaf's body geometry on the buffer before firing the
   // hook (Emacs convention: window-configuration-change-hook is buffer-local).
-  addHook("window-configuration-change-hook", ({ buffer }) => {
+  ctx.hook("window-configuration-change-hook", ({ buffer }) => {
     if (!sessions.has(buffer)) return
     const rows = buffer.locals.get("window-body-rows") as number | undefined
     const cols = buffer.locals.get("window-body-cols") as number | undefined
