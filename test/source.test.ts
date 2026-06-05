@@ -22,7 +22,7 @@ test("commands record source locations from install site", () => {
   const editor = new Editor()
   boot(editor)
   const spec = editor.commands.get("save-buffer")
-  expect(spec?.source?.file).toContain("commands.ts")
+  expect(spec?.source?.file).toContain("lisp/files.ts")
   expect(spec?.source?.line).toBeGreaterThan(0)
 })
 

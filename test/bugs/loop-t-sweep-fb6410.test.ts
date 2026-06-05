@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { setCustom } from "../../src/runtime/custom"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -92,6 +93,7 @@ test("save-some-buffers threads SaveContext: hooks fire and backups are written"
     const path = join(root, "f.txt")
     await writeFile(path, "disk\n")
     const editor = makeEditor()
+    setCustom("backup-directory-alist", [])
     const buf = await editor.openFile(path)
     buf.insert("edited ")
     const seen: string[] = []

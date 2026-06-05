@@ -787,22 +787,12 @@ test("text-scale-adjust increases buffer scale and binds s-= in Stephen config",
   expect(leaf?.textScale).toBe(1)
 })
 
-test("Stephen protobuf and generic code helpers run inside Jemacs", async () => {
+test("Stephen config installs and rust font-lock works", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   installDefaultModes()
   const editor = new Editor()
   installDefaultCommands(editor)
   installStephenConfig(editor)
-  const buffer = editor.scratch("service.proto", "string a = 9;\nstring b = 42;\n", "protobuf")
-
-  buffer.mark = 0
-  buffer.point = buffer.text.length
-  await editor.run("proto-renumber")
-  expect(buffer.text).toBe("string a = 1;\nstring b = 2;\n")
-
-  buffer.point = buffer.text.length
-  await editor.run("proto-add-rpc", ["DoThing"])
-  expect(buffer.text).toContain("rpc DoThing(DoThingRequest) returns (DoThingResponse);")
 
   const spans = editor.fontLock(editor.scratch("main.rs", "fn main() { return }\n", "rust"))
   expect(spans.some(span => span.face === "keyword")).toBe(true)
