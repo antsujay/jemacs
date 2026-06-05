@@ -4,7 +4,7 @@ import { homedir } from "node:os"
 import type { Editor } from "../kernel/editor"
 import type { Evaluator } from "../runtime/evaluator"
 import { addToLoadPath } from "../runtime/load-path"
-import { installCoreCommands } from "../core/commands"
+import { installLisp } from "../../lisp"
 import { installLinumMode } from "../modes/linum-mode"
 import { installTextScaleMode } from "../core/text-scale"
 import { installMinorModeCommands } from "../modes/minor-mode"
@@ -28,7 +28,7 @@ export function installDefaultConfig(editor: Editor, options: DefaultConfigOptio
   const root = join(dirname(fileURLToPath(import.meta.url)), "..")
   addToLoadPath(root)
   addToLoadPath(join(homedir(), ".jemacs"))
-  const evaluator = installCoreCommands(editor)
+  const evaluator = installLisp(editor)
   installLinumMode()
   installTextScaleMode()
   installMinorModeCommands(editor)
