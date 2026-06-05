@@ -144,6 +144,7 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     let all = false
     qrBuffer = buffer
     const trail: Array<{ at: number; replaced: boolean }> = []
+    try {
     while (index <= buffer.text.length) {
       const at = buffer.text.indexOf(from, index)
       if (at === -1) break
@@ -169,8 +170,10 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
       }
       // any other key: re-prompt at the same match
     }
-    qrCurrent = []
-    qrBuffer = null
+    } finally {
+      qrCurrent = []
+      qrBuffer = null
+    }
     editor.message(`Replaced ${count} occurrence${count === 1 ? "" : "s"}`)
   }, "Replace occurrences with confirmation.")
   editor.command("revert-buffer", async ({ buffer, editor, args }) => {

@@ -114,21 +114,31 @@ export function isearchMatchSpan(buffer: BufferModel, state: IsearchState): Text
  * Every match of `state.string` in `buffer` other than the one at point — Emacs paints
  * these with `lazy-highlight` while the current match keeps the `isearch` face.
  */
-export function isearchLazyHighlightSpans(buffer: BufferModel, state: IsearchState): TextSpan[] {
+/** Lazy-highlight spans within [lo, hi) only — caller passes the visible range. */
+export function isearchLazyHighlightSpans(
+  buffer: BufferModel,
+  state: IsearchState,
+  lo = 0,
+  hi = buffer.text.length,
+  cap = 200,
+): TextSpan[] {
   if (!state.string || buffer.id !== state.bufferId) return []
   const caseFold = isearchNoUpperCaseP(state.string, state.regexp ?? false)
+  const haystack = caseFold && !state.regexp ? buffer.text.slice(lo, hi).toLowerCase() : buffer.text.slice(lo, hi)
+  const needle = caseFold && !state.regexp ? state.string.toLowerCase() : state.string
   const spans: TextSpan[] = []
   let from = 0
-  for (;;) {
+  while (spans.length < cap) {
     let m: IsearchMatch | null
     if (state.regexp) {
-      m = findRegexpForward(buffer.text, state.string, from, caseFold)
+      m = findRegexpForward(haystack, needle, from, caseFold)
     } else {
-      const i = literalIndex(buffer.text, state.string, from, caseFold)
-      m = i >= 0 ? { start: i, end: i + state.string.length } : null
+      const i = haystack.indexOf(needle, from)
+      m = i >= 0 ? { start: i, end: i + needle.length } : null
     }
     if (!m) break
-    if (m.start !== buffer.point) spans.push({ start: m.start, end: m.end, face: "lazyHighlight" })
+    const start = lo + m.start
+    if (start !== buffer.point) spans.push({ start, end: lo + m.end, face: "lazyHighlight" })
     from = Math.max(m.end, m.start + 1)
   }
   return spans

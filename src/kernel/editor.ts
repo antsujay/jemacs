@@ -995,7 +995,7 @@ export class Editor {
     if (state && key.ctrl && !key.meta && key.name === "w") {
       const buffer = this.buffers.get(state.bufferId)
       if (buffer) {
-        const from = buffer.point + (state.direction === 1 ? state.string.length : 0)
+        const from = buffer.point + state.string.length
         const m = /^\W?\w*/.exec(buffer.text.slice(from))
         if (m && m[0]) this.setIsearchString(state.string + m[0])
       }
