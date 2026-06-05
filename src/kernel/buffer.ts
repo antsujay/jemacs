@@ -23,6 +23,8 @@ export class BufferModel {
   path?: string
   kind: BufferKind
   private _text: string
+  /** Offsets of line starts (lineStarts[0] === 0). Incrementally maintained in `_splice`. */
+  private _lineStarts!: number[]
   private _point = 0
   goalColumn: number | null = null
   mark: number | null = null
@@ -45,6 +47,7 @@ export class BufferModel {
     this.id = args.id ?? crypto.randomUUID()
     this.name = args.name
     this._text = args.text ?? ""
+    this._lineStarts = scanLineStarts(this._text)
     this.path = args.path
     this.kind = args.kind ?? (args.path ? "file" : "scratch")
     this.mode = args.mode ?? inferMode(args.path ?? args.name)
@@ -64,13 +67,46 @@ export class BufferModel {
     return dirname(this.path)
   }
 
-  lineCol(): { line: number; col: number } {
-    const before = this.text.slice(0, this.point)
-    const lines = before.split("\n")
-    return { line: lines.length, col: lines.at(-1)!.length + 1 }
+  get text(): string { return this._text }
+  get lineStarts(): readonly number[] { return this._lineStarts }
+  get lineCount(): number { return this._lineStarts.length }
+
+  /** 0-indexed line containing `offset`. */
+  lineAt(offset: number): number {
+    const ls = this._lineStarts
+    let lo = 0, hi = ls.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (ls[mid]! <= offset) lo = mid; else hi = mid - 1
+    }
+    return lo
   }
 
-  get text(): string { return this._text }
+  /** [start, end) char range of 0-indexed `line` (end excludes the newline). */
+  lineBounds(line: number): [number, number] {
+    const ls = this._lineStarts
+    const i = clamp(line, 0, ls.length - 1)
+    const start = ls[i]!
+    const end = i + 1 < ls.length ? ls[i + 1]! - 1 : this._text.length
+    return [start, end]
+  }
+
+  lineCol(): { line: number; col: number } {
+    const line = this.lineAt(this._point)
+    return { line: line + 1, col: this._point - this._lineStarts[line]! + 1 }
+  }
+
+  private _spliceLineStarts(a: number, b: number, removed: string, repl: string): void {
+    const ls = this._lineStarts
+    // Lines whose starts fall inside (a, b] are gone; insert starts from repl's newlines.
+    const firstAfterA = bsearchGT(ls, a)
+    const firstAfterB = bsearchGT(ls, b)
+    const inserted: number[] = []
+    for (let i = 0; i < repl.length; i++) if (repl.charCodeAt(i) === 10) inserted.push(a + i + 1)
+    const shift = repl.length - removed.length
+    if (shift) for (let i = firstAfterB; i < ls.length; i++) ls[i]! += shift
+    ls.splice(firstAfterA, firstAfterB - firstAfterA, ...inserted)
+  }
 
   /** The single mutation funnel. Every text change routes through here so the
    *  invariant chain (assertWritable → snapshot → onTextChange → mutate →
@@ -86,6 +122,7 @@ export class BufferModel {
     if (opts.snapshot ?? true) this.record(a, b, removed, repl)
     this.onTextChange?.({ start: a, end: b, text: repl })
     this._text = this._text.slice(0, a) + repl + this._text.slice(b)
+    this._spliceLineStarts(a, b, removed, repl)
     this._point = clamp(this._point <= a ? this._point : this._point >= b ? this._point + repl.length - (b - a) : a, 0, this._text.length)
     this.adjustMark(a, b, repl.length)
     this.deactivateMark()
@@ -133,13 +170,11 @@ export class BufferModel {
   }
 
   moveLine(delta: number): void {
-    const lines = this.text.split("\n")
-    const { line, col } = this.lineCol()
-    const goal = this.goalColumn ?? col - 1
-    const nextLine = clamp(line - 1 + delta, 0, lines.length - 1)
-    let offset = 0
-    for (let i = 0; i < nextLine; i++) offset += lines[i]!.length + 1
-    this._point = clamp(offset + Math.min(goal, lines[nextLine]!.length), 0, this.text.length)
+    const cur = this.lineAt(this._point)
+    const goal = this.goalColumn ?? this._point - this._lineStarts[cur]!
+    const next = clamp(cur + delta, 0, this._lineStarts.length - 1)
+    const [start, end] = this.lineBounds(next)
+    this._point = start + Math.min(goal, end - start)
     this.goalColumn = goal
   }
 
@@ -354,4 +389,20 @@ export function inferMode(path: string): string {
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n))
+}
+
+function scanLineStarts(text: string): number[] {
+  const ls = [0]
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) ls.push(i + 1)
+  return ls
+}
+
+/** Index of first element strictly > x in a sorted array (== upper_bound). */
+function bsearchGT(a: readonly number[], x: number): number {
+  let lo = 0, hi = a.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (a[mid]! <= x) lo = mid + 1; else hi = mid
+  }
+  return lo
 }

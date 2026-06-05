@@ -13,6 +13,10 @@ function checkInvariants(b: BufferModel, where: string): void {
   if (b.mark != null) {
     expect(b.mark >= 0 && b.mark <= len, `${where}: mark ${b.mark} ∉ [0,${len}]`).toBe(true)
   }
+  // lineStarts must match a fresh scan after every op.
+  const fresh = [0]
+  for (let i = 0; i < b.text.length; i++) if (b.text.charCodeAt(i) === 10) fresh.push(i + 1)
+  expect(b.lineStarts, `${where}: lineStarts diverged`).toEqual(fresh)
 }
 
 type Op =
