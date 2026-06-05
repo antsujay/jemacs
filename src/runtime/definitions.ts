@@ -66,7 +66,7 @@ export function definitionRefFromForm(form: string): DefinitionRef | null {
     ?? form.match(/defineMode\s*\(\s*\{[^}]*\bname:\s*(\w+)/)
   if (mode) return { kind: "mode", name: mode[1]! }
 
-  const hook = form.match(/editor\.addHook\s*\(\s*["'`]([^"'`]+)["'`]/)
+  const hook = form.match(/\baddHook\s*\(\s*["'`]([^"'`]+)["'`]/)
   if (hook) return { kind: "hook", name: hook[1]! }
 
   const advice = form.match(/addAdvice\s*\(\s*["'`]([^"'`]+)["'`]/)

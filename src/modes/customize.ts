@@ -5,6 +5,8 @@ import {
   getCustomVariable,
   getCustom,
   listCustomVariables,
+  resetCustom,
+  resetCustomToSaved,
   saveCustom,
   setCustom,
   type CustomType,
@@ -31,6 +33,10 @@ export function installCustomizeMode(): void {
   keymap.bind("S-s", "customize-save-variable")
   keymap.bind("C-c C-c", "customize-set-variable")
   keymap.bind("C-x C-s", "customize-save-variable")
+  keymap.bind("r", "customize-reset-variable")
+  keymap.bind("u", "customize-reset-variable-to-saved")
+  keymap.bind("d", "customize-describe-variable")
+  keymap.bind("g", "customize-refresh")
   keymap.bind("n", "next-line")
   keymap.bind("p", "previous-line")
   keymap.bind("q", "quit-window")
@@ -42,6 +48,7 @@ export function installCustomizeMode(): void {
   themeKeymap.bind("s", "customize-save-customized")
   themeKeymap.bind("S-s", "customize-save-customized")
   themeKeymap.bind("C-x C-s", "customize-save-customized")
+  themeKeymap.bind("g", "customize-refresh")
   themeKeymap.bind("n", "next-line")
   themeKeymap.bind("p", "previous-line")
   themeKeymap.bind("q", "quit-window")
@@ -108,6 +115,32 @@ export function installCustomizeCommands(editor: Editor): void {
   editor.command("customize-save-variable", async ({ editor, args }) => {
     await customizeSetVariable(editor, args, true)
   }, "Set VARIABLE to VALUE and save it for future sessions.")
+
+  editor.command("customize-reset-variable", ({ editor, args }) => {
+    const name = args[0] ?? customizeVariableAtPoint(editor)?.name
+    if (!name) return editor.message("No customizable option at point")
+    if (!resetCustom(name)) return editor.message(`Cannot reset ${name}`)
+    editor.message(`Reset ${name} to standard value`)
+    refreshCustomizeBuffer(editor)
+  }, "Reset VARIABLE to its standard value, erasing any customization.")
+
+  editor.command("customize-reset-variable-to-saved", ({ editor, args }) => {
+    const name = args[0] ?? customizeVariableAtPoint(editor)?.name
+    if (!name) return editor.message("No customizable option at point")
+    if (!resetCustomToSaved(name)) return editor.message(`No saved value for ${name}`)
+    editor.message(`Reset ${name} to saved value`)
+    refreshCustomizeBuffer(editor)
+  }, "Reset VARIABLE to its saved value.")
+
+  editor.command("customize-describe-variable", async ({ editor, args }) => {
+    const name = args[0] ?? customizeVariableAtPoint(editor)?.name
+    if (!name) return editor.message("No customizable option at point")
+    await editor.run("describe-variable", [name])
+  }, "Describe the customizable option at point.")
+
+  editor.command("customize-refresh", ({ editor }) => {
+    refreshCustomizeBuffer(editor)
+  }, "Redisplay the current Customize buffer.")
 
   editor.command("customize-save-customized", ({ editor }) => {
     const variables = listCustomVariables().filter(variable => variable.customized)
@@ -349,7 +382,7 @@ async function customizeSetVariable(editor: Editor, args: string[], save: boolea
     editor.message(`No user option named ${name}`)
     return
   }
-  const raw = args.length >= 2 ? args[1]! : await editor.prompt(`Set ${name}: `, String(getCustom(name)), `customize-${name}`)
+  const raw = args.length >= 2 ? args[1]! : await editor.prompt(`Set ${name}: `, formatCustomValue(variable.type, getCustom(name)), `customize-${name}`)
   if (raw == null) return
   const value = parseCustomValue(variable.type, raw)
   if (save) {
@@ -397,11 +430,8 @@ async function showCustomizeFaces(editor: Editor, pattern?: string): Promise<voi
   editor.scratch("*Customize Faces*", lines.join("\n") || "No faces match.", "customize-mode")
 }
 
-async function readCustomValue(editor: Editor, variable: CustomVariable): Promise<unknown | null> {
-  const initial = String(variable.value)
-  const text = await editor.prompt(`Set ${variable.name}: `, initial, `customize-${variable.name}`)
-  if (text == null) return null
-  return parseCustomValue(variable.type, text)
+function formatCustomValue(type: CustomType, value: unknown): string {
+  return type === "sexp" ? JSON.stringify(value) : String(value)
 }
 
 function parseCustomValue(type: CustomType, text: string): unknown {
@@ -413,6 +443,9 @@ function parseCustomValue(type: CustomType, text: string): unknown {
     const value = Number(text.trim())
     if (Number.isNaN(value)) throw new Error(`Invalid number: ${text}`)
     return value
+  }
+  if (type === "sexp") {
+    try { return JSON.parse(text) } catch { throw new Error(`Invalid JSON: ${text}`) }
   }
   return text
 }

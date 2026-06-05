@@ -22,7 +22,7 @@ test("split-window-below stacks vertically and selects the new window", async ()
   if (editor.windowLayout.kind === "split") {
     expect(editor.windowLayout.direction).toBe("vertical")
   }
-  expect(editor.selectedWindow).toBe(1)
+  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[1]!.id)
 })
 
 test("split-window-right places panes side by side", async () => {
@@ -45,9 +45,10 @@ test("other-window-backward cycles windows in reverse tree order", async () => {
 test("other-window cycles through leaves in tree order", async () => {
   const editor = installEditor()
   await editor.run("split-window-below")
-  expect(editor.selectedWindow).toBe(1)
+  const leaves = listWindowLeaves(editor.windowLayout)
+  expect(editor.selectedWindowId).toBe(leaves[1]!.id)
   await editor.run("other-window")
-  expect(editor.selectedWindow).toBe(0)
+  expect(editor.selectedWindowId).toBe(leaves[0]!.id)
 })
 
 test("delete-other-windows keeps only the selected pane", async () => {
@@ -118,7 +119,7 @@ test("window-configuration-to-register restores layout and selection", async () 
 
   await editor.run("jump-to-register", ["w"])
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
-  expect(editor.selectedWindow).toBe(0)
+  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[0]!.id)
   expect(scratch.point).toBe(0)
 })
 

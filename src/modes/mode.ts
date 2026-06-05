@@ -18,6 +18,7 @@ export type FaceName =
   | "directory"
   | "region"
   | "isearch"
+  | "lazyHighlight"
   | "modeLine"
   | "modeLineInactive"
   | "minibuffer"

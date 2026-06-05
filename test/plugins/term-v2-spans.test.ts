@@ -103,4 +103,56 @@ describe("term-v2: SGR → TextSpan", () => {
     const { spans } = renderTerminal(xt)
     expect(spans.map(s => s.face)).toEqual(["builtin", "builtin"])
   })
+
+  // Cell index ≠ UTF-16 offset: a CJK ideograph occupies two cells (width-2 +
+  // a width-0 trailer) but one UTF-16 unit; an emoji surrogate pair is one
+  // cell but two UTF-16 units. renderTerminal must walk getChars().length to
+  // recover string offsets — using the cell index would put span.end inside
+  // the wrong codepoint and text.slice would no longer equal the coloured run.
+  test("span offsets are UTF-16, not cell indices — CJK wide glyphs", async () => {
+    const xt = makeXTerm(5, 40)
+    await writeAsync(xt, "a\x1b[31m日本\x1b[0m b")
+    const { text, spans } = renderTerminal(xt)
+    expect(text).toBe("a日本 b")
+    expect(spans).toHaveLength(1)
+    // 日本 spans cells 1..5 but UTF-16 offsets 1..3.
+    expect(text.slice(spans[0]!.start, spans[0]!.end)).toBe("日本")
+    expect(spans[0]).toEqual({ start: 1, end: 3, face: ANSI_FACES[1] })
+  })
+
+  test("span offsets are UTF-16, not cell indices — emoji surrogate pairs", async () => {
+    const xt = makeXTerm(5, 40)
+    await writeAsync(xt, "a\x1b[32m👋👋\x1b[0m b")
+    const { text, spans } = renderTerminal(xt)
+    expect(text).toBe("a👋👋 b")
+    expect(spans).toHaveLength(1)
+    // Each 👋 is one cell but two UTF-16 units (surrogate pair).
+    expect(text.slice(spans[0]!.start, spans[0]!.end)).toBe("👋👋")
+    expect(spans[0]).toEqual({ start: 1, end: 5, face: ANSI_FACES[2] })
+  })
+
+  test("point maps cursorX (cell index) to a UTF-16 offset — surrogate pair", async () => {
+    const xt = makeXTerm(5, 40)
+    await writeAsync(xt, "👋x")
+    await writeAsync(xt, "\x1b[1;3H") // CUP: col 3 ⇒ cursorX 2, past 'x'
+    const { text, point } = renderTerminal(xt)
+    expect(text).toBe("👋x")
+    expect(xt.buffer.active.cursorX).toBe(2)
+    // "👋x".length is 3; point must be the UTF-16 offset (3), not cursorX (2),
+    // which would land mid-surrogate-pair / before 'x'.
+    expect(point).toBe(3)
+    expect(point).not.toBe(xt.buffer.active.cursorX)
+  })
+
+  test("point maps cursorX (cell index) to a UTF-16 offset — CJK wide glyph", async () => {
+    const xt = makeXTerm(5, 40)
+    await writeAsync(xt, "日本x")
+    await writeAsync(xt, "\x1b[1;5H") // CUP: col 5 ⇒ cursorX 4, on 'x'
+    const { text, point } = renderTerminal(xt)
+    expect(text).toBe("日本x")
+    expect(xt.buffer.active.cursorX).toBe(4)
+    // 'x' is at UTF-16 offset 2; cursorX 4 would overshoot the 3-unit string.
+    expect(text[point]).toBe("x")
+    expect(point).toBe(2)
+  })
 })

@@ -268,6 +268,44 @@ test("customize direct setters and filtered buffers match Emacs customize flows"
   expect(editor.currentBuffer.text).not.toContain("Variable: jemacs-customize-direct-flag")
 })
 
+test("customize-set-variable from a Value: line walks back to the enclosing variable", async () => {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  defcustom("jemacs-backwalk-a", "boolean", false, "first backwalk option")
+  defcustom("jemacs-backwalk-b", "boolean", false, "second backwalk option")
+
+  await editor.run("customize-apropos-options", ["jemacs-backwalk"])
+  const text = editor.currentBuffer.text
+  expect(text).toContain("Variable: jemacs-backwalk-a")
+  expect(text).toContain("Variable: jemacs-backwalk-b")
+
+  const secondHeader = text.indexOf("Variable: jemacs-backwalk-b")
+  editor.currentBuffer.point = text.indexOf("  Value:", secondHeader)
+  expect(editor.currentBuffer.lineBoundsAt().text.startsWith("  Value:")).toBe(true)
+
+  const setPromise = editor.run("customize-set-variable")
+  editor.activeBuffer.setText("true", true)
+  editor.minibufferSubmit()
+  await setPromise
+  expect(getCustom<boolean>("jemacs-backwalk-b")).toBe(true)
+  expect(getCustom<boolean>("jemacs-backwalk-a")).toBe(false)
+})
+
+test("parseCustomValue accepts boolean false aliases and rejects non-numeric numbers", async () => {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  defcustom("jemacs-parse-bool", "boolean", true, "parse boolean option")
+  defcustom("jemacs-parse-number", "number", 1, "parse number option")
+
+  for (const raw of ["nil", "off", "0"]) {
+    setCustom("jemacs-parse-bool", true)
+    await editor.run("customize-set-variable", ["jemacs-parse-bool", raw])
+    expect(getCustom<boolean>("jemacs-parse-bool")).toBe(false)
+  }
+
+  await expect(editor.run("customize-set-variable", ["jemacs-parse-number", "abc"])).rejects.toThrow(/Invalid number/)
+})
+
 test("customize-themes toggles and saves plugin themes", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)

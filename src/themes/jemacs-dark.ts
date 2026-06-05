@@ -14,6 +14,7 @@ export const jemacsDarkTheme = defineTheme("jemacs-dark", {
   directory: { fg: "#4fc1ff", bold: true },
   region: { bg: "#3f4756" },
   isearch: { bg: "#6a5f00", fg: "#ffffff" },
+  lazyHighlight: { bg: "#3a3a5a" },
   modeLine: { fg: "#ffffff", bg: "#264f78", bold: true },
   modeLineInactive: { fg: "#9d9d9d", bg: "#252526" },
   minibuffer: { fg: "#ffffff", bg: "#3a3a3a" },

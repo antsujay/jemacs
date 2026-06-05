@@ -35,19 +35,14 @@ import {
   type WindowNode,
 } from "./window"
 import type { RegisterContents } from "./register"
-import {
-  modeHookName,
-  addHook as registerHook,
-  removeHook as unregisterHook,
-  runHooks,
-  type HookFn,
-} from "./hooks"
+import { modeHookName, runHooks } from "./hooks"
 import type { LspManager } from "../lsp/manager"
 import { fileExists, readFileText, writeFileText } from "../platform/runtime"
 import { invokeWithAdvice } from "../runtime/advice"
 import { defcustom, getCustom } from "../runtime/custom"
 import { readInteractiveArgs } from "../runtime/interactive"
-import { registerKeyBinding } from "../runtime/key-registry"
+import { canonicalMapName, registerKeyBinding } from "../runtime/key-registry"
+import type { SourceLocation } from "../runtime/source"
 
 export type EditorEvents = {
   changed: { reason: string }
@@ -78,6 +73,9 @@ export type MinibufferCompletionFrontend = {
   refresh?: (editor: Editor) => void | Promise<void>
   complete?: (editor: Editor) => void | Promise<void>
   submitValue?: (editor: Editor) => string | undefined
+  /** Nav bindings consulted ahead of minibuffer-local-map while this frontend is active,
+   *  so plugins don't fight over the shared map at install() time. */
+  keymap?: Keymap
 }
 
 export type MinibufferCompletionDisplay = {
@@ -113,11 +111,13 @@ export class Editor {
   readonly minibufferHistory = new Map<string, string[]>()
   readonly registers = new Map<string, RegisterContents>()
   readonly tabs: Array<{ name: string; bufferId: string }> = []
-  windowLayout: WindowNode
+  private _windowLayout!: WindowNode
+  /** Read-only view of the window tree. Mutate via kernel primitives (setSelectedWindowPoint etc). */
+  get windowLayout(): WindowNode { return this._windowLayout }
+  private set windowLayout(layout: WindowNode) { this._windowLayout = layout }
   selectedWindowId: string
   theme: Theme = defaultTheme
   selectedTab = 0
-  tilingLayout = "tiling-master-left"
   minibuffer: MinibufferRequest | null = null
   isearch: IsearchState | null = null
   running = true
@@ -131,12 +131,17 @@ export class Editor {
   macroRecording: string[] | null = null
   lastKbdMacro: string[] = []
   lsp: LspManager | null = null
-  completingReadFunction: CompletingReadFunction | null = null
-  minibufferCompletionFrontend: MinibufferCompletionFrontend | null = null
+  /** Stack of completing-read overrides; top wins. push/pop instead of save/restore so
+   *  enable A → enable B → disable A → disable B doesn't resurrect A's function. */
+  private readonly completingReadFns: CompletingReadFunction[] = []
+  private readonly completionFrontends: MinibufferCompletionFrontend[] = []
   minibufferCompletionDisplay: MinibufferCompletionDisplay | null = null
   completer: Completer | null = null
+  /** Gutter predicate consulted by build-display-model; modes (linum) install the policy. */
+  showLineNumbers: (buffer?: BufferModel) => boolean = () => false
   /** Command currently executing (emacs `this-command`). */
   thisCommand: string | null = null
+  private readonly searchRing: string[] = []
   private minibufferDepth = 0
   private readonly displayNames = new Map<string, string>()
   /** Buffer ids most-recently-selected first; killBuffer's fallback source. */
@@ -166,16 +171,45 @@ export class Editor {
     this.tabs.push({ name: "1", bufferId: scratch.id })
   }
 
-  get windows(): string[] {
-    return listWindowLeaves(this.windowLayout).map(leaf => leaf.bufferId)
+  get completingReadFunction(): CompletingReadFunction | null {
+    return this.completingReadFns.at(-1) ?? null
+  }
+  /** Direct assignment replaces the stack — single-plugin compat only. Prefer push/pop. */
+  set completingReadFunction(fn: CompletingReadFunction | null) {
+    this.completingReadFns.length = 0
+    if (fn) this.completingReadFns.push(fn)
+  }
+  pushCompletingReadFunction(fn: CompletingReadFunction): void { this.completingReadFns.push(fn) }
+  popCompletingReadFunction(fn: CompletingReadFunction): void {
+    const i = this.completingReadFns.lastIndexOf(fn)
+    if (i !== -1) this.completingReadFns.splice(i, 1)
   }
 
-  get selectedWindow(): number {
-    return listWindowLeaves(this.windowLayout).findIndex(leaf => leaf.id === this.selectedWindowId)
+  get minibufferCompletionFrontend(): MinibufferCompletionFrontend | null {
+    return this.completionFrontends.at(-1) ?? null
+  }
+  set minibufferCompletionFrontend(fe: MinibufferCompletionFrontend | null) {
+    this.completionFrontends.length = 0
+    if (fe) this.completionFrontends.push(fe)
+  }
+  pushMinibufferCompletionFrontend(fe: MinibufferCompletionFrontend): void { this.completionFrontends.push(fe) }
+  popMinibufferCompletionFrontend(fe: MinibufferCompletionFrontend): void {
+    const i = this.completionFrontends.lastIndexOf(fe)
+    if (i !== -1) this.completionFrontends.splice(i, 1)
   }
 
   selectedWindowLeaf() {
     return findWindowLeaf(this.windowLayout, this.selectedWindowId)
+  }
+
+  /** Kernel primitive: set the selected window's stored point without bypassing persist/restore invariants. */
+  setSelectedWindowPoint(point: number): void {
+    this.windowLayout = setWindowLeafPoint(this.windowLayout, this.selectedWindowId, point)
+  }
+
+  /** Kernel primitive: set the selected window's first visible line (recenter, jump-to-location). */
+  setSelectedWindowStartLine(line: number): void {
+    this.windowLayout = setWindowLeafStartLine(this.windowLayout, this.selectedWindowId, line)
   }
 
   private persistSelectedWindowPoint(): void {
@@ -260,23 +294,6 @@ export class Editor {
       this.currentBufferId = findWindowLeaf(this.windowLayout, this.selectedWindowId)!.bufferId
     }
     this.restoreSelectedWindowPoint()
-  }
-
-  windowConfigurationToRegister(register: string): void {
-    this.registers.set(register, this.currentWindowConfiguration())
-    this.message(`Saved window configuration to register ${register}`)
-  }
-
-  jumpToRegister(register: string): boolean {
-    const value = this.registers.get(register)
-    if (!value) return false
-    if (value.kind === "point") {
-      this.currentBuffer.point = Math.max(0, Math.min(value.point, this.currentBuffer.text.length))
-      this.windowLayout = setWindowLeafPoint(this.windowLayout, this.selectedWindowId, this.currentBuffer.point)
-      return true
-    }
-    this.restoreWindowConfiguration(value)
-    return true
   }
 
   setSelectedWindowDedicated(dedicated: boolean): void {
@@ -406,16 +423,6 @@ export class Editor {
     return found
   }
 
-  nextBuffer(): BufferModel {
-    const values = [...this.buffers.values()].filter(b => b.kind !== "minibuffer")
-    const i = values.findIndex(b => b.id === this.currentBufferId)
-    const next = values[(i + 1) % values.length]!
-    this.setSelectedWindowBuffer(next.id)
-    if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = next.id
-    void this.changed("next-buffer")
-    return next
-  }
-
   previousBuffer(): BufferModel {
     const values = [...this.buffers.values()].filter(b => b.kind !== "minibuffer")
     const i = values.findIndex(b => b.id === this.currentBufferId)
@@ -483,15 +490,6 @@ export class Editor {
     return buffer
   }
 
-  /** Register a named hook (`find-file-hook`, `python-mode-hook`, …). */
-  addHook(name: string, fn: HookFn): void {
-    registerHook(name, fn)
-  }
-
-  removeHook(name: string, fn: HookFn): void {
-    unregisterHook(name, fn)
-  }
-
   async runHook(name: string, buffer: BufferModel): Promise<void> {
     await runHooks(name, { editor: this, buffer })
   }
@@ -506,36 +504,24 @@ export class Editor {
     this.commands.define(name, fn, { description, interactive: true })
   }
 
+  /** @deprecated Use `defineKey("global-map", sequence, commandName)`. */
   key(sequence: string, commandName: string): void {
-    this.keymap.bind(sequence, commandName)
-    registerKeyBinding("global-map", sequence, commandName)
+    this.defineKey("global-map", sequence, commandName)
   }
 
-  defineKey(mapName: "global" | "minibuffer" | string, sequence: string, commandName: string): void {
-    const map = mapName === "global" || mapName === "global-map"
-      ? "global-map"
-      : mapName === "minibuffer" || mapName === "minibuffer-local-map"
-        ? "minibuffer-local-map"
-        : mapName.replace(/-map$/, "")
-    if (mapName === "global" || mapName === "global-map") this.keymap.bind(sequence, commandName)
-    else if (mapName === "minibuffer" || mapName === "minibuffer-local-map") this.minibufferKeymap.bind(sequence, commandName)
+  defineKey(mapName: "global" | "minibuffer" | string, sequence: string, commandName: string, source?: SourceLocation): void {
+    const map = canonicalMapName(mapName)
+    if (map === "global-map") this.keymap.bind(sequence, commandName)
+    else if (map === "minibuffer-local-map") this.minibufferKeymap.bind(sequence, commandName)
     else {
-      const base = mapName.replace(/-map$/, "")
+      const base = map.slice(0, -4) // strip canonical "-map" suffix for mode lookup
       const mode = getMode(base)
-      if (mode?.keymap) {
-        mode.keymap.bind(sequence, commandName)
-        registerKeyBinding(map, sequence, commandName)
-        return
-      }
-      const minor = getMinorMode(base)
-      if (minor?.keymap) {
-        minor.keymap.bind(sequence, commandName)
-        registerKeyBinding(map, sequence, commandName)
-        return
-      }
-      throw new Error(`Unknown keymap: ${mapName}`)
+      const minor = mode ? undefined : getMinorMode(base)
+      const target = mode?.keymap ?? minor?.keymap
+      if (!target) throw new Error(`Unknown keymap: ${mapName}`)
+      target.bind(sequence, commandName)
     }
-    registerKeyBinding(map, sequence, commandName)
+    registerKeyBinding(map, sequence, commandName, source)
   }
 
   isMinorModeEnabled(name: string, buffer: BufferModel = this.currentBuffer): boolean {
@@ -543,10 +529,6 @@ export class Editor {
     if (!mode) return false
     if (this.globalMinorModes.has(name)) return true
     return buffer.minorModes.has(name)
-  }
-
-  showLineNumbers(buffer: BufferModel = this.currentBuffer): boolean {
-    return this.isMinorModeEnabled("linum-mode", buffer)
   }
 
   activeMinorModes(buffer: BufferModel = this.currentBuffer): MinorMode[] {
@@ -637,7 +619,16 @@ export class Editor {
     const fed = this.keymaps.feed(key)
     if (fed.status === "matched") {
       const wasRecording = this.macroRecording
-      await this.run(fed.command, [], key)
+      const isearchBefore = this.isearch
+      try {
+        await this.run(fed.command, [], key)
+      } finally {
+        // A non-isearch command pressed during isearch ends the search; isearch-* commands
+        // manage state themselves and keyboard-quit cancels it, so only end if untouched.
+        if (isearchBefore && this.isearch === isearchBefore && !fed.command.startsWith("isearch")) {
+          this.endIsearch()
+        }
+      }
       if (wasRecording && this.macroRecording) this.macroRecording.push(fed.command)
       return { status: "command", command: fed.command }
     }
@@ -666,32 +657,37 @@ export class Editor {
     options: { collection?: string[]; completion?: "file"; defaultDirectory?: string } = {},
   ): Promise<string | null> {
     const previous = this.minibuffer
-    this.minibufferDepth++
-    return await new Promise(resolve => {
-      const buffer = new BufferModel({ name: ` *Minibuffer-${this.minibufferDepth}*`, text: initialValue, kind: "minibuffer", mode: "minibuffer" })
-      buffer.point = buffer.text.length
-      this.addBuffer(buffer)
-      this.enterMode(buffer, "minibuffer")
-      this.minibuffer = {
-        prompt,
-        bufferId: buffer.id,
-        historyName,
-        historyIndex: null,
-        collection: options.collection,
-        completion: options.completion,
-        fileCompletionDirectory: options.completion === "file"
-          ? (options.defaultDirectory ?? this.currentBuffer.directory() ?? process.cwd())
-          : undefined,
-        resolve: value => {
-          this.buffers.delete(buffer.id)
-          this.minibuffer = previous
-          this.minibufferCompletionDisplay = null
-          this.minibufferDepth--
-          resolve(value)
-        },
+    return await new Promise((resolve, reject) => {
+      const depth = ++this.minibufferDepth
+      const buffer = new BufferModel({ name: ` *Minibuffer-${depth}*`, text: initialValue, kind: "minibuffer", mode: "minibuffer" })
+      const cleanup = () => {
+        this.buffers.delete(buffer.id)
+        this.minibuffer = previous
+        this.minibufferCompletionDisplay = null
+        this.minibufferDepth--
       }
-      void this.events.emit("minibuffer", { prompt })
-      void this.changed("minibuffer-open")
+      try {
+        buffer.point = buffer.text.length
+        this.addBuffer(buffer)
+        this.enterMode(buffer, "minibuffer")
+        this.minibuffer = {
+          prompt,
+          bufferId: buffer.id,
+          historyName,
+          historyIndex: null,
+          collection: options.collection,
+          completion: options.completion,
+          fileCompletionDirectory: options.completion === "file"
+            ? (options.defaultDirectory ?? this.currentBuffer.directory() ?? process.cwd())
+            : undefined,
+          resolve: value => { cleanup(); resolve(value) },
+        }
+        void this.events.emit("minibuffer", { prompt })
+        void this.changed("minibuffer-open")
+      } catch (err) {
+        cleanup()
+        reject(err)
+      }
     })
   }
 
@@ -904,35 +900,6 @@ export class Editor {
     void this.changed("recenter-top-bottom")
   }
 
-  scrollScreen(forward: boolean, screens = 1): void {
-    const leaf = this.selectedWindowLeaf()
-    if (!leaf) return
-    const buffer = this.currentBuffer
-    const page = pageScrollLines() * screens
-    const lines = buffer.text.split("\n")
-    const lineCount = lines.length
-    const maxStart = Math.max(0, lineCount - 1)
-    const delta = forward ? page : -page
-    const newStart = Math.max(0, Math.min(maxStart, leaf.startLine + delta))
-    this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, newStart)
-    const { line, col } = buffer.lineCol()
-    const targetLine = Math.max(0, Math.min(lineCount - 1, line - 1 + delta))
-    let offset = 0
-    for (let i = 0; i < targetLine; i++) offset += lines[i]!.length + 1
-    buffer.point = Math.max(0, Math.min(buffer.text.length, offset + Math.min(col - 1, lines[targetLine]!.length)))
-    buffer.deactivateMark()
-    void this.changed(forward ? "scroll-up" : "scroll-down")
-  }
-
-  nextWindow(delta = 1): void {
-    if (listWindowLeaves(this.windowLayout).length <= 1) return
-    this.persistSelectedWindowPoint()
-    this.selectedWindowId = nextWindowId(this.windowLayout, this.selectedWindowId, delta)
-    this.currentBufferId = findWindowLeaf(this.windowLayout, this.selectedWindowId)!.bufferId
-    this.restoreSelectedWindowPoint()
-    void this.changed("select-window")
-  }
-
   deleteWindow(): void {
     if (listWindowLeaves(this.windowLayout).length <= 1) return
     this.persistSelectedWindowPoint()
@@ -946,44 +913,7 @@ export class Editor {
     void this.changed("delete-window")
   }
 
-  newTab(): void {
-    this.tabs.push({ name: String(this.tabs.length + 1), bufferId: this.currentBufferId })
-    this.selectedTab = this.tabs.length - 1
-    void this.changed("new-tab")
-  }
-
-  switchTab(delta: number): void {
-    if (!this.tabs.length) return
-    this.selectedTab = (this.selectedTab + delta + this.tabs.length) % this.tabs.length
-    this.currentBufferId = this.tabs[this.selectedTab]!.bufferId
-    this.windowLayout = setWindowLeafBuffer(this.windowLayout, this.selectedWindowId, this.currentBufferId, this.currentBuffer.point)
-    void this.changed("switch-tab")
-  }
-
-  closeTab(): void {
-    if (this.tabs.length <= 1) return
-    this.tabs.splice(this.selectedTab, 1)
-    this.selectedTab = Math.min(this.selectedTab, this.tabs.length - 1)
-    this.currentBufferId = this.tabs[this.selectedTab]!.bufferId
-    this.windowLayout = setWindowLeafBuffer(this.windowLayout, this.selectedWindowId, this.currentBufferId, this.currentBuffer.point)
-    void this.changed("close-tab")
-  }
-
-  cycleTilingLayout(): string {
-    const layouts = ["tiling-master-left", "tiling-master-top", "tiling-even-horizontal", "tiling-even-vertical", "tiling-tile-4"]
-    this.tilingLayout = layouts[(layouts.indexOf(this.tilingLayout) + 1) % layouts.length]!
-    void this.changed("tiling-cycle")
-    return this.tilingLayout
-  }
-
-  universalArgument(): number {
-    const value = this.prefixArg.universalArgument()
-    const sign = this.prefixArg.isNegative() ? "-" : ""
-    this.message(`C-u ${sign}${value}`)
-    return value
-  }
-
-  consumePrefixArgument(): number | null {
+  private consumePrefixArgument(): number | null {
     return this.prefixArg.consume()
   }
 
@@ -996,7 +926,13 @@ export class Editor {
 
   isearchRepeat(): void {
     const state = this.isearch
-    if (!state?.string) return
+    if (!state) return
+    if (!state.string) {
+      const last = this.searchRing.at(-1)
+      if (!last) return
+      this.setIsearchString(last)
+      return
+    }
     const buffer = this.buffers.get(state.bufferId)
     if (!buffer) return
     const from = state.direction === 1 ? buffer.point + 1 : buffer.point - 1
@@ -1022,6 +958,8 @@ export class Editor {
 
   endIsearch(): void {
     if (!this.isearch) return
+    const s = this.isearch.string
+    if (s && this.searchRing.at(-1) !== s) this.searchRing.push(s)
     this.isearch = null
     void this.changed("isearch-end")
   }
@@ -1053,16 +991,37 @@ export class Editor {
   }
 
   private async handleIsearchKey(key: KeyEventLike): Promise<KeyDispatchResult | null> {
+    const state = this.isearch
+    if (state && key.ctrl && !key.meta && key.name === "w") {
+      const buffer = this.buffers.get(state.bufferId)
+      if (buffer) {
+        const from = buffer.point + (state.direction === 1 ? state.string.length : 0)
+        const m = /^\W?\w*/.exec(buffer.text.slice(from))
+        if (m && m[0]) this.setIsearchString(state.string + m[0])
+      }
+      return { status: "inserted" }
+    }
     switch (key.name) {
       case "backspace":
         if (this.isearch) this.setIsearchString(this.isearch.string.slice(0, -1))
         return { status: "inserted" }
+      case "enter":
       case "return":
         this.endIsearch()
         return { status: "inserted" }
       case "delete":
         return { status: "inserted" }
       default:
+        if (key.meta && (key.name === "p" || key.name === "n")) {
+          const ring = this.searchRing
+          if (!ring.length) { this.message("No previous search string"); return { status: "inserted" } }
+          const cur = ring.indexOf(this.isearch?.string ?? "")
+          const i = key.name === "p"
+            ? (cur < 0 ? ring.length - 1 : Math.max(0, cur - 1))
+            : (cur < 0 ? 0 : Math.min(ring.length - 1, cur + 1))
+          this.setIsearchString(ring[i]!)
+          return { status: "inserted" }
+        }
         if (isPrintable(key)) {
           const text = (key.sequence ?? "").repeat(this.consumePrefixArgument() ?? 1)
           if (this.isearch) this.setIsearchString(this.isearch.string + text)
@@ -1269,6 +1228,8 @@ export class Editor {
     if (this.overridingTerminalLocalMap) maps.push({ name: "overriding-terminal-local-map", keymap: this.overridingTerminalLocalMap })
     if (this.overridingMap) maps.push({ name: "overriding-map", keymap: this.overridingMap })
     if (this.minibuffer) {
+      const frontendMap = this.minibufferCompletionFrontend?.keymap
+      if (frontendMap) maps.push({ name: frontendMap.name, keymap: frontendMap })
       maps.push({ name: "minibuffer-local-map", keymap: this.minibufferKeymap })
       maps.push({ name: "global-map", keymap: this.keymap })
       return maps
