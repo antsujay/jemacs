@@ -101,7 +101,7 @@ Everything registered through the public extension API is live, source-tracked, 
 | Variable | `defcustom` / `defvar` | `C-h v` | `C-M-x` | `M-x revert-definition` |
 | Key | `editor.key` / `editor.defineKey` | `C-h k` | `C-M-x` | `M-x revert-definition` |
 | Mode | `defineMode(...)` | `C-h c` | `C-M-x` | `M-x revert-definition` |
-| Hook | `editor.addHook(...)` | `M-x find-definition` | `C-M-x` | `M-x revert-definition` |
+| Hook | `addHook(...)` | `M-x find-definition` | `C-M-x` | `M-x revert-definition` |
 | Advice | `addAdvice(...)` | `M-x find-definition` | `C-M-x` | `M-x revert-definition` |
 
 Help buffers use **help mode**: put point on a `Source:` line (or the described name) and press **RET** (`help-follow`) to jump to the definition. `M-x find-definition` covers any registered kind.
