@@ -73,6 +73,7 @@ export function resetCustom(name: string): boolean {
   if (baseline === undefined) return false
   variable.value = baseline
   variable.customized = false
+  variable.savedValue = undefined
   registerCatalogEntry({ kind: "variable", name, source: variable.source, patched: variable.patched, doc: variable.doc })
   return true
 }

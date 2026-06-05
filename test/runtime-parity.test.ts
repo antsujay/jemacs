@@ -212,12 +212,41 @@ test("customize registers Emacs customize.el command surface", () => {
     "Custom-set",
     "Custom-save",
     "Custom-buffer-done",
+    "Custom-goto-parent",
+    "Custom-help",
+    "Custom-mode",
+    "Custom-mode-menu",
+    "Custom-newline",
+    "Custom-no-edit",
+    "Custom-reset-current",
+    "Custom-reset-saved",
+    "Custom-reset-standard",
+    "widget-backward",
+    "widget-beginning-of-line",
+    "widget-browse",
+    "widget-browse-at",
+    "widget-browse-other-window",
+    "widget-button-click",
+    "widget-button-press",
+    "widget-complete",
+    "widget-describe",
+    "widget-end-of-line",
+    "widget-field-activate",
+    "widget-forward",
+    "widget-key-sequence-read-event",
+    "widget-kill-line",
+    "widget-minor-mode",
+    "widget-move-and-invoke",
+    "widget-narrow-to-field",
   ]) {
     expect(editor.commands.get(name), name).toBeDefined()
   }
 
   expect(getMode("customize-mode")?.keymap?.get("C-c C-c")).toBe("Custom-set")
   expect(getMode("customize-mode")?.keymap?.get("C-x C-s")).toBe("Custom-save")
+  expect(getMode("customize-mode")?.keymap?.get("return")).toBe("Custom-newline")
+  expect(getMode("customize-mode")?.keymap?.get("tab")).toBe("widget-forward")
+  expect(getMode("customize-mode")?.keymap?.get("u")).toBe("Custom-goto-parent")
   expect(getMode("custom-theme-choose-mode")?.keymap?.get("return")).toBe("customize-theme-toggle")
 })
 
@@ -244,6 +273,27 @@ test("customize direct setters and filtered buffers match Emacs customize flows"
   await editor.run("customize-apropos-options", ["direct-count"])
   expect(editor.currentBuffer.text).toContain("Variable: jemacs-customize-direct-count")
   expect(editor.currentBuffer.text).not.toContain("Variable: jemacs-customize-direct-flag")
+})
+
+test("Custom reset commands operate on the current customize buffer", async () => {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  defcustom("jemacs-customize-reset-flag", "boolean", false, "reset customize flag")
+  await editor.run("customize-save-variable", ["jemacs-customize-reset-flag", "true"])
+  expect(getCustomVariable("jemacs-customize-reset-flag")?.savedValue).toBe(true)
+
+  await editor.run("customize-variable", ["jemacs-customize-reset-flag"])
+  await editor.run("Custom-reset-standard")
+  expect(getCustom<boolean>("jemacs-customize-reset-flag")).toBe(false)
+  expect(getCustomVariable("jemacs-customize-reset-flag")?.savedValue).toBeUndefined()
+  expect(editor.currentBuffer.text).toContain("State: STANDARD")
+
+  await editor.run("customize-save-variable", ["jemacs-customize-reset-flag", "true"])
+  await editor.run("customize-set-variable", ["jemacs-customize-reset-flag", "false"])
+  await editor.run("customize-variable", ["jemacs-customize-reset-flag"])
+  await editor.run("Custom-reset-saved")
+  expect(getCustom<boolean>("jemacs-customize-reset-flag")).toBe(true)
+  expect(editor.currentBuffer.text).toContain("State: SAVED and set")
 })
 
 test("customize-themes toggles and saves plugin themes", async () => {

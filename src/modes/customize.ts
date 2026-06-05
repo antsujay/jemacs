@@ -30,13 +30,15 @@ export const CUSTOMIZE_THEME_KEY = "jemacs-customize-theme"
 
 export function installCustomizeMode(): void {
   const keymap = new Keymap("customize-mode-map")
-  for (const key of ["return", "enter", "RET"]) keymap.bind(key, "customize-set")
+  for (const key of ["return", "enter", "RET"]) keymap.bind(key, "Custom-newline")
+  keymap.bind("tab", "widget-forward")
+  keymap.bind("C-i", "widget-forward")
   keymap.bind("s", "customize-set")
   keymap.bind("S-s", "customize-save")
   keymap.bind("C-c C-c", "Custom-set")
   keymap.bind("C-x C-s", "Custom-save")
   keymap.bind("r", "customize-reset")
-  keymap.bind("u", "customize-reset-saved")
+  keymap.bind("u", "Custom-goto-parent")
   keymap.bind("d", "customize-describe")
   keymap.bind("g", "customize-refresh")
   keymap.bind("n", "widget-forward")
@@ -293,6 +295,62 @@ export function installCustomizeCommands(editor: Editor): void {
     else await ctx.editor.run("customize-save")
   }, "Save the customization at point.")
 
+  editor.command("Custom-reset-current", ({ editor }) => {
+    refreshCustomizeBuffer(editor)
+    editor.message("Reset edits to current values")
+  }, "Reset all edited settings in the buffer to show their current values.")
+
+  editor.command("Custom-reset-saved", ({ editor }) => {
+    const count = customizeVariablesInBuffer(editor).filter(variable => resetCustomToSaved(variable.name)).length
+    refreshCustomizeBuffer(editor)
+    editor.message(`Reset ${count} option${count === 1 ? "" : "s"} to saved value`)
+  }, "Reset all edited or set settings in the buffer to their saved value.")
+
+  editor.command("Custom-reset-standard", ({ editor }) => {
+    const count = customizeVariablesInBuffer(editor).filter(variable => resetCustom(variable.name)).length
+    refreshCustomizeBuffer(editor)
+    editor.message(`Reset ${count} option${count === 1 ? "" : "s"} to standard value`)
+  }, "Erase all customizations in current buffer.")
+
+  editor.command("Custom-newline", async ctx => {
+    if (ctx.editor.currentBuffer.mode === "custom-theme-choose-mode") await ctx.editor.run("customize-theme-toggle")
+    else await ctx.editor.run("customize-set")
+  }, "Invoke the Customize item at point.")
+
+  editor.command("Custom-no-edit", async ctx => {
+    await ctx.editor.run("Custom-newline")
+  }, "Invoke the Customize item at point or refuse direct editing.")
+
+  editor.command("Custom-help", ({ editor }) => {
+    editor.scratch("*Help*", [
+      "Easy Customization",
+      "",
+      "Customize buffers list user options, faces, groups, and themes.",
+      "Use RET to act on the item at point, C-c C-c to set, C-x C-s to save, n/p to move, and q to quit.",
+    ].join("\n"), "help")
+  }, "Read help for Easy Customization.")
+
+  editor.command("Custom-goto-parent", ({ editor }) => {
+    const title = editor.currentBuffer.text.split("\n", 1)[0] ?? ""
+    const group = /^Customize (?:Group|Mode):\s+(.+)$/.exec(title)?.[1]
+    if (group && group !== "jemacs" && group !== "emacs") {
+      showCustomizeBuffer(editor, listCustomVariables(), "Customize Jemacs")
+      editor.message("Moved to parent group jemacs")
+      return
+    }
+    showCustomizeBuffer(editor, listCustomVariables(), "Customize Jemacs")
+    editor.message("No parent group")
+  }, "Go to the parent group listed at the top of this buffer.")
+
+  editor.command("Custom-mode", ({ buffer, editor }) => {
+    editor.enterMode(buffer, "customize-mode")
+    editor.message("Customize mode")
+  }, "Major mode for Customize buffers.")
+
+  editor.command("Custom-mode-menu", ({ editor }) => {
+    editor.message("Customize menu: set, save, reset, describe, refresh, quit")
+  }, "Display the Customize mode menu.")
+
   editor.command("customize-reset", ({ editor }) => {
     const variable = customizeVariableAtPoint(editor)
     if (!variable) {
@@ -341,6 +399,76 @@ export function installCustomizeCommands(editor: Editor): void {
     moveToNextEntry(buffer, -1)
   }, "Move point to the previous Customize widget.")
 
+  editor.command("widget-beginning-of-line", ({ buffer }) => {
+    buffer.moveToLineStart()
+  }, "Move to the beginning of the current widget line.")
+
+  editor.command("widget-end-of-line", ({ buffer }) => {
+    buffer.moveToLineEnd()
+  }, "Move to the end of the current widget line.")
+
+  editor.command("widget-kill-line", ({ editor }) => {
+    editor.message("Customize widgets are read-only")
+  }, "Kill to end of widget field.")
+
+  editor.command("widget-complete", async ({ editor }) => {
+    await editor.run("minibuffer-complete")
+  }, "Complete content of editable field from point.")
+
+  editor.command("widget-field-activate", async ctx => {
+    await ctx.editor.run("Custom-newline")
+  }, "Invoke the editable field at point.")
+
+  editor.command("widget-button-press", async ctx => {
+    await ctx.editor.run("Custom-newline")
+  }, "Invoke button at point.")
+
+  editor.command("widget-button-click", async ctx => {
+    await ctx.editor.run("widget-button-press")
+  }, "Invoke button at click position.")
+
+  editor.command("widget-move-and-invoke", async ctx => {
+    await ctx.editor.run("widget-button-press")
+  }, "Move to a widget and invoke it.")
+
+  editor.command("widget-describe", ({ editor }) => {
+    const variable = customizeVariableAtPoint(editor)
+    const theme = customizeThemeAtPoint(editor)
+    const text = variable
+      ? [`Widget: ${variable.name}`, "", variable.doc ?? "Custom variable.", `Type: ${variable.type}`].join("\n")
+      : theme
+        ? [`Widget: ${theme}`, "", `${themeSource(theme)} Custom theme.`].join("\n")
+        : "No widget at point."
+    editor.scratch("*Help*", text, "help")
+  }, "Describe the widget at point.")
+
+  editor.command("widget-browse", ({ editor, args }) => {
+    showWidgetBrowser(editor, args[0])
+  }, "Create a widget browser for WIDGET.")
+
+  editor.command("widget-browse-at", ({ editor }) => {
+    const variable = customizeVariableAtPoint(editor)
+    const theme = customizeThemeAtPoint(editor)
+    showWidgetBrowser(editor, variable?.name ?? theme ?? "point")
+  }, "Create a widget browser for the widget at point.")
+
+  editor.command("widget-browse-other-window", ({ editor, args }) => {
+    showWidgetBrowser(editor, args[0])
+    showCurrentBufferInOtherWindow(editor)
+  }, "Create a widget browser for WIDGET in another window.")
+
+  editor.command("widget-key-sequence-read-event", ({ editor }) => {
+    editor.message("Key sequence widget input is not active")
+  }, "Read an event for a key sequence widget.")
+
+  editor.command("widget-minor-mode", ({ editor }) => {
+    editor.message("Widget minor mode is represented by Customize keymaps")
+  }, "Minor mode for traversing widgets.")
+
+  editor.command("widget-narrow-to-field", ({ editor }) => {
+    editor.message("No editable widget field at point")
+  }, "Narrow to the editable field at point.")
+
   editor.command("Custom-buffer-done", async ({ editor }) => {
     await editor.run("quit-window")
   }, "Exit the current Custom buffer.")
@@ -374,7 +502,7 @@ function formatCustomizeBuffer(title: string, variables: CustomVariable[]): stri
   const lines = [
     title,
     "",
-    "Keys: RET/s set, S save, r reset, u reset-saved, d describe, g refresh",
+    "Keys: RET/s set, S save, r reset, u parent, d describe, g refresh, n/p move, q quit",
     "",
   ]
   if (!variables.length) {
@@ -446,6 +574,12 @@ function customizeVariableAtPoint(editor: Editor): CustomVariable | null {
   const matches = [...before.matchAll(/^Variable:\s+(.+)$/gm)]
   const name = matches.at(-1)?.[1]?.trim()
   return name ? getCustomVariable(name) ?? null : null
+}
+
+function customizeVariablesInBuffer(editor: Editor): CustomVariable[] {
+  const names = editor.currentBuffer.locals.get(CUSTOMIZE_VARIABLE_KEY) as string[] | undefined
+  if (!names) return listCustomVariables()
+  return names.map(name => getCustomVariable(name)).filter((variable): variable is CustomVariable => Boolean(variable))
 }
 
 function customizeThemeAtPoint(editor: Editor): string | null {
@@ -591,4 +725,16 @@ function moveToNextEntry(buffer: { text: string; point: number }, direction: 1 |
 function showCurrentBufferInOtherWindow(editor: Editor): void {
   const current = editor.currentBuffer
   editor.displayBufferInOtherWindow(current.id)
+}
+
+function showWidgetBrowser(editor: Editor, widget = "widget"): void {
+  const variable = widget ? getCustomVariable(widget) : null
+  const theme = widget ? getBuiltinTheme(widget) : null
+  const lines = [
+    "Widget Browser",
+    "",
+    `Widget: ${widget}`,
+    variable ? `Type: ${variable.type}` : theme ? `Type: custom-theme (${themeSource(widget)})` : "Type: unknown",
+  ]
+  editor.scratch("*Widget Browser*", lines.join("\n"), "help")
 }
