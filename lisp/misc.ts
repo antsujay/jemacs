@@ -6,13 +6,13 @@ import type { BufferModel } from "../src/kernel/buffer"
 import { Keymap, keyToken, type KeyEventLike } from "../src/kernel/keymap"
 import { defaultTheme, disableBuiltinTheme, enableBuiltinTheme, getBuiltinTheme, isBuiltinThemeEnabled, listEnabledBuiltinThemes, themeSource } from "../src/themes"
 import { defcustom, getCustom } from "../src/runtime/custom"
+import { saveContextOptions } from "../src/core/save-context"
 import { Evaluator } from "../src/runtime/evaluator"
 import { revertAllDefinitions } from "../src/runtime/patch-eval"
 import { inspectValue } from "../src/runtime/inspect"
 
-defcustom("text-scale-mode-step", "number", 1.2,
-  "Each step of text scale multiplies face height by this factor.")
 
+import { textScaleStep } from "../src/core/text-scale"
 const TEXT_SCALE_AMOUNT_KEY = "text-scale-mode-amount"
 const TEXT_SCALE_ADJUST_MAP = "text-scale-adjust-map"
 const MIN_AMOUNT = -20
@@ -175,7 +175,7 @@ export function install(editor: Editor): Evaluator {
       try {
         await buffer.save({
           confirm: async (p: string) => (await readKey(editor, `${p} (y or n) `)) === "y",
-          makeBackupFiles: getCustom("make-backup-files") as boolean,
+          ...saveContextOptions(),
         })
       } catch (err) { editor.message((err as Error).message); return }
     }
@@ -189,7 +189,9 @@ export function install(editor: Editor): Evaluator {
     if (typeof mod.installDefaultConfig === "function") {
       mod.installDefaultConfig(editor)
       editor.message(`Reloaded ${display} via installDefaultConfig(editor)`)
-    } else if (typeof mod.installDefaultCommands === "function") {
+      return
+    }
+    if (typeof mod.installDefaultCommands === "function") {
       mod.installDefaultCommands(editor)
       editor.message(`Reloaded ${display} via installDefaultCommands(editor)`)
       return

@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-const SKIP = !!process.env.JEMACS_SKIP_TUI || !!process.env.CI
 import { tuiProbe } from "../harness/tui"
 
 // Layer-3 regression suite — the things unit tests can't catch (key encoding,
 // echo-area, real LSP). Each test is a scenario I'd run by hand. Slow (~1s ea).
 
-describe.skipIf(process.env.JEMACS_SKIP_TUI ?? process.env.CI)("tui/dogfood", () => {
+describe.skipIf(!!process.env.JEMACS_SKIP_TUI || !!process.env.CI)("tui/dogfood", () => {
   test("M-> lands at end-of-buffer through the real terminal", async () => {
     const { screen } = await tuiProbe({ file: "examples/docs/guide.md", keys: ["M->"] })
     expect(screen).toMatch(/line 16/)

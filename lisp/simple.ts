@@ -175,8 +175,8 @@ export function install(editor: Editor): void {
   }, "Delete the character after point (or the active region).")
 
   editor.command("delete-backward-char", async ({ buffer, editor, prefixArgument }) => {
-    if (buffer.deleteActiveRegion()) return
     if (editor.minibuffer) {
+      // minibufferBackspace refreshes completions; deleteActiveRegion would skip that.
       const n = prefixArgument ?? 1
       const count = Math.max(1, Math.abs(n))
       for (let i = 0; i < count; i++) {
@@ -185,8 +185,9 @@ export function install(editor: Editor): void {
       }
       return
     }
+    if (buffer.deleteActiveRegion()) return
     repeat(prefixArgument, () => buffer.deleteBackward(), () => buffer.deleteForward())
-  }, "Delete the character before point.")
+  }, "Delete the character before point (or the active region).")
 
   editor.command("newline-and-indent", ({ editor, buffer }) => {
     buffer.insert("\n")

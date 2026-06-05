@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
 
-const SKIP = !!process.env.JEMACS_SKIP_TUI || !!process.env.CI
 import { tuiProbe } from "../harness/tui"
 
 // Layer-3 regression smoke: real OpenTUI in a tmux pty. Catches the key-encoding
@@ -15,7 +14,7 @@ const TIMEOUT = 8000
 // match the modeline out of `screen` instead.
 const MODELINE = /^ \S+.* {2}line \d+, col \d+.*$/m
 
-describe.skipIf(process.env.JEMACS_SKIP_TUI ?? process.env.CI)("tui smoke", () => {
+describe.skipIf(!!process.env.JEMACS_SKIP_TUI || !!process.env.CI)("tui smoke", () => {
   test("M-> end-of-buffer reaches last line", async () => {
     const { screen } = await tuiProbe({ file: FIXTURE, keys: ["M->"] })
     expect(screen).toMatch(MODELINE)
