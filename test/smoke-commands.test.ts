@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { Editor } from "../src/kernel/editor"
-import { installDefaultCommands } from "../src/init/default-commands"
+import { installDefaultConfig as installDefaultCommands } from "../src/config"
 
 test("smoke: M-x keyboard-quit and prefix navigation", async () => {
   const editor = new Editor()

@@ -97,6 +97,9 @@ export class OpenTuiHost implements UiHost {
     this.minibufferCompletions.height = model.minibufferCompletionLines
     this.minibuffer.content = themedTextToStyledText(model.minibuffer)
     this.echo.content = themedTextToStyledText(model.echo)
+    // Input/resize trigger frames implicitly; async sources (term, LSP, timers)
+    // call present() via changed() and need an explicit frame request.
+    this.renderer?.requestRender()
   }
 
   onInput(handler: InputHandler): void {

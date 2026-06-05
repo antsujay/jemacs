@@ -3,7 +3,7 @@ import { buildDisplayModel } from "../src/display/build-display-model"
 import { findPaneInModel } from "../src/display/find-pane"
 import { Editor } from "../src/kernel/editor"
 import { listWindowLeaves } from "../src/kernel/window"
-import { installDefaultCommands } from "../src/init/default-commands"
+import { installDefaultConfig as installDefaultCommands } from "../src/config"
 
 /** Headless checks for multi-window display model (manual TUI/GUI smoke still useful). */
 test("smoke: split and other-window update display model", async () => {

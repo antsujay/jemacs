@@ -7,6 +7,7 @@ import { findPaneInModel } from "./display/find-pane"
 import { Editor } from "./kernel/editor"
 import { listWindowLeaves } from "./kernel/window"
 import { installDefaultConfig, installDefaultHooks } from "./config"
+import { loadStartupConfig, parseStartupArgs } from "./config/startup"
 import { installDefaultModes } from "./modes/default-modes"
 import { installMarkdownMode } from "./modes/markdown"
 import { installLspMode } from "./lsp/install"
@@ -66,13 +67,15 @@ async function main(): Promise<void> {
   installDefaultModes()
   const editor = new Editor()
   installMarkdownMode(editor)
-  installDefaultConfig(editor)
+  const argv = process.argv
+  const args = parseStartupArgs(argv)
+  const evaluator = installDefaultConfig(editor, { installStephen: false })
+  for (const config of args.configs) await loadStartupConfig(editor, evaluator, config)
   installLspMode(editor)
   installDefaultHooks(editor)
   installXref(editor)
 
-  const argv = process.argv
-  const file = argv.find((arg, i) => i >= 2 && !arg.startsWith("-") && arg !== "--smoke-gui")
+  const file = args.files[0]
   if (file) await editor.openFile(file)
 
   const host = new ElectronHost()

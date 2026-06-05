@@ -10,7 +10,7 @@ import {
 import { formatLocation, normalizeLocations, type ResolvedLocation } from "./locations"
 import { pointToPosition, positionToPoint, uriToPath } from "./positions"
 import { pageScrollLines } from "../display/viewport"
-import { setWindowLeafPoint } from "../kernel/window"
+import { setWindowLeafPoint, setWindowLeafStartLine } from "../kernel/window"
 import type { LspWorkspace } from "./workspace"
 
 async function ensureLspWorkspaces(editor: Editor, buffer: BufferModel): Promise<LspWorkspace[]> {
@@ -37,8 +37,10 @@ export async function gotoResolvedLocation(editor: Editor, location: ResolvedLoc
   const buffer = await editor.openFile(path)
   buffer.point = positionToPoint(buffer.text, location.range.start)
   editor.windowLayout = setWindowLeafPoint(editor.windowLayout, editor.selectedWindowId, buffer.point)
-  const lineBudget = pageScrollLines()
-  editor.syncSelectedWindowViewport(lineBudget)
+  // Recenter — a jump should show context around the target, not pin it to the
+  // last visible row the way syncSelectedWindowViewport's minimal scroll does.
+  const start = Math.max(0, location.range.start.line - Math.floor(pageScrollLines() / 2))
+  editor.windowLayout = setWindowLeafStartLine(editor.windowLayout, editor.selectedWindowId, start)
   await editor.changed("lsp-goto")
 }
 

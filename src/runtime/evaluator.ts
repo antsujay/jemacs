@@ -6,8 +6,14 @@ import { runtimeBun } from "../platform/runtime"
 import { getLoadPath } from "./load-path"
 import * as JemacsRuntime from "./jemacs-runtime"
 import { prepareEvalForm } from "./definitions"
+import { createPluginContext, type PluginContext } from "./plugin-context"
+
+// Date.now() can repeat across back-to-back reloads; pair it with a counter.
+let importSeq = 0
 
 export class Evaluator {
+  private readonly contexts = new Map<string, PluginContext>()
+
   constructor(private readonly editor: Editor) {}
 
   async eval(code: string, filename = "jemacs-eval.js"): Promise<unknown> {
@@ -65,17 +71,24 @@ export class Evaluator {
 
   async loadModule(path: string): Promise<Record<string, unknown>> {
     const full = resolve(path)
-    const url = `${pathToFileURL(full).href}?t=${Date.now()}`
+    // Bun caches ESM by resolved disk path, ignoring the URL query string,
+    // so the ?t= trick that works on Node is a no-op here. Evict explicitly.
+    const loader = (globalThis as { Loader?: { registry: Map<string, unknown> } }).Loader
+    loader?.registry.delete(full)
+    const url = `${pathToFileURL(full).href}?t=${Date.now()}_${importSeq++}`
     return await import(url)
   }
 
   async loadPlugin(path: string): Promise<unknown> {
     const resolved = this.resolveOnLoadPath(path) ?? resolve(path)
+    this.contexts.get(resolved)?.dispose()
     const mod = await this.loadModule(resolved)
     if (typeof mod.install !== "function") {
       throw new Error(`Plugin ${path} does not export install(editor)`)
     }
-    return await mod.install(this.editor)
+    const ctx = createPluginContext(this.editor)
+    this.contexts.set(resolved, ctx)
+    return await (mod.install as (e: Editor, c: PluginContext) => unknown)(this.editor, ctx)
   }
 
   private resolveOnLoadPath(path: string): string | null {

@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultConfig } from "../src/config"
+import { installStephenConfig } from "../src/config/stephen"
 import { getMode } from "../src/modes/mode"
 import { defcustom, getCustom, getCustomVariable, setCustom } from "../src/runtime/custom"
 import { disableBuiltinTheme, isBuiltinThemeEnabled, listSavedBuiltinThemes, saveEnabledBuiltinThemes } from "../src/themes"
@@ -53,6 +54,7 @@ test("load-path resolves plugin modules", async () => {
 test("vertico-mode shows and selects minibuffer candidates", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
+  installStephenConfig(editor)
   const promise = editor.prompt("Choose: ", "", undefined, { collection: ["alpha", "alphabet", "beta"] })
   editor.activeBuffer.setText("al", true)
   await editor.refreshMinibufferCompletions()
@@ -67,6 +69,7 @@ test("vertico-mode shows and selects minibuffer candidates", async () => {
 test("vertico-mode refreshes candidates while typing", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
+  installStephenConfig(editor)
   const promise = editor.prompt("Choose: ", "", undefined, { collection: ["alpha", "alphabet", "beta"] })
   await editor.refreshMinibufferCompletions()
   expect(editor.minibufferCompletionDisplay?.text).toContain("alpha")
@@ -88,6 +91,7 @@ test("vertico file completion displays relative names and inserts selected direc
   await writeFile(join(dir, "README.md"), "readme")
   const editor = new Editor()
   installDefaultConfig(editor)
+  installStephenConfig(editor)
   const promise = editor.completingRead("Find file: ", {
     completion: "file",
     history: "file",
@@ -113,6 +117,7 @@ test("vertico file completion displays relative names and inserts selected direc
 test("vertico-mode can be disabled to use icomplete candidates", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
+  installStephenConfig(editor)
   editor.disableMinorMode("vertico-mode")
   const promise = editor.prompt("Choose: ", "", undefined, { collection: ["alpha", "alphabet", "beta"] })
   editor.activeBuffer.setText("al", true)
@@ -124,7 +129,7 @@ test("vertico-mode can be disabled to use icomplete candidates", async () => {
   await promise
 })
 
-test("toggle-transient-mark-mode flips movement deactivation", async () => {
+test("motion preserves markActive (transient-mark-mode semantics)", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
   setTransientMarkModeEnabled(true)
@@ -132,12 +137,9 @@ test("toggle-transient-mark-mode flips movement deactivation", async () => {
   buffer.setText("abcdef", false)
   buffer.setMark()
   buffer.move(1)
-  expect(buffer.markActive).toBe(false)
-
-  await editor.run("toggle-transient-mark-mode")
-  buffer.setMark()
-  buffer.move(1)
   expect(buffer.markActive).toBe(true)
+  buffer.insert("x")
+  expect(buffer.markActive).toBe(false)
 })
 
 test("customize displays user options and updates values", async () => {
@@ -269,6 +271,7 @@ test("customize direct setters and filtered buffers match Emacs customize flows"
 test("customize-themes toggles and saves plugin themes", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
+  installStephenConfig(editor)
   disableBuiltinTheme("gruvbox-dark-hard")
   saveEnabledBuiltinThemes([])
 

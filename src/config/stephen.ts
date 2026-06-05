@@ -1,5 +1,3 @@
-import { access } from "node:fs/promises"
-import { resolve } from "node:path"
 import type { Editor } from "../kernel/editor"
 import { getMode } from "../modes/mode"
 import { enableBuiltinTheme } from "../themes"
@@ -50,16 +48,6 @@ function bindStephenKeys(editor: Editor): void {
 }
 
 function installStephenCommands(editor: Editor): void {
-  editor.command("stephen-emacs-mcp-copy-codex-config", ({ buffer, editor }) => {
-    buffer.insert(codexMcpConfig())
-    editor.message("Inserted Codex MCP config for emacs-mcp")
-  }, "Insert the Codex MCP config snippet for emacs-mcp.")
-
-  editor.command("stephen-emacs-mcp-doctor", async ({ editor }) => {
-    const checks = await Promise.all(["emacsclient", "npx"].map(async command => `${command} found: ${await executable(command) ?? "no"}`))
-    editor.scratch("*emacs-mcp-doctor*", [`Jemacs server running: ${editor.running ? "yes" : "no"}`, ...checks, "MCP package: @keegancsmith/emacs-mcp-server", "", "Codex MCP config snippet:", "", codexMcpConfig()].join("\n"), "text")
-  }, "Display readiness checks for the external Emacs MCP server.")
-
   editor.command("proto-renumber", ({ buffer }) => {
     let next = 1
     buffer.setText(buffer.text.replace(/=\s*\d+(\s*;)/g, () => `= ${next++};`), true)
@@ -76,17 +64,4 @@ function installStephenCommands(editor: Editor): void {
       editor.command(command, ({ editor }) => editor.message(`${command} is a package-backed command placeholder in Jemacs.`), `${command} package placeholder.`)
     }
   }
-}
-
-async function executable(command: string): Promise<string | null> {
-  const path = process.env.PATH ?? ""
-  for (const dir of path.split(":")) {
-    const candidate = resolve(dir, command)
-    if (await access(candidate).then(() => true).catch(() => false)) return candidate
-  }
-  return null
-}
-
-function codexMcpConfig(): string {
-  return JSON.stringify({ mcpServers: { "emacs-mcp": { command: "npx", args: ["-y", "@keegancsmith/emacs-mcp-server"] } } }, null, 2) + "\n"
 }

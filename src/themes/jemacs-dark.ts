@@ -19,7 +19,8 @@ export const jemacsDarkTheme = defineTheme("jemacs-dark", {
   minibuffer: { fg: "#ffffff", bg: "#3a3a3a" },
   minibufferPrompt: { fg: "#4ec9b0", bold: true },
   title: { fg: "#cccccc", bg: "#1e1e1e" },
-  error: { fg: "#f44747", bold: true },
+  // Underline only — must layer over font-lock fg, not repaint it (t-1f96245b).
+  error: { underline: true },
   lineNumber: { fg: "#6e7681", bg: "#161b22", italic: true },
   lineNumberCurrent: { fg: "#d4d4d4", bg: "#161b22", italic: true },
 })

@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path"
 import { homedir } from "node:os"
 import { appendFile, mkdir } from "node:fs/promises"
+import type { SaveContext } from "../kernel/buffer"
 import type { CommandContext } from "../kernel/command"
 import type { Editor } from "../kernel/editor"
 import { defaultTheme, disableBuiltinTheme, enableBuiltinTheme, getBuiltinTheme, isBuiltinThemeEnabled, listEnabledBuiltinThemes, themeSource } from "../themes"
@@ -23,15 +24,19 @@ import {
   refreshDiredBuffer,
 } from "../modes/dired"
 import { bufferListEntryAtPoint, showBufferList } from "../modes/buffer-list"
-import { readFileText, spawnProcess } from "../platform/runtime"
+import { spawnProcess } from "../platform/runtime"
 import { getMode } from "../modes/mode"
 import { pythonBeginningOfDefun, pythonEndOfDefun } from "../modes/python"
+import { defcustom, getCustom } from "../runtime/custom"
 import { Evaluator } from "../runtime/evaluator"
 import { installLiveSourceCommands } from "../runtime/live-source"
 import { revertAllDefinitions } from "../runtime/patch-eval"
 import { inspectValue } from "../runtime/inspect"
-import { installEmacsStandardCommands, type KillRingApi } from "./emacs-standard"
+import { installEmacsStandardCommands, readKey, type KillRingApi } from "./emacs-standard"
 import { isPrintable } from "../kernel/keymap"
+
+defcustom("make-backup-files", "boolean", true,
+  "Non-nil means make a backup of a file the first time it is saved.")
 
 /** Register interactive commands only (no key bindings). */
 export function installCoreCommands(editor: Editor): Evaluator {
@@ -41,19 +46,32 @@ export function installCoreCommands(editor: Editor): Evaluator {
   let yankRingIndex = 0
   let lastYankStart: number | null = null
   let lastYankEnd: number | null = null
+  let lastCommandName: string | null = null
+
+  editor.events.on("changed", ({ reason }) => {
+    if (reason.startsWith("command:")) lastCommandName = reason.slice("command:".length)
+  })
+  const lastCommandWasKill = () => lastCommandName != null && KILL_COMMANDS.has(lastCommandName)
+
+  const pushKill = (text: string, append = false, before = false) => {
+    if (!text) return
+    if (append && killRingHistory.length) {
+      killRing = killRingHistory[0] = before ? text + killRingHistory[0]! : killRingHistory[0]! + text
+      yankRingIndex = 0
+      return
+    }
+    killRing = text
+    killRingHistory.unshift(text)
+    if (killRingHistory.length > 60) killRingHistory.length = 60
+    yankRingIndex = 0
+  }
 
   const killApi: KillRingApi = {
-    pushKill(text: string) {
-      if (!text) return
-      killRing = text
-      killRingHistory.unshift(text)
-      if (killRingHistory.length > 60) killRingHistory.length = 60
-      yankRingIndex = 0
-    },
+    pushKill,
     getKill: () => killRing,
     recordYank(buffer, text) {
-      lastYankStart = buffer.point
-      lastYankEnd = buffer.point + text.length
+      lastYankStart = buffer.point - text.length
+      lastYankEnd = buffer.point
       yankRingIndex = 0
     },
     yankPop(buffer) {
@@ -72,18 +90,33 @@ export function installCoreCommands(editor: Editor): Evaluator {
     },
   }
 
+  // SaveContext shared by every command-layer save path so the mtime-clash
+  // confirm and make-backup-files defcustom apply uniformly. Hooks are *not*
+  // included by default — save-buffer's hooks are advice-driven and swallow
+  // errors; callers that bypass that command (save-some-buffers) opt in.
+  const saveCtx = (extra?: SaveContext): SaveContext => ({
+    confirm: async (p: string) => (await readKey(editor, `${p} (y or n) `)) === "y",
+    makeBackupFiles: getCustom("make-backup-files") as boolean,
+    ...extra,
+  })
+
   editor.command("save-buffer", async ({ buffer, editor }) => {
-    await buffer.save()
-    editor.message(`Saved ${buffer.path}`)
+    try {
+      await buffer.save(saveCtx())
+      editor.message(`Saved ${buffer.path}`)
+    } catch (err) {
+      editor.message((err as Error).message)
+    }
   }, "Save the current buffer to disk.")
 
   const findFile = async ({ editor, args }: CommandContext) => {
-    const path = args[0] ?? await editor.completingRead("Find file: ", {
+    const input = args[0] ?? await editor.completingRead("Find file: ", {
       completion: "file",
       history: "file",
       initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()),
     })
-    if (!path) return
+    if (!input) return
+    const path = substituteInFileName(input)
     await editor.openFile(path)
     editor.message(`Opened ${path}`)
   }
@@ -92,20 +125,19 @@ export function installCoreCommands(editor: Editor): Evaluator {
 
   editor.command("next-buffer", ({ editor }) => {
     const b = editor.nextBuffer()
-    editor.message(`Switched to ${b.name}`)
+    editor.message(`Switched to ${editor.bufferDisplayName(b)}`)
   }, "Switch to the next buffer.")
 
   editor.command("previous-buffer", ({ editor }) => {
     const b = editor.previousBuffer()
-    editor.message(`Switched to ${b.name}`)
+    editor.message(`Switched to ${editor.bufferDisplayName(b)}`)
   }, "Switch to the previous buffer.")
 
   editor.command("switch-to-buffer", async ({ editor, args }) => {
-    const current = editor.currentBuffer.name
-    const name = args[0] ?? await editor.completingRead("Switch to buffer: ", { collection: [...editor.buffers.values()].map(b => b.name), history: "buffer", initialValue: current })
+    const name = args[0] ?? await editor.completingRead("Switch to buffer: ", { collection: [...editor.buffers.values()].map(b => editor.bufferDisplayName(b)), history: "buffer" })
     if (!name) return
     const buffer = editor.switchToBuffer(name)
-    editor.message(`Switched to ${buffer.name}`)
+    editor.message(`Switched to ${editor.bufferDisplayName(buffer)}`)
   }, "Prompt for a buffer name and switch to it.")
 
   editor.command("list-buffers", ({ editor }) => {
@@ -118,7 +150,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
     const target = editor.buffers.get(bufferId)
     if (!target) return
     editor.switchToBuffer(target.id)
-    editor.message(`Switched to ${target.name}`)
+    editor.message(`Switched to ${editor.bufferDisplayName(target)}`)
   }, "Switch to the buffer on the current buffer-list line.")
 
   editor.command("set-mark-command", ({ buffer, editor }) => {
@@ -139,7 +171,6 @@ export function installCoreCommands(editor: Editor): Evaluator {
   }, "Clear mark.")
 
   editor.command("keyboard-quit", ({ editor }) => {
-    editor.keymap.clearPending()
     editor.keymaps.clearPending()
     editor.prefixArg.clear()
     if (editor.isearch) editor.cancelIsearch()
@@ -170,17 +201,18 @@ export function installCoreCommands(editor: Editor): Evaluator {
     const sign = editor.prefixArg.isNegative() ? "-" : ""
     editor.message(`Argument ${sign}${value}`)
   }, "Add a digit to the numeric prefix argument.")
-  editor.command("self-insert-command", async ({ buffer, editor, prefixArgument }) => {
+  editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument }) => {
     const key = editor.lastKeyEvent
-    if (!key) return
-    const text = (key.sequence ?? "").repeat(Math.max(1, Math.abs(prefixArgument ?? 1)))
-    if (editor.quotedInsertNext && isPrintable(key)) {
+    const ch = args[0] ?? key?.sequence
+    if (!ch) return
+    const text = ch.repeat(Math.max(1, Math.abs(prefixArgument ?? 1)))
+    if (editor.quotedInsertNext) {
       editor.quotedInsertNext = false
       if (editor.minibuffer) await editor.minibufferInsert(text)
       else buffer.insert(text)
       return
     }
-    if (!isPrintable(key)) return
+    if (!args[0] && (!key || !isPrintable(key))) return
     if (editor.minibuffer) await editor.minibufferInsert(text)
     else buffer.insert(text)
   }, "Insert the character you type.")
@@ -194,40 +226,51 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("scroll-down-command", ({ editor, prefixArgument }) => editor.scrollScreen(false, prefixArgument ?? 1), "Scroll backward one screenful.")
   editor.command("move-beginning-of-line", ({ buffer }) => buffer.moveToLineStart(), "Move point to the beginning of the line.")
   editor.command("move-end-of-line", ({ buffer }) => buffer.moveToLineEnd(), "Move point to the end of the line.")
-  editor.command("forward-word", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.moveWord(1)), "Move point forward one word.")
-  editor.command("backward-word", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.moveWord(-1)), "Move point backward one word.")
+  editor.command("forward-word", ({ buffer, prefixArgument }) => {
+    const n = prefixArgument ?? 1
+    const dir = n < 0 ? -1 : 1
+    for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
+  }, "Move point forward one word.")
+  editor.command("backward-word", ({ buffer, prefixArgument }) => {
+    const n = prefixArgument ?? 1
+    const dir = n < 0 ? 1 : -1
+    for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
+  }, "Move point backward one word.")
   editor.command("newline", ({ buffer }) => buffer.insert("\n"), "Insert a newline at point.")
-  editor.command("delete-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteForward()), "Delete the character after point.")
+  editor.command("delete-char", ({ buffer, prefixArgument }) => repeat(prefixArgument, () => buffer.deleteForward(), () => buffer.deleteBackward()), "Delete the character after point.")
   editor.command("delete-backward-char", async ({ buffer, editor, prefixArgument }) => {
     if (editor.minibuffer) {
-      const count = Math.max(1, prefixArgument ?? 1)
-      for (let i = 0; i < count; i++) await editor.minibufferBackspace()
+      const n = prefixArgument ?? 1
+      const count = Math.max(1, Math.abs(n))
+      for (let i = 0; i < count; i++) {
+        if (n < 0) buffer.deleteForward()
+        else await editor.minibufferBackspace()
+      }
       return
     }
-    repeat(prefixArgument, () => buffer.deleteBackward())
+    repeat(prefixArgument, () => buffer.deleteBackward(), () => buffer.deleteForward())
   }, "Delete the character before point.")
-  editor.command("backward-kill-word", ({ buffer, prefixArgument }) => {
-    let killed = ""
-    repeat(prefixArgument, () => {
-      const end = buffer.point
-      buffer.moveWord(-1)
-      killed = buffer.deleteRange(buffer.point, end) + killed
-    })
-    killApi.pushKill(killed)
-  }, "Kill the word before point.")
-  editor.command("kill-word", ({ buffer, prefixArgument }) => {
-    let killed = ""
-    repeat(prefixArgument, () => {
-      const start = buffer.point
-      buffer.moveWord(1)
-      killed += buffer.deleteRange(start, buffer.point)
-    })
-    killApi.pushKill(killed)
-  }, "Kill the word after point.")
-  editor.command("kill-line", ({ buffer }) => {
-    const lineEnd = buffer.text.indexOf("\n", buffer.point)
-    const end = lineEnd === -1 ? buffer.text.length : lineEnd + (lineEnd === buffer.point ? 1 : 0)
-    killApi.pushKill(buffer.deleteRange(buffer.point, end))
+  const killWords = (buffer: CommandContext["buffer"], n: number) => {
+    const start = buffer.point
+    const dir = n < 0 ? -1 : 1
+    for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
+    pushKill(buffer.deleteRange(start, buffer.point), lastCommandWasKill(), dir < 0)
+  }
+  editor.command("backward-kill-word", ({ buffer, prefixArgument }) => killWords(buffer, -(prefixArgument ?? 1)), "Kill the word before point.")
+  editor.command("kill-word", ({ buffer, prefixArgument }) => killWords(buffer, prefixArgument ?? 1), "Kill the word after point.")
+  editor.command("kill-line", ({ buffer, prefixArgument }) => {
+    const append = lastCommandWasKill()
+    const start = buffer.point
+    let end: number
+    if (prefixArgument != null) {
+      end = nthLineBoundary(buffer.text, start, prefixArgument)
+    } else {
+      const nl = buffer.text.indexOf("\n", start)
+      const tail = nl === -1 ? buffer.text.slice(start) : buffer.text.slice(start, nl)
+      // Emacs rule: if the rest of the line is blank, kill through the newline.
+      end = nl === -1 ? buffer.text.length : (/^\s*$/.test(tail) ? nl + 1 : nl)
+    }
+    pushKill(buffer.deleteRange(start, end), append, end < start)
   }, "Kill text from point to end of line.")
   editor.command("kill-region", ({ buffer }) => {
     if (buffer.mark == null || buffer.mark === buffer.point) {
@@ -258,31 +301,24 @@ export function installCoreCommands(editor: Editor): Evaluator {
     const value = args[0] ?? await editor.prompt("Goto line: ", "", "goto-line")
     const line = Math.max(1, Number(value) || 1)
     const lines = buffer.text.split("\n")
-    buffer.point = lines.slice(0, line - 1).reduce((offset, text) => offset + text.length + 1, 0)
+    const offset = lines.slice(0, line - 1).reduce((offset, text) => offset + text.length + 1, 0)
+    buffer.point = Math.min(offset, buffer.text.length)
   }, "Move point to a line number.")
-
-  editor.command("revert-buffer", async ({ buffer, editor }) => {
-    if (!buffer.path) {
-      editor.message("Current buffer is not visiting a file")
-      return
-    }
-    const text = await readFileText(buffer.path)
-    buffer.setText(text, false)
-    buffer.dirty = false
-    buffer.point = Math.min(buffer.point, buffer.text.length)
-    editor.message(`Reverted ${buffer.name}`)
-  }, "Reload the current file from disk.")
 
   editor.command("point-to-register", async ({ buffer, editor, args }) => {
     const register = args[0] ?? await editor.prompt("Point to register: ", "f", "register")
     if (!register) return
-    editor.registers.set(register, { kind: "point", point: buffer.point })
+    editor.registers.set(register, { kind: "point", point: buffer.point, bufferId: buffer.id })
     editor.message(`Saved point ${buffer.point} to register ${register}`)
   }, "Save point to a register.")
 
   editor.command("jump-to-register", async ({ editor, args }) => {
     const register = args[0] ?? await editor.prompt("Jump to register: ", "f", "register")
     if (!register) return
+    const value = editor.registers.get(register)
+    if (value?.kind === "point" && value.bufferId && editor.buffers.has(value.bufferId)) {
+      editor.switchToBuffer(value.bufferId)
+    }
     if (!editor.jumpToRegister(register)) editor.message(`Register ${register} is empty`)
   }, "Jump to a saved point or window configuration register.")
 
@@ -301,38 +337,40 @@ export function installCoreCommands(editor: Editor): Evaluator {
   }, "Scroll the next window backward without selecting it.")
 
   editor.command("switch-to-buffer-other-window", async ({ editor, args }) => {
-    const current = editor.currentBuffer.name
     const name = args[0] ?? await editor.completingRead("Switch to buffer in other window: ", {
-      collection: [...editor.buffers.values()].map(b => b.name),
+      collection: [...editor.buffers.values()].map(b => editor.bufferDisplayName(b)),
       history: "buffer",
-      initialValue: current,
     })
     if (!name) return
-    editor.displayBufferInOtherWindow(name)
-    editor.message(`Switched to ${editor.currentBuffer.name} in other window`)
+    const target = editor.buffers.get(name)
+      ?? [...editor.buffers.values()].find(b => b.name === name || editor.bufferDisplayName(b) === name)
+    const shown = editor.displayBufferInOtherWindow(target?.id ?? name)
+    editor.message(`Switched to ${editor.bufferDisplayName(shown)} in other window`)
   }, "Switch to a buffer in another window.")
 
   editor.command("find-file-other-window", async ({ editor, args }) => {
-    const path = args[0] ?? await editor.completingRead("Find file in other window: ", {
+    const input = args[0] ?? await editor.completingRead("Find file in other window: ", {
       completion: "file",
       history: "file",
       initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()),
     })
-    if (!path) return
+    if (!input) return
     editor.ensureOtherWindowSelected()
-    const buffer = await editor.openFile(path)
-    editor.message(`Now visiting ${buffer.name} in other window`)
+    const buffer = await editor.openFile(substituteInFileName(input))
+    editor.message(`Now visiting ${editor.bufferDisplayName(buffer)} in other window`)
   }, "Find a file in another window.")
 
   editor.command("display-buffer-other-window", async ({ editor, args }) => {
     const name = args[0] ?? await editor.completingRead("Display buffer in other window: ", {
-      collection: [...editor.buffers.values()].map(b => b.name),
+      collection: [...editor.buffers.values()].map(b => editor.bufferDisplayName(b)),
       history: "buffer",
-      initialValue: editor.currentBuffer.name,
+      initialValue: editor.bufferDisplayName(editor.currentBuffer),
     })
     if (!name) return
-    editor.displayBufferInOtherWindow(name)
-    editor.message(`Displayed ${editor.currentBuffer.name} in other window`)
+    const target = editor.buffers.get(name)
+      ?? [...editor.buffers.values()].find(b => b.name === name || editor.bufferDisplayName(b) === name)
+    const shown = editor.displayBufferInOtherWindow(target?.id ?? name)
+    editor.message(`Displayed ${editor.bufferDisplayName(shown)} in other window`)
   }, "Display a buffer in another window and select it.")
 
   editor.command("toggle-window-dedicated", ({ editor }) => {
@@ -392,8 +430,8 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("exit-minibuffer", ({ editor }) => editor.minibufferSubmit(), "Submit the minibuffer.")
   editor.command("abort-recursive-edit", ({ editor }) => editor.minibufferCancel(), "Abort the minibuffer or recursive edit.")
 
-  editor.command("indent-for-tab-command", ({ editor, buffer }) => {
-    if (!editor.completeAtPoint(buffer)) editor.indentLine(buffer)
+  editor.command("indent-for-tab-command", async ({ editor, buffer }) => {
+    if (!await editor.completeAtPoint(buffer)) editor.indentLine(buffer)
   }, "Complete the symbol at point, or indent the current line.")
 
   editor.command("newline-and-indent", ({ editor, buffer }) => {
@@ -410,7 +448,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("dired", async ({ editor, args }) => {
     const path = args[0] ?? await editor.completingRead("Dired: ", { completion: "file", history: "file", initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()) })
     if (!path) return
-    await editor.openDirectory(path)
+    await editor.openDirectory(substituteInFileName(path))
   }, "Open a directory in Dired.")
   editor.command("dired-revert", async ({ buffer, editor }) => {
     await refreshDiredBuffer(buffer)
@@ -639,38 +677,128 @@ export function installCoreCommands(editor: Editor): Evaluator {
       return
     }
     revertAllDefinitions(editor)
-    if (buffer.dirty) await buffer.save()
+    if (buffer.dirty) {
+      try { await buffer.save(saveCtx()) }
+      catch (err) { editor.message((err as Error).message); return }
+    }
+    const display = editor.bufferDisplayName(buffer)
     const mod = await evaluator.loadModule(buffer.path)
     if (typeof mod.install === "function") {
       await mod.install(editor)
-      editor.message(`Reloaded ${buffer.name} via install(editor)`)
+      editor.message(`Reloaded ${display} via install(editor)`)
       return
     }
     if (typeof mod.installDefaultConfig === "function") {
       mod.installDefaultConfig(editor)
-      editor.message(`Reloaded ${buffer.name} via installDefaultConfig(editor)`)
+      editor.message(`Reloaded ${display} via installDefaultConfig(editor)`)
     } else if (typeof mod.installDefaultCommands === "function") {
       mod.installDefaultCommands(editor)
-      editor.message(`Reloaded ${buffer.name} via installDefaultCommands(editor)`)
+      editor.message(`Reloaded ${display} via installDefaultCommands(editor)`)
       return
     }
-    editor.message(`Reloaded ${buffer.name}; no installer export found`)
+    editor.message(`Reloaded ${display}; no installer export found`)
   }, "Save and reload the current TypeScript/JavaScript file into the live editor.")
 
-  editor.command("save-buffers-kill-terminal", ({ editor }) => {
+  editor.command("save-some-buffers", async ({ editor }) => {
+    const dirty = [...editor.buffers.values()].filter(b => b.dirty && b.path && b.kind === "file")
+    let saveAll = false
+    let saved = 0
+    const runHook = editor.runHook.bind(editor)
+    for (const b of dirty) {
+      // Buffers with buffer-save-without-query set save silently (files.el:6370).
+      if (b.locals.get("buffer-save-without-query")) { await b.save(saveCtx({ runHook, force: true })); saved++; continue }
+      let answer = saveAll ? "y" : (await editor.prompt(`Save file ${b.path}? (y, n, !, ., q) `, "", "save-some-buffers"))?.trim()
+      if (answer == null || answer === "q") break
+      if (answer === "!") { saveAll = true; answer = "y" }
+      if (answer === "y" || answer === ".") { await b.save(saveCtx({ runHook })); saved++ }
+      if (answer === ".") break
+    }
+    editor.message(dirty.length ? `Saved ${saved} of ${dirty.length} file(s)` : "(No files need saving)")
+  }, "Save some modified file-visiting buffers, asking about each one.")
+  editor.key("C-x s", "save-some-buffers")
+
+  editor.command("save-buffers-kill-terminal", async ({ editor }) => {
+    await editor.run("save-some-buffers")
+    // Declining a save above must not silently discard edits (files.el:8212).
+    if ([...editor.buffers.values()].some(b => b.dirty && b.path)) {
+      if ((await readKey(editor, "Modified buffers exist; exit anyway? (y or n) ")) !== "y") return
+    }
     editor.message("Quit requested")
     editor.quit()
-  }, "Quit the editor.")
+  }, "Offer to save modified buffers, then quit the editor.")
 
   installEmacsStandardCommands(editor, killApi)
+
+  // Registered after installEmacsStandardCommands so this is the canonical revert-buffer.
+  editor.command("revert-buffer", async ({ buffer, editor, args }) => {
+    if (!buffer.path) {
+      editor.message("Current buffer is not visiting a file")
+      return
+    }
+    // Emacs gates on confirmation when modified (files.el:7102); auto-revert passes noconfirm to bypass.
+    if (buffer.dirty && !args[0]) {
+      const ans = await readKey(editor, `Discard edits and reread from ${buffer.path}? (y or n) `)
+      if (ans !== "y") { editor.message("Revert cancelled"); return }
+    }
+    await buffer.revert()
+    buffer.point = Math.min(buffer.point, buffer.text.length)
+    editor.message(`Reverted ${editor.bufferDisplayName(buffer)}`)
+  }, "Reload the current file from disk, confirming first if the buffer is modified.")
   installLiveSourceCommands(editor, evaluator)
 
   return evaluator
 }
 
-function repeat(prefixArgument: number | null, fn: () => void): void {
-  const count = Math.max(1, prefixArgument ?? 1)
-  for (let i = 0; i < count; i++) fn()
+function repeat(prefixArgument: number | null, fwd: () => void, bwd?: () => void): void {
+  const n = prefixArgument ?? 1
+  const fn = n < 0 ? (bwd ?? fwd) : fwd
+  for (let i = 0; i < Math.abs(n); i++) fn()
+}
+
+const KILL_COMMANDS = new Set(["kill-line", "kill-word", "backward-kill-word", "kill-region"])
+
+/** Emacs `substitute-in-file-name`: typing an absolute path or `~` after the
+ *  prefilled directory restarts from there, so `/a/b//etc/x` → `/etc/x`.
+ *  A leading `~` is expanded so node:path `resolve()` doesn't treat it as a
+ *  literal directory component. */
+export function substituteInFileName(input: string): string {
+  const restart = Math.max(input.lastIndexOf("//"), input.lastIndexOf("/~"))
+  const stripped = restart >= 0 ? input.slice(restart + 1) : input
+  if (stripped === "~" || stripped.startsWith("~/")) return homedir() + stripped.slice(1)
+  return stripped
+}
+
+/** Unicode-aware word motion so non-ASCII letters and combining marks are
+ *  word constituents (e.g. NFD `café`). Defers to `buffer.moveWord` when a
+ *  mode (e.g. subword-mode) has overridden the word regexps. */
+function moveByWord(buffer: CommandContext["buffer"], dir: 1 | -1): void {
+  if (buffer.locals.has("word-forward-regexp") || buffer.locals.has("word-backward-regexp")) {
+    buffer.moveWord(dir)
+    return
+  }
+  if (dir > 0) {
+    const m = /[\p{L}\p{M}\p{N}_]+/u.exec(buffer.text.slice(buffer.point))
+    buffer.point = m ? buffer.point + m.index + m[0].length : buffer.text.length
+  } else {
+    const matches = [...buffer.text.slice(0, buffer.point).matchAll(/[\p{L}\p{M}\p{N}_]+/gu)]
+    buffer.point = matches.at(-1)?.index ?? 0
+  }
+}
+
+/** Offset of the start of the line `n` lines after (n>0) or before (n<=0) `from`. */
+function nthLineBoundary(text: string, from: number, n: number): number {
+  if (n > 0) {
+    let pos = from
+    for (let i = 0; i < n; i++) {
+      const nl = text.indexOf("\n", pos)
+      if (nl === -1) return text.length
+      pos = nl + 1
+    }
+    return pos
+  }
+  let pos = text.lastIndexOf("\n", from - 1) + 1
+  for (let i = 0; i < -n; i++) pos = text.lastIndexOf("\n", pos - 2) + 1
+  return Math.max(0, pos)
 }
 
 function directoryInitialValue(directory: string): string {

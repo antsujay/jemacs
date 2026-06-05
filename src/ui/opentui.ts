@@ -13,4 +13,3 @@ export {
   defaultTerminalRows,
 } from "../display/viewport"
 export { OpenTuiHost } from "./opentui-host"
-export { startOpenTui } from "./opentui-legacy"

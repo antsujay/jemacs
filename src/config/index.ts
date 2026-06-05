@@ -16,8 +16,12 @@ import { installDefaultCustomVariables } from "./custom-init"
 export { installDefaultHooks, installLspDeferredHooks } from "./install-hooks"
 export { LSP_AUTO_MODES, LSP_AUTO_EXTENSIONS, shouldAutoStartLsp } from "./lsp-auto-modes"
 
+export type DefaultConfigOptions = {
+  installStephen?: boolean
+}
+
 /** Load built-in commands and default keybindings (same mechanism as user config). */
-export function installDefaultConfig(editor: Editor): Evaluator {
+export function installDefaultConfig(editor: Editor, options: DefaultConfigOptions = {}): Evaluator {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..")
   addToLoadPath(root)
   addToLoadPath(join(homedir(), ".jemacs"))
@@ -27,14 +31,9 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   installCustomizeCommands(editor)
   bindDefaultKeybindings(editor)
   installDefaultCustomVariables(editor)
-  installStephenConfig(editor)
+  if (options.installStephen ?? false) installStephenConfig(editor)
   installUserConfig(editor)
   return evaluator
-}
-
-/** @deprecated Use `installDefaultConfig`; kept for reload hooks and older plugins. */
-export function installDefaultCommands(editor: Editor): Evaluator {
-  return installDefaultConfig(editor)
 }
 
 export { installUserConfig } from "./user"

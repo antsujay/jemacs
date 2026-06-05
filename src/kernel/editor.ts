@@ -1,5 +1,5 @@
-import { stat } from "node:fs/promises"
-import { resolve } from "node:path"
+import { stat, unlink } from "node:fs/promises"
+import { basename, dirname, resolve, sep } from "node:path"
 import { BufferModel } from "./buffer"
 import { CommandRegistry, type CommandFn } from "./command"
 import { Emitter } from "./events"
@@ -43,7 +43,9 @@ import {
   type HookFn,
 } from "./hooks"
 import type { LspManager } from "../lsp/manager"
+import { fileExists, readFileText, writeFileText } from "../platform/runtime"
 import { invokeWithAdvice } from "../runtime/advice"
+import { defcustom, getCustom } from "../runtime/custom"
 import { readInteractiveArgs } from "../runtime/interactive"
 import { registerKeyBinding } from "../runtime/key-registry"
 
@@ -85,15 +87,24 @@ export type MinibufferCompletionDisplay = {
 
 export type CompletingReadFunction = (editor: Editor, prompt: string, options: CompletingReadOptions) => Promise<string | null>
 
+/** Pluggable completion delegate (e.g. fido flex matching). Returns candidates ordered best-first. */
+export type Completer = (input: string, collection: string[]) => string[]
+
 export type KeyDispatchResult =
   | { status: "command"; command: string }
   | { status: "pending" }
   | { status: "inserted" }
   | { status: "unmatched" }
 
+defcustom("auto-save-interval", "number", 30,
+  "Seconds of idle time between auto-saves of dirty file-visiting buffers.")
+defcustom("auto-save-keystroke-interval", "number", 300,
+  "Number of input events between auto-saves; checked in handleKey.")
+
 export class Editor {
   readonly buffers = new Map<string, BufferModel>()
   private readonly fontLockCache = new WeakMap<BufferModel, { text: string; spans: TextSpan[] }>()
+  private readonly overlaySources: Array<(buffer: BufferModel) => TextSpan[]> = []
   readonly commands = new CommandRegistry()
   readonly keymap = new Keymap("global-map")
   readonly minibufferKeymap = new Keymap("minibuffer-local-map")
@@ -107,7 +118,6 @@ export class Editor {
   theme: Theme = defaultTheme
   selectedTab = 0
   tilingLayout = "tiling-master-left"
-  currentBufferId: string
   minibuffer: MinibufferRequest | null = null
   isearch: IsearchState | null = null
   running = true
@@ -124,7 +134,23 @@ export class Editor {
   completingReadFunction: CompletingReadFunction | null = null
   minibufferCompletionFrontend: MinibufferCompletionFrontend | null = null
   minibufferCompletionDisplay: MinibufferCompletionDisplay | null = null
+  completer: Completer | null = null
   private minibufferDepth = 0
+  private readonly displayNames = new Map<string, string>()
+  /** Buffer ids most-recently-selected first; killBuffer's fallback source. */
+  private readonly bufferRecency: string[] = []
+  private _currentBufferId!: string
+  private autoSaveTimer: ReturnType<typeof setInterval> | null = null
+  private autoSaveKeystrokes = 0
+
+  get currentBufferId(): string { return this._currentBufferId }
+  set currentBufferId(id: string) {
+    this._currentBufferId = id
+    if (this.buffers.get(id)?.kind === "minibuffer") return
+    const i = this.bufferRecency.indexOf(id)
+    if (i !== -1) this.bufferRecency.splice(i, 1)
+    this.bufferRecency.unshift(id)
+  }
 
   constructor() {
     const scratch = new BufferModel({ name: "*scratch*", text: "// Try: editor.message('hello from eval')\n", kind: "scratch", mode: "javascript" })
@@ -324,12 +350,54 @@ export class Editor {
 
   addBuffer(buffer: BufferModel): BufferModel {
     this.buffers.set(buffer.id, buffer)
+    this.uniquifyBufferNames()
     return buffer
   }
 
+  /** Uniquified name for header/mode-line and C-x b — `buffer.name` plus a `<dir>` suffix when basenames collide. */
+  bufferDisplayName(bufferOrId: BufferModel | string): string {
+    const buffer = typeof bufferOrId === "string" ? this.buffers.get(bufferOrId) : bufferOrId
+    if (!buffer) return typeof bufferOrId === "string" ? bufferOrId : ""
+    return this.displayNames.get(buffer.id) ?? buffer.name
+  }
+
+  private uniquifyBufferNames(): void {
+    this.displayNames.clear()
+    const groups = new Map<string, BufferModel[]>()
+    for (const buffer of this.buffers.values()) {
+      if (buffer.kind === "minibuffer") continue
+      const list = groups.get(buffer.name) ?? []
+      list.push(buffer)
+      groups.set(buffer.name, list)
+    }
+    for (const [name, members] of groups) {
+      if (members.length === 1) {
+        this.displayNames.set(members[0]!.id, name)
+        continue
+      }
+      // post-forward-angle-brackets: append the fewest parent dir segments that disambiguate the group.
+      const segments = members.map(b => b.path ? dirname(b.path).split(sep).filter(Boolean) : [])
+      const maxDepth = Math.max(1, ...segments.map(s => s.length))
+      let depth = 1
+      let suffixes: string[]
+      for (;;) {
+        suffixes = segments.map(s => s.slice(-depth).join("/"))
+        const distinct = new Set(suffixes.map((s, i) => s || `#${i}`))
+        if (distinct.size === members.length || depth >= maxDepth) break
+        depth++
+      }
+      let ordinal = 2
+      members.forEach((b, i) => {
+        const suffix = suffixes[i]! || String(ordinal++)
+        this.displayNames.set(b.id, `${name}<${suffix}>`)
+      })
+    }
+  }
+
   switchToBuffer(idOrName: string): BufferModel {
-    const found = this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
-    if (!found) throw new Error(`No such buffer: ${idOrName}`)
+    const found = this.buffers.get(idOrName)
+      ?? [...this.buffers.values()].find(b => b.name === idOrName || this.displayNames.get(b.id) === idOrName)
+      ?? this.addBuffer(new BufferModel({ name: idOrName }))
     this.setSelectedWindowBuffer(found.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = found.id
     void this.changed("switch-buffer")
@@ -370,6 +438,13 @@ export class Editor {
     this.enterMode(buffer, buffer.mode)
     await this.changed("open-file")
     await this.runHook("find-file-hook", buffer)
+    const autoSave = this.autoSavePath(buffer)
+    if (autoSave && await fileExists(autoSave)) {
+      const autoMtime = (await stat(autoSave).catch(() => null))?.mtimeMs ?? 0
+      if (!info || autoMtime > info.mtimeMs) {
+        this.message(`${this.bufferDisplayName(buffer)} has auto save data; consider M-x recover-this-file`)
+      }
+    }
     return buffer
   }
 
@@ -510,21 +585,38 @@ export class Editor {
     return true
   }
 
-  async run(name: string, args: string[] = []): Promise<unknown> {
+  async run(name: string, args: string[] = [], keyEvent: KeyEventLike | null = null): Promise<unknown> {
     const spec = this.commands.get(name)
-    if (!spec) throw new Error(`Unknown command: ${name}`)
-    const prefixArgument = name === "universal-argument" ? null : this.consumePrefixArgument()
+    if (!spec) {
+      // kbd-macro replay: a recorded literal char dispatches as self-insert.
+      if (name.length === 1 && this.commands.get("self-insert-command")) {
+        this.lastKeyEvent = { name, sequence: name }
+        return this.run("self-insert-command", [name], this.lastKeyEvent)
+      }
+      throw new Error(`Unknown command: ${name}`)
+    }
+    const buildsPrefix = name === "universal-argument" || name === "negative-argument" || name === "digit-argument"
+    const prefixArgument = buildsPrefix ? null : this.consumePrefixArgument()
     let runArgs = args
     if (typeof spec.interactive === "string" && !runArgs.length) {
       runArgs = await readInteractiveArgs(this, spec.interactive)
     }
-    const ctx = { editor: this, buffer: this.activeBuffer, args: runArgs, prefixArgument }
+    const ctx = { editor: this, buffer: this.activeBuffer, args: runArgs, prefixArgument, keyEvent }
     const result = await invokeWithAdvice(name, spec.fn, ctx)
     await this.changed(`command:${name}`)
     return result
   }
 
   async handleKey(key: KeyEventLike): Promise<KeyDispatchResult> {
+    const result = await this.dispatchKey(key)
+    if ((result.status === "command" || result.status === "inserted")
+      && ++this.autoSaveKeystrokes >= (getCustom<number>("auto-save-keystroke-interval") ?? 300)) {
+      void this.doAutoSave()
+    }
+    return result
+  }
+
+  private async dispatchKey(key: KeyEventLike): Promise<KeyDispatchResult> {
     this.lastKeyEvent = key
 
     if (this.isearch) {
@@ -540,8 +632,9 @@ export class Editor {
 
     const fed = this.keymaps.feed(key)
     if (fed.status === "matched") {
-      await this.run(fed.command)
-      if (this.macroRecording) this.macroRecording.push(fed.command)
+      const wasRecording = this.macroRecording
+      await this.run(fed.command, [], key)
+      if (wasRecording && this.macroRecording) this.macroRecording.push(fed.command)
       return { status: "command", command: fed.command }
     }
 
@@ -551,7 +644,8 @@ export class Editor {
     }
 
     if (this.commands.get("self-insert-command") && (isPrintable(key) || this.quotedInsertNext)) {
-      await this.run("self-insert-command")
+      await this.run("self-insert-command", key.sequence ? [key.sequence] : [], key)
+      if (this.macroRecording && key.sequence) this.macroRecording.push(key.sequence)
       return { status: "command", command: "self-insert-command" }
     }
 
@@ -650,8 +744,15 @@ export class Editor {
       this.fontLockCache.set(buffer, { text: buffer.text, spans })
     }
     const lspSpans = this.lsp?.diagnosticSpans(buffer) ?? []
-    if (!lspSpans.length) return spans
-    return [...spans, ...lspSpans]
+    const overlaySpans = this.overlaySources.flatMap(src => src(buffer))
+    if (!lspSpans.length && !overlaySpans.length) return spans
+    return [...spans, ...lspSpans, ...overlaySpans]
+  }
+
+  /** Register a span producer consulted on every render (minor-mode overlays
+   *  like smerge/show-paren) — kept out of the text-keyed font-lock cache. */
+  addOverlaySource(fn: (buffer: BufferModel) => TextSpan[]): void {
+    this.overlaySources.push(fn)
   }
 
   setTheme(theme: Theme): void {
@@ -691,7 +792,8 @@ export class Editor {
 
   killBuffer(idOrName?: string): BufferModel | null {
     const target = idOrName
-      ? this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
+      ? this.buffers.get(idOrName)
+        ?? [...this.buffers.values()].find(b => b.name === idOrName || this.displayNames.get(b.id) === idOrName)
       : this.currentBuffer
     if (!target || target.kind === "minibuffer") return null
     const survivors = [...this.buffers.values()].filter(b => b.kind !== "minibuffer" && b.id !== target.id)
@@ -699,17 +801,88 @@ export class Editor {
       this.message("Cannot kill the only buffer")
       return null
     }
+    const survivorIds = new Set(survivors.map(b => b.id))
+    const fallbackId = this.bufferRecency.find(id => survivorIds.has(id)) ?? survivors[0]!.id
     this.buffers.delete(target.id)
-    this.windowLayout = removeBufferFromWindows(this.windowLayout, target.id, survivors[0]!.id)
+    const ri = this.bufferRecency.indexOf(target.id)
+    if (ri !== -1) this.bufferRecency.splice(ri, 1)
+    this.uniquifyBufferNames()
+    this.windowLayout = removeBufferFromWindows(this.windowLayout, target.id, fallbackId)
     if (findWindowLeaf(this.windowLayout, this.selectedWindowId) == null) {
       this.selectedWindowId = listWindowLeaves(this.windowLayout)[0]!.id
     }
     this.tabs.forEach(tab => {
-      if (tab.bufferId === target.id) tab.bufferId = survivors[0]!.id
+      if (tab.bufferId === target.id) tab.bufferId = fallbackId
     })
-    if (this.currentBufferId === target.id) this.switchToBuffer(survivors[0]!.id)
+    if (this.currentBufferId === target.id) this.switchToBuffer(fallbackId)
     void this.changed("kill-buffer")
     return target
+  }
+
+  /** `#basename#` sibling path for a file-visiting buffer's auto-save data. */
+  autoSavePath(buffer: BufferModel): string | null {
+    if (!buffer.path || buffer.kind !== "file") return null
+    return resolve(dirname(buffer.path), `#${basename(buffer.path)}#`)
+  }
+
+  startAutoSave(): void {
+    if (this.autoSaveTimer) return
+    const seconds = getCustom<number>("auto-save-interval") ?? 30
+    this.autoSaveTimer = setInterval(() => void this.doAutoSave(), seconds * 1000)
+  }
+
+  stopAutoSave(): void {
+    if (this.autoSaveTimer) clearInterval(this.autoSaveTimer)
+    this.autoSaveTimer = null
+  }
+
+  /** Write `#file#` for every dirty file-visiting buffer; called by timer and keystroke threshold. */
+  async doAutoSave(): Promise<number> {
+    this.autoSaveKeystrokes = 0
+    let written = 0
+    for (const buffer of this.buffers.values()) {
+      if (!buffer.dirty) continue
+      const target = this.autoSavePath(buffer)
+      if (!target) continue
+      try {
+        await writeFileText(target, buffer.text)
+        written++
+      } catch (err) {
+        this.message(`Auto-save failed for ${this.bufferDisplayName(buffer)}: ${(err as Error).message}`)
+      }
+    }
+    if (written) await this.runHook("auto-save-hook", this.currentBuffer)
+    return written
+  }
+
+  async deleteAutoSaveFile(buffer: BufferModel): Promise<void> {
+    const target = this.autoSavePath(buffer)
+    if (!target) return
+    await unlink(target).catch(() => {})
+  }
+
+  /** If `#file#` exists and is newer than `file`, offer to replace buffer text from it. */
+  async recoverThisFile(buffer: BufferModel = this.currentBuffer): Promise<boolean> {
+    const target = this.autoSavePath(buffer)
+    if (!target || !buffer.path) {
+      this.message("Buffer is not visiting a file")
+      return false
+    }
+    if (!(await fileExists(target))) {
+      this.message(`No auto-save file ${target}`)
+      return false
+    }
+    const [autoStat, fileStat] = await Promise.all([stat(target), stat(buffer.path).catch(() => null)])
+    if (fileStat && autoStat.mtimeMs <= fileStat.mtimeMs) {
+      this.message("Auto-save file is not newer; not recovering")
+      return false
+    }
+    const answer = await this.prompt(`Recover from ${basename(target)}? (y or n) `)
+    if (!answer || !/^y/i.test(answer)) return false
+    const recovered = await readFileText(target)
+    buffer.setText(recovered, true)
+    this.message(`Recovered ${this.bufferDisplayName(buffer)} from auto-save file`)
+    return true
   }
 
   recenterTopBottom(): void {
@@ -718,14 +891,11 @@ export class Editor {
     const buffer = this.currentBuffer
     const page = pageScrollLines()
     const lineIdx = buffer.lineCol().line - 1
-    if (this.recenterCycle === 0) {
-      const targetStart = Math.max(0, lineIdx - Math.floor(page / 2))
-      this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, targetStart)
-    } else if (this.recenterCycle === 1) {
-      buffer.moveToLineStart()
-    } else {
-      buffer.moveToLineEnd()
-    }
+    const targetStart =
+      this.recenterCycle === 0 ? Math.max(0, lineIdx - Math.floor(page / 2))
+      : this.recenterCycle === 1 ? lineIdx
+      : Math.max(0, lineIdx - page + 1)
+    this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, targetStart)
     this.recenterCycle = (this.recenterCycle + 1) % 3
     void this.changed("recenter-top-bottom")
   }
@@ -866,8 +1036,8 @@ export class Editor {
     }
     const from = state.direction === 1 ? state.startPoint : state.startPoint
     const match = state.direction === 1
-      ? findForward(buffer.text, string, from)
-      : findBackward(buffer.text, string, from)
+      ? findForward(buffer.text, string, from, state.regexp ?? false)
+      : findBackward(buffer.text, string, from, state.regexp ?? false)
     if (match == null) {
       this.message(`Failing I-search: ${string}`)
       void this.changed("isearch-fail")
@@ -905,6 +1075,52 @@ export class Editor {
     await this.changed("minibuffer-input")
   }
 
+  /** User-typed portion of the minibuffer, excluding any completion overlay appended after the first newline.
+   *  For file-name reads an embedded `//` or `/~` restarts the path (substitute-in-file-name), so candidate
+   *  generation and matching see the same string find-file will open — otherwise fido shows [No match]. */
+  minibufferInput(): string {
+    if (!this.minibuffer) return ""
+    const text = this.activeBuffer.text
+    const nl = text.indexOf("\n")
+    const raw = nl === -1 ? text : text.slice(0, nl)
+    if (this.minibuffer.completion !== "file") return raw
+    const restart = Math.max(raw.lastIndexOf("//"), raw.lastIndexOf("/~"))
+    return restart >= 0 ? raw.slice(restart + 1) : raw
+  }
+
+  /** Replace the inline completion overlay (text after the first newline). Point stays inside the input. */
+  setMinibufferOverlay(overlay: string): void {
+    if (!this.minibuffer) return
+    const buffer = this.activeBuffer
+    const input = this.minibufferInput()
+    const point = Math.min(buffer.point, input.length)
+    buffer.setText(overlay ? `${input}\n${overlay}` : input, false)
+    buffer.point = point
+    void this.changed("minibuffer-overlay")
+  }
+
+  /** Resolve the active minibuffer with an explicit value (used when accepting a highlighted candidate). */
+  minibufferAccept(value: string): void {
+    const request = this.minibuffer
+    if (!request) return
+    if (request.historyName && value) {
+      const history = this.minibufferHistory.get(request.historyName) ?? []
+      history.push(value)
+      this.minibufferHistory.set(request.historyName, history)
+    }
+    request.resolve(value)
+    void this.changed("minibuffer-submit")
+  }
+
+  async minibufferCollection(): Promise<string[]> {
+    const request = this.minibuffer
+    if (!request) return []
+    if (request.completion === "file") {
+      return fileCompletionCandidates(this.minibufferInput(), request.fileCompletionDirectory ?? process.cwd())
+    }
+    return request.collection ?? []
+  }
+
   /** Incremental completion (icomplete-style) while typing in the minibuffer. */
   async refreshMinibufferCompletions(): Promise<void> {
     const request = this.minibuffer
@@ -915,8 +1131,10 @@ export class Editor {
     }
     const collection = request.collection
     if (!collection?.length) return
-    const text = this.activeBuffer.text
-    const matches = collection.filter(item => item.startsWith(text))
+    const text = this.minibufferInput()
+    const matches = this.completer
+      ? this.completer(text, collection)
+      : collection.filter(item => item.startsWith(text))
     if (matches.length > 1) this.showCompletions(matches)
   }
 
@@ -930,7 +1148,7 @@ export class Editor {
   minibufferSubmit(): void {
     if (!this.minibuffer) return
     const request = this.minibuffer
-    const value = this.minibufferCompletionFrontend?.submitValue?.(this) ?? this.activeBuffer.text
+    const value = this.minibufferCompletionFrontend?.submitValue?.(this) ?? this.minibufferInput()
     if (request.historyName && value) {
       const history = this.minibufferHistory.get(request.historyName) ?? []
       history.push(value)
@@ -956,20 +1174,22 @@ export class Editor {
       await this.minibufferCompletionFrontend.complete(this)
       return
     }
-    const buffer = this.activeBuffer
+    const input = this.minibufferInput()
     const collection = request.completion === "file"
-      ? await fileCompletionCandidates(buffer.text, request.fileCompletionDirectory ?? process.cwd())
+      ? await fileCompletionCandidates(input, request.fileCompletionDirectory ?? process.cwd())
       : request.collection ?? []
     if (!collection.length) return
 
-    const matches = collection.filter(item => item.startsWith(buffer.text))
+    const matches = this.completer
+      ? this.completer(input, collection)
+      : collection.filter(item => item.startsWith(input))
     if (matches.length === 1) {
       this.setMinibufferText(matches[0]!, matches[0]!.length)
       return
     }
     if (matches.length > 1) {
       const common = commonPrefix(matches)
-      if (common.length > buffer.text.length) {
+      if (common.length > input.length) {
         this.setMinibufferText(common, common.length)
       }
       this.showCompletions(matches)
@@ -1022,7 +1242,7 @@ export class Editor {
   message(text: string): string {
     const msg = [...this.buffers.values()].find(b => b.name === "*messages*")
     if (msg) {
-      msg.text += `${new Date().toISOString()}  ${text}\n`
+      msg.append(`${new Date().toISOString()}  ${text}\n`)
       msg.point = msg.text.length
     }
     void this.events.emit("message", { text })
@@ -1036,6 +1256,7 @@ export class Editor {
 
   quit(): void {
     this.running = false
+    this.stopAutoSave()
     void this.changed("quit")
   }
 

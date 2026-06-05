@@ -55,7 +55,7 @@ export function textDocumentDidChange(
 }
 
 /** Full-buffer sync (sync kind 1 in lsp-on-change). */
-export function textDocumentDidChangeFull(workspace: LspWorkspace, buffer: BufferModel): void {
+export function textDocumentDidChangeFull(workspace: LspWorkspace, buffer: BufferModel, text: string): void {
   const uri = bufferUri(buffer)
   if (!uri) return
   const state = ensureBufferLspState(buffer, uri)
@@ -64,7 +64,7 @@ export function textDocumentDidChangeFull(workspace: LspWorkspace, buffer: Buffe
     "textDocument/didChange",
     lspMakeDidChangeTextDocumentParams({
       textDocument: lspMakeVersionedTextDocumentIdentifier({ uri, version: state.version }),
-      contentChanges: [{ text: buffer.text }],
+      contentChanges: [{ text }],
     }),
   )
 }

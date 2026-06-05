@@ -1,22 +1,27 @@
 import { Editor } from "./kernel/editor"
 import { installDefaultConfig, installDefaultHooks } from "./config"
+import { loadStartupConfig, parseStartupArgs } from "./config/startup"
 import { installDefaultModes } from "./modes/default-modes"
 import { installMarkdownMode } from "./modes/markdown"
 import { installLspMode } from "./lsp/install"
 import { installXref } from "./xref/install"
 import { runJemacs } from "./run"
 import { createDefaultHost } from "./ui/select-host"
+import { installBuiltinPlugins } from "../plugins/builtin"
 
 async function main(): Promise<void> {
   installDefaultModes()
   const editor = new Editor()
   installMarkdownMode(editor)
-  installDefaultConfig(editor)
+  const args = parseStartupArgs(Bun.argv)
+  const evaluator = installDefaultConfig(editor, { installStephen: false })
+  for (const config of args.configs) await loadStartupConfig(editor, evaluator, config)
   installLspMode(editor)
   installDefaultHooks(editor)
   installXref(editor)
+  await installBuiltinPlugins(editor)
 
-  const file = Bun.argv.find((arg, i) => i >= 2 && !arg.startsWith("-") && arg !== "--gui")
+  const file = args.files[0]
   if (file) await editor.openFile(file)
 
   await runJemacs(editor, await createDefaultHost())

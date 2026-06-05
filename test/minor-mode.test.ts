@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { Editor } from "../src/kernel/editor"
 import { Keymap } from "../src/kernel/keymap"
 import { installDefaultConfig } from "../src/config"
+import { installStephenConfig } from "../src/config/stephen"
 import { installDefaultModes } from "../src/modes/default-modes"
 import { defineMinorMode } from "../src/modes/minor-mode"
 import { formatWithLineNumbers, mapVisibleOffset } from "../src/ui/line-numbers"
@@ -27,10 +28,11 @@ test("minor mode keymaps take precedence over major and global maps", () => {
   }
 })
 
-test("linum-mode is enabled from user config by default", () => {
+test("Stephen config enables linum-mode and vertico-mode", () => {
   installDefaultModes()
   const editor = new Editor()
   installDefaultConfig(editor)
+  installStephenConfig(editor)
   expect(editor.isMinorModeEnabled("linum-mode")).toBe(true)
   expect(editor.isMinorModeEnabled("vertico-mode")).toBe(true)
   expect(editor.showLineNumbers()).toBe(true)
@@ -42,6 +44,7 @@ test("linum-mode command toggles line numbers", async () => {
   installDefaultModes()
   const editor = new Editor()
   installDefaultConfig(editor)
+  editor.enableMinorMode("linum-mode")
   await editor.run("linum-mode")
   expect(editor.isMinorModeEnabled("linum-mode")).toBe(false)
   await editor.run("linum-mode")
