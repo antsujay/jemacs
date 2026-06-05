@@ -161,6 +161,8 @@ export function installCoreCommands(editor: Editor): Evaluator {
     editor.message(`Switched to ${editor.bufferDisplayName(target)}`)
   }, "Switch to the buffer on the current buffer-list line.")
 
+  // Shadowed by plugins/mark-ring in production; retained so a core-only
+  // editor (new Editor() with no builtins) still has C-space bound.
   editor.command("set-mark-command", ({ buffer, editor }) => {
     buffer.setMark()
     editor.message("Mark set")
@@ -337,7 +339,8 @@ export function installCoreCommands(editor: Editor): Evaluator {
       editor.setSelectedWindowPoint(buffer.point)
       return
     }
-    editor.restoreWindowConfiguration(value)
+    if (value.kind === "window-configuration") { editor.restoreWindowConfiguration(value); return }
+    editor.message(`Register ${register} does not contain a location`)
   }, "Jump to a saved point or window configuration register.")
 
   editor.command("window-configuration-to-register", async ({ editor, args }) => {
