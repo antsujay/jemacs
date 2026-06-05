@@ -23,8 +23,9 @@ export async function fileCompletionCandidates(input: string, baseDirectory = pr
   const { directory, prefix } = splitCompletionInput(input, baseDirectory)
   const dirPath = directory.startsWith("/") ? directory : resolve(baseDirectory, directory)
   const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => [])
+  const pfx = prefix.toLowerCase()
   return entries
-    .filter(entry => entry.name.startsWith(prefix))
+    .filter(entry => entry.name.toLowerCase().startsWith(pfx))
     .map(entry => {
       const path = join(dirPath, entry.name)
       return entry.isDirectory() ? `${path}/` : path
