@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path"
 import { homedir } from "node:os"
-import { access, appendFile, mkdir } from "node:fs/promises"
+import { appendFile, mkdir } from "node:fs/promises"
 import type { CommandContext } from "../kernel/command"
 import type { Editor } from "../kernel/editor"
 import { getBuiltinTheme } from "../themes"
@@ -542,18 +542,6 @@ export function installCoreCommands(editor: Editor): Evaluator {
     editor.message("Copied text to clipboard")
   }, "Copy region or current line to the macOS clipboard.")
 
-  editor.command("stephen-emacs-mcp-copy-codex-config", ({ buffer, editor }) => {
-    const snippet = codexMcpConfig()
-    killApi.pushKill(snippet)
-    buffer.insert(snippet)
-    editor.message("Copied Codex MCP config for emacs-mcp to the kill ring")
-  }, "Copy/insert the Codex MCP config snippet for emacs-mcp.")
-
-  editor.command("stephen-emacs-mcp-doctor", async ({ editor }) => {
-    const checks = await Promise.all(["emacsclient", "npx"].map(async command => `${command} found: ${await executable(command) ?? "no"}`))
-    editor.scratch("*emacs-mcp-doctor*", [`Jemacs server running: ${editor.running ? "yes" : "no"}`, ...checks, "MCP package: @keegancsmith/emacs-mcp-server", "", "Codex MCP config snippet:", "", codexMcpConfig()].join("\n"), "text")
-  }, "Display readiness checks for the external Emacs MCP server.")
-
   editor.command("i-bind-key", async ({ editor, args }) => {
     const sequence = args[0] ?? await editor.prompt("Key sequence to bind: ", "", "keybind")
     if (!sequence) return
@@ -606,24 +594,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   installEmacsStandardCommands(editor, killApi)
   installLiveSourceCommands(editor, evaluator)
 
-  for (const command of ["git-link", "magit-find-main", "projectile-command-map", "ace-jump-word-mode", "ace-jump-char-mode", "yafolding-toggle-element", "gptel-menu", "gptel", "restart-emacs"]) {
-    if (!editor.commands.get(command)) editor.command(command, ({ editor }) => editor.message(`${command} is a package-backed command placeholder in Jemacs.`), `${command} package placeholder.`)
-  }
-
   return evaluator
-}
-
-async function executable(command: string): Promise<string | null> {
-  const path = process.env.PATH ?? ""
-  for (const dir of path.split(":")) {
-    const candidate = resolve(dir, command)
-    if (await access(candidate).then(() => true).catch(() => false)) return candidate
-  }
-  return null
-}
-
-function codexMcpConfig(): string {
-  return JSON.stringify({ mcpServers: { "emacs-mcp": { command: "npx", args: ["-y", "@keegancsmith/emacs-mcp-server"] } } }, null, 2) + "\n"
 }
 
 function repeat(prefixArgument: number | null, fn: () => void): void {

@@ -9,6 +9,7 @@ import { installLinumMode } from "../modes/linum-mode"
 import { installMinorModeCommands } from "../modes/minor-mode"
 import { bindDefaultKeybindings } from "./default-bindings"
 import { installUserConfig } from "./user"
+import { installStephenConfig } from "./stephen"
 import { installDefaultCustomVariables } from "./custom-init"
 
 export { installDefaultHooks, installLspDeferredHooks } from "./install-hooks"
@@ -24,6 +25,7 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   installMinorModeCommands(editor)
   bindDefaultKeybindings(editor)
   installDefaultCustomVariables(editor)
+  installStephenConfig(editor)
   installUserConfig(editor)
   return evaluator
 }
@@ -34,3 +36,4 @@ export function installDefaultCommands(editor: Editor): Evaluator {
 }
 
 export { installUserConfig } from "./user"
+export { installStephenConfig } from "./stephen"

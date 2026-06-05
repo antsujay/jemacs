@@ -115,6 +115,7 @@ export function installEmacsStandardCommands(editor: Editor, kill: KillRingApi):
     const lines = [
       "C-h b    describe-bindings",
       "C-h c    describe-mode",
+      "C-h m    describe-mode",
       "C-h k    describe-key",
       "C-h f    describe-function (RET follows source)",
       "C-h v    describe-variable (custom; RET → source)",

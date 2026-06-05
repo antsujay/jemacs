@@ -236,6 +236,7 @@ test("help keybindings keep C-h as a prefix", () => {
   expect(editor.keymap.feed({ name: "h", ctrl: true }).status).toBe("pending")
   expect(editor.keymap.feed({ name: "k" })).toEqual({ status: "matched", command: "describe-key" })
   expect(editor.keymap.get("C-h c")).toBe("describe-mode")
+  expect(editor.keymap.get("C-h m")).toBe("describe-mode")
   expect(editor.keymap.get("C-h b")).toBe("describe-bindings")
 })
 
