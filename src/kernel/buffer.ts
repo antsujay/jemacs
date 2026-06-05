@@ -1,39 +1,61 @@
 import { dirname, basename } from "node:path"
+import { copyFile, stat } from "node:fs/promises"
 import { fileExists, readFileText, writeFileText } from "../platform/runtime"
 import { isTransientMarkModeEnabled } from "./transient-mark"
 
 export type BufferKind = "file" | "directory" | "scratch" | "messages" | "inspector" | "minibuffer" | "grep"
+
+/** Editor capabilities save() needs, typed structurally to avoid the buffer↔editor cycle. */
+export type SaveContext = {
+  runHook?(name: string, buffer: BufferModel): Promise<void>
+  confirm?(prompt: string): Promise<boolean>
+  force?: boolean
+  /** Resolved make-backup-files; the defcustom lives at the command layer to keep buffer.ts cycle-free. */
+  makeBackupFiles?: boolean
+}
+
+type Op = { from: number; to: number; removed: string; inserted: string; point: number }
+type UndoNode = { ops: Op[]; parent: UndoNode | null; children: UndoNode[] }
 
 export class BufferModel {
   readonly id: string
   name: string
   path?: string
   kind: BufferKind
-  text: string
-  point = 0
+  private _text: string
+  private _point = 0
+  goalColumn: number | null = null
   mark: number | null = null
   markActive = false
   dirty = false
   readOnly = false
   mode = "text"
+  /** mtimeMs of the visited file at last load/save; undefined if never read from disk. */
+  visitedFileModtime?: number
   readonly minorModes = new Set<string>()
   readonly locals = new Map<string, unknown>()
   onTextChange?: (event: { start: number; end: number; text: string }) => void
-  private undoStack: string[] = []
-  private redoStack: string[] = []
+  private undoRoot: UndoNode = { ops: [], parent: null, children: [] }
+  private undoCur: UndoNode = this.undoRoot
+  /** Tree node at which text matches disk. */
+  private savedNode: UndoNode = this.undoRoot
+  private backedUp = false
 
   constructor(args: { id?: string; name: string; text?: string; path?: string; kind?: BufferKind; mode?: string }) {
     this.id = args.id ?? crypto.randomUUID()
     this.name = args.name
-    this.text = args.text ?? ""
+    this._text = args.text ?? ""
     this.path = args.path
     this.kind = args.kind ?? (args.path ? "file" : "scratch")
     this.mode = args.mode ?? inferMode(args.path ?? args.name)
   }
 
   static async fromFile(path: string): Promise<BufferModel> {
-    const text = await fileExists(path) ? await readFileText(path) : ""
-    return new BufferModel({ name: basename(path), path, text, kind: "file", mode: inferMode(path) })
+    const exists = await fileExists(path)
+    const text = exists ? await readFileText(path) : ""
+    const buf = new BufferModel({ name: basename(path), path, text, kind: "file", mode: inferMode(path) })
+    if (exists) buf.visitedFileModtime = await fileModtime(path)
+    return buf
   }
 
   directory(): string | undefined {
@@ -48,115 +70,108 @@ export class BufferModel {
     return { line: lines.length, col: lines.at(-1)!.length + 1 }
   }
 
-  setText(text: string, markDirty = true): void {
+  get text(): string { return this._text }
+
+  /** The single mutation funnel. Every text change routes through here so the
+   *  invariant chain (assertWritable → snapshot → onTextChange → mutate →
+   *  clamp point → adjust+clamp mark → deactivateMark) holds for all callers. */
+  private _splice(from: number, to: number, repl: string, opts: { markDirty?: boolean; snapshot?: boolean } = {}): string {
+    const len = this._text.length
+    const a = clamp(Math.min(from, to), 0, len)
+    const b = clamp(Math.max(from, to), 0, len)
+    const markDirty = opts.markDirty ?? true
+    if (a === b && !repl) return ""
     this.assertWritable(markDirty)
-    this.snapshot()
-    const previous = this.text
-    if (previous !== text) this.onTextChange?.({ start: 0, end: previous.length, text })
-    this.text = text
-    this.point = Math.min(this.point, this.text.length)
-    this.dirty ||= markDirty
+    const removed = this._text.slice(a, b)
+    if (opts.snapshot ?? true) this.record(a, b, removed, repl)
+    this.onTextChange?.({ start: a, end: b, text: repl })
+    this._text = this._text.slice(0, a) + repl + this._text.slice(b)
+    this._point = clamp(this._point <= a ? this._point : this._point >= b ? this._point + repl.length - (b - a) : a, 0, this._text.length)
+    this.adjustMark(a, b, repl.length)
     this.deactivateMark()
+    if (markDirty) this.dirty = true
+    return removed
+  }
+
+  setText(text: string, markDirty = true, snapshot = true): void {
+    this._splice(0, this._text.length, text, { markDirty, snapshot })
+  }
+
+  /** Append without snapshot/dirty — for *messages*, *compilation* streaming. */
+  append(s: string): void {
+    this._splice(this._text.length, this._text.length, s, { markDirty: false, snapshot: false })
   }
 
   insert(s: string): void {
     if (!s) return
-    this.deactivateMark()
-    this.assertWritable(true)
-    this.snapshot()
-    const start = this.point
-    this.onTextChange?.({ start, end: start, text: s })
-    this.text = this.text.slice(0, this.point) + s + this.text.slice(this.point)
-    this.point += s.length
-    this.dirty = true
+    const at = this._point
+    this._splice(at, at, s)
+    this.point = at + s.length
   }
 
   deleteBackward(): void {
-    if (this.point <= 0) return
-    this.deactivateMark()
-    this.assertWritable(true)
-    this.snapshot()
-    const end = this.point
-    const start = this.point - 1
-    this.onTextChange?.({ start, end, text: "" })
-    this.text = this.text.slice(0, this.point - 1) + this.text.slice(this.point)
-    this.point--
-    this.dirty = true
+    if (this._point <= 0) return
+    this._splice(this._point - 1, this._point, "")
   }
 
   deleteForward(): void {
-    if (this.point >= this.text.length) return
-    this.deactivateMark()
-    this.assertWritable(true)
-    this.snapshot()
-    const start = this.point
-    const end = this.point + 1
-    this.onTextChange?.({ start, end, text: "" })
-    this.text = this.text.slice(0, this.point) + this.text.slice(this.point + 1)
-    this.dirty = true
+    if (this._point >= this._text.length) return
+    this._splice(this._point, this._point + 1, "")
   }
 
   deleteRange(start: number, end: number): string {
-    const from = clamp(Math.min(start, end), 0, this.text.length)
-    const to = clamp(Math.max(start, end), 0, this.text.length)
-    if (from === to) return ""
-    this.deactivateMark()
-    this.assertWritable(true)
-    this.snapshot()
-    const removed = this.text.slice(from, to)
-    this.text = this.text.slice(0, from) + this.text.slice(to)
-    this.point = from
-    this.dirty = true
+    const removed = this._splice(start, end, "")
+    if (removed) this.point = clamp(Math.min(start, end), 0, this._text.length)
     return removed
   }
 
+  get point(): number { return this._point }
+  set point(n: number) { this._point = n; this.goalColumn = null }
+
   move(delta: number): void {
-    this.deactivateMark()
     this.point = clamp(this.point + delta, 0, this.text.length)
   }
 
   moveLine(delta: number): void {
-    this.deactivateMark()
     const lines = this.text.split("\n")
     const { line, col } = this.lineCol()
+    const goal = this.goalColumn ?? col - 1
     const nextLine = clamp(line - 1 + delta, 0, lines.length - 1)
     let offset = 0
     for (let i = 0; i < nextLine; i++) offset += lines[i]!.length + 1
-    this.point = clamp(offset + Math.min(col - 1, lines[nextLine]!.length), 0, this.text.length)
+    this._point = clamp(offset + Math.min(goal, lines[nextLine]!.length), 0, this.text.length)
+    this.goalColumn = goal
   }
 
   moveToLineStart(): void {
-    this.deactivateMark()
     const previousNewline = this.point <= 0 ? -1 : this.text.lastIndexOf("\n", this.point - 1)
     this.point = previousNewline + 1
   }
 
   moveToLineEnd(): void {
-    this.deactivateMark()
     const nextNewline = this.text.indexOf("\n", this.point)
     this.point = nextNewline === -1 ? this.text.length : nextNewline
   }
 
   moveToBufferStart(): void {
-    this.deactivateMark()
     this.point = 0
   }
 
   moveToBufferEnd(): void {
-    this.deactivateMark()
     this.point = this.text.length
   }
 
   moveWord(delta: number): void {
-    this.deactivateMark()
+    const fwd = (this.locals.get("word-forward-regexp") as string | undefined) ?? "\\W*\\w+"
+    const bwd = (this.locals.get("word-backward-regexp") as string | undefined) ?? "\\w+"
     if (delta > 0) {
-      const match = /\W*\w+/.exec(this.text.slice(this.point))
+      const match = new RegExp(fwd).exec(this.text.slice(this.point))
       this.point = match ? this.point + match.index + match[0].length : this.text.length
       return
     }
 
     const before = this.text.slice(0, this.point)
-    const matches = [...before.matchAll(/\w+/g)]
+    const matches = [...before.matchAll(new RegExp(bwd, "g"))]
     const previous = matches.at(-1)
     this.point = previous?.index ?? 0
   }
@@ -195,40 +210,80 @@ export class BufferModel {
     return this.selectedText() || this.text
   }
 
-  async save(): Promise<void> {
+  async save(ctx: SaveContext = {}): Promise<void> {
     if (!this.path) throw new Error(`Buffer ${this.name} has no file path`)
+    await ctx.runHook?.("before-save-hook", this)
+    if (!ctx.force && !(await this.verifyVisitedFileModtime())) {
+      const ok = await ctx.confirm?.(`${this.name} has changed on disk; save anyway?`)
+      if (ok !== true) throw new Error(`File ${this.path} changed on disk since visited`)
+    }
+    if ((ctx.makeBackupFiles ?? true) && !this.backedUp && await fileExists(this.path)) {
+      await copyFile(this.path, this.path + "~")
+      this.backedUp = true
+    }
     await writeFileText(this.path, this.text)
+    this.visitedFileModtime = await fileModtime(this.path)
+    this.savedNode = this.undoCur
+    this.dirty = false
+    await ctx.runHook?.("after-save-hook", this)
+  }
+
+  /** Emacs verify-visited-file-modtime: false only when a visited file's disk mtime
+   *  has moved past what we recorded. No path / never-read / deleted-on-disk → true. */
+  async verifyVisitedFileModtime(): Promise<boolean> {
+    if (!this.path || this.visitedFileModtime == null) return true
+    const diskMtime = await fileModtime(this.path)
+    return diskMtime == null || diskMtime <= this.visitedFileModtime
+  }
+
+  /** Re-read from disk. Shared body for revert-buffer, auto-revert, and the
+   *  openFile revisit prompt; refreshes visitedFileModtime so a subsequent
+   *  save() doesn't spuriously see a clash. Undo history is kept — the revert
+   *  itself becomes an undoable step — and the saved-state baseline moves here. */
+  async revert(): Promise<void> {
+    if (!this.path) throw new Error(`Buffer ${this.name} is not visiting a file`)
+    const text = await readFileText(this.path)
+    this.setText(text, false)
+    this.visitedFileModtime = await fileModtime(this.path)
+    this.savedNode = this.undoCur
     this.dirty = false
   }
 
   undo(): void {
-    const previous = this.undoStack.pop()
-    if (previous == null) return
-    this.redoStack.push(this.text)
-    this.text = previous
-    this.point = Math.min(this.point, this.text.length)
-    this.dirty = true
+    const node = this.undoCur
+    if (!node.parent) return
+    for (let i = node.ops.length - 1; i >= 0; i--) {
+      const op = node.ops[i]!
+      this._splice(op.from, op.from + op.inserted.length, op.removed, { snapshot: false })
+    }
+    this.point = node.ops[0]!.point
+    this.undoCur = node.parent
+    this.dirty = this.undoCur !== this.savedNode
+  }
+
+  /** Fold the most recent mutation into the previous undo step. Call immediately
+   *  after the second mutation. */
+  amalgamateUndo(): void {
+    const p = this.undoCur.parent
+    if (!p?.parent) return
+    this.undoCur.ops = [...p.ops, ...this.undoCur.ops]
+    this.undoCur.parent = p.parent
+    p.parent.children[p.parent.children.indexOf(p)] = this.undoCur
   }
 
   redo(): void {
-    const next = this.redoStack.pop()
-    if (next == null) return
-    this.undoStack.push(this.text)
-    this.text = next
-    this.point = Math.min(this.point, this.text.length)
-    this.dirty = true
+    const child = this.undoCur.children.at(-1)
+    if (!child) return
+    for (const op of child.ops) {
+      this._splice(op.from, op.from + op.removed.length, op.inserted, { snapshot: false })
+    }
+    this.undoCur = child
+    this.dirty = this.undoCur !== this.savedNode
   }
 
   replaceRange(start: number, end: number, replacement: string): void {
-    const from = clamp(Math.min(start, end), 0, this.text.length)
-    const to = clamp(Math.max(start, end), 0, this.text.length)
-    this.deactivateMark()
-    this.assertWritable(true)
-    this.snapshot()
-    this.onTextChange?.({ start: from, end: to, text: replacement })
-    this.text = this.text.slice(0, from) + replacement + this.text.slice(to)
-    this.point = from + replacement.length
-    this.dirty = true
+    this._splice(start, end, replacement)
+    this.point = clamp(Math.min(start, end), 0, this._text.length) + replacement.length
   }
 
   lineBoundsAt(point = this.point): { start: number; end: number; text: string } {
@@ -247,14 +302,29 @@ export class BufferModel {
     return { start, end, text: this.text.slice(start, end) }
   }
 
+  private adjustMark(from: number, to: number, inserted: number): void {
+    if (this.mark == null) return
+    if (this.mark > to) this.mark += inserted - (to - from)
+    else if (this.mark > from) this.mark = from
+    this.mark = clamp(this.mark, 0, this._text.length)
+  }
+
   private assertWritable(markDirty: boolean): void {
     if (markDirty && this.readOnly) throw new Error(`Buffer ${this.name} is read-only`)
   }
 
-  private snapshot(): void {
-    this.undoStack.push(this.text)
-    if (this.undoStack.length > 200) this.undoStack.shift()
-    this.redoStack = []
+  private record(from: number, to: number, removed: string, inserted: string): void {
+    const node: UndoNode = { ops: [{ from, to, removed, inserted, point: this._point }], parent: this.undoCur, children: [] }
+    this.undoCur.children.push(node)
+    this.undoCur = node
+  }
+}
+
+async function fileModtime(path: string): Promise<number | undefined> {
+  try {
+    return (await stat(path)).mtimeMs
+  } catch {
+    return undefined
   }
 }
 

@@ -6,6 +6,7 @@ import { installLspMode } from "./lsp/install"
 import { installXref } from "./xref/install"
 import { runJemacs } from "./run"
 import { createDefaultHost } from "./ui/select-host"
+import { installBuiltinPlugins } from "../plugins/builtin"
 
 async function main(): Promise<void> {
   installDefaultModes()
@@ -15,6 +16,7 @@ async function main(): Promise<void> {
   installLspMode(editor)
   installDefaultHooks(editor)
   installXref(editor)
+  await installBuiltinPlugins(editor)
 
   const file = Bun.argv.find((arg, i) => i >= 2 && !arg.startsWith("-") && arg !== "--gui")
   if (file) await editor.openFile(file)

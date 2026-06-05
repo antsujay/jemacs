@@ -2,3 +2,16 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Local-only working state — never push.
+do_not_commit/*
+!do_not_commit/team/
+journals/
+
+# Example repos may be `git init`'d for magit/project tests.
+examples/*/.git/
+examples/*/target/
+examples/*/Cargo.lock
+
+# Dogfood/persist state.
+.jemacs/

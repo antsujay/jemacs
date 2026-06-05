@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { mkdir, readFile, rm, stat } from "node:fs/promises"
 import { join } from "node:path"
-import { installDefaultCommands } from "../src/init/default-commands"
+import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { Editor } from "../src/kernel/editor"
 import {
   diredDoCopy,

@@ -36,13 +36,15 @@ export class LspManager {
 
   attachBuffer(buffer: BufferModel): void {
     buffer.onTextChange = change => {
+      // onTextChange fires before the buffer mutates, so buffer.text is still the old text.
       const documentBefore = buffer.text
       const state = getBufferLspState(buffer)
       if (!state?.workspaces.length) return
+      const documentAfter = documentBefore.slice(0, change.start) + change.text + documentBefore.slice(change.end)
       for (const workspace of state.workspaces) {
         if (workspace.status !== "initialized") continue
         if (change.start === 0 && change.end === documentBefore.length) {
-          textDocumentDidChangeFull(workspace, buffer)
+          textDocumentDidChangeFull(workspace, buffer, documentAfter)
         } else {
           textDocumentDidChange(workspace, buffer, change, documentBefore)
         }
@@ -89,7 +91,13 @@ export class LspManager {
       this.editor.message(`Connected to [${client.serverId}]`)
       return
     }
-    const workspace = await startWorkspace(client, root, [buffer])
+    let workspace: LspWorkspace
+    try {
+      workspace = await startWorkspace(client, root, [buffer])
+    } catch (err) {
+      this.editor.message(`LSP: failed to start [${client.serverId}]: ${(err as Error).message}`)
+      return
+    }
     workspace.onDiagnosticsUpdated = () => void this.editor.changed("lsp-diagnostics")
     this.workspaces.push(workspace)
     linkFolderToWorkspace(this.session, root, workspace)
@@ -126,7 +134,11 @@ export class LspManager {
       this.editor.message("No LSP workspace for this buffer")
       return
     }
-    for (const workspace of workspaces) await shutdownWorkspace(workspace)
+    for (const workspace of workspaces) {
+      await shutdownWorkspace(workspace)
+      const idx = this.workspaces.indexOf(workspace)
+      if (idx !== -1) this.workspaces.splice(idx, 1)
+    }
     this.lspMode(this.editor.currentBuffer, false)
     this.editor.message("LSP workspace shut down")
   }

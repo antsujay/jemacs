@@ -37,7 +37,7 @@ export function renderBufferList(editor: Editor, buffer: BufferModel): void {
       const current = b.id === editor.currentBufferId ? "." : " "
       const dirty = b.dirty ? "*" : " "
       const path = b.path ? `  ${b.path}` : ""
-      return `${current}${dirty}  ${b.name.padEnd(NAME_WIDTH)} ${b.mode}${path}`
+      return `${current}${dirty}  ${editor.bufferDisplayName(b).padEnd(NAME_WIDTH)} ${b.mode}${path}`
     })
   bufferListIds.set(buffer, ids)
   buffer.setText(lines.join("\n"), false)

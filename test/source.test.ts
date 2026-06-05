@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { Editor } from "../src/kernel/editor"
-import { installDefaultCommands } from "../src/init/default-commands"
+import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { installDefaultModes } from "../src/modes/default-modes"
 import { defcustom, getCustom, patchCustom, restoreCustom } from "../src/runtime/custom"
 import {
