@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import { appendFile, mkdir } from "node:fs/promises"
 import type { CommandContext } from "../kernel/command"
 import type { Editor } from "../kernel/editor"
-import { defaultTheme, disableBuiltinTheme, enableBuiltinTheme, getBuiltinTheme, listEnabledBuiltinThemes } from "../themes"
+import { defaultTheme, disableBuiltinTheme, enableBuiltinTheme, getBuiltinTheme, isBuiltinThemeEnabled, listEnabledBuiltinThemes, themeSource } from "../themes"
 import {
   diredCreateDirectory,
   makeDirectory,
@@ -514,10 +514,18 @@ export function installCoreCommands(editor: Editor): Evaluator {
     editor.message(`Loaded theme ${editor.theme.name}`)
   }, "Load a built-in theme by name, or reload the active theme.")
 
-  editor.command("enable-theme", ({ editor, args }) => {
-    const name = args[0]?.trim()
+  editor.command("enable-theme", async ({ editor, args }) => {
+    const name = args[0]?.trim() || themeNameAtPoint(editor)
     if (!name) {
       editor.message("No theme specified")
+      return
+    }
+    if (!args[0] && isBuiltinThemeEnabled(name)) {
+      disableBuiltinTheme(name)
+      const active = listEnabledBuiltinThemes().at(-1)
+      editor.setTheme(active ? getBuiltinTheme(active)! : defaultTheme)
+      await refreshThemeBufferIfCurrent(editor)
+      editor.message(`Disabled theme ${name}`)
       return
     }
     const theme = enableBuiltinTheme(name)
@@ -526,11 +534,12 @@ export function installCoreCommands(editor: Editor): Evaluator {
       return
     }
     editor.setTheme(theme)
+    await refreshThemeBufferIfCurrent(editor)
     editor.message(`Enabled theme ${name}`)
   }, "Enable a built-in theme.")
 
-  editor.command("disable-theme", ({ editor, args }) => {
-    const name = args[0]?.trim()
+  editor.command("disable-theme", async ({ editor, args }) => {
+    const name = args[0]?.trim() || themeNameAtPoint(editor)
     if (!name) {
       editor.message("No theme specified")
       return
@@ -543,8 +552,29 @@ export function installCoreCommands(editor: Editor): Evaluator {
     const enabled = listEnabledBuiltinThemes()
     const active = enabled.at(-1)
     editor.setTheme(active ? getBuiltinTheme(active)! : defaultTheme)
+    await refreshThemeBufferIfCurrent(editor)
     editor.message(`Disabled theme ${name}`)
   }, "Disable a built-in theme.")
+
+  editor.command("describe-theme", ({ editor, args }) => {
+    const name = args[0]?.trim() || themeNameAtPoint(editor)
+    if (!name) {
+      editor.message("No theme specified")
+      return
+    }
+    const theme = getBuiltinTheme(name)
+    if (!theme) {
+      editor.message(`Unknown theme: ${name}`)
+      return
+    }
+    editor.scratch("*Help*", [
+      `${name} theme`,
+      "",
+      `${themeSource(name)} Custom theme.`,
+      "",
+      `Faces: ${Object.keys(theme.faces).sort().join(", ")}`,
+    ].join("\n"), "help")
+  }, "Describe a Custom theme.")
 
   editor.command("fzf-git", async ({ editor, args }) => {
     const query = args[0] ?? ""
@@ -645,6 +675,22 @@ function repeat(prefixArgument: number | null, fn: () => void): void {
 
 function directoryInitialValue(directory: string): string {
   return directory.endsWith("/") ? directory : `${directory}/`
+}
+
+function themeNameAtPoint(editor: Editor): string | null {
+  if (!editor.currentBuffer.locals.get("jemacs-customize-theme")) return null
+  const line = editor.currentBuffer.lineBoundsAt().text
+  const direct = /^Theme:\s+(.+?)\s+\[/.exec(line)?.[1]
+  if (direct && getBuiltinTheme(direct.trim())) return direct.trim()
+  const before = editor.currentBuffer.text.slice(0, editor.currentBuffer.point)
+  const matches = [...before.matchAll(/^Theme:\s+(.+?)\s+\[/gm)]
+  const name = matches.at(-1)?.[1]?.trim()
+  return name && getBuiltinTheme(name) ? name : null
+}
+
+async function refreshThemeBufferIfCurrent(editor: Editor): Promise<void> {
+  if (!editor.currentBuffer.locals.get("jemacs-customize-theme")) return
+  await editor.run("customize-themes")
 }
 
 function summarize(value: unknown): string {

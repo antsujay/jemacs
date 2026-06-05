@@ -148,12 +148,12 @@ test("customize displays user options and updates values", async () => {
   await editor.run("customize-variable", ["jemacs-customize-test-flag"])
   expect(editor.currentBuffer.name).toBe("*Customize*")
   expect(editor.currentBuffer.mode).toBe("customize-mode")
-  expect(getMode("customize-mode")?.keymap?.get("s")).toBe("customize-set")
-  expect(getMode("customize-mode")?.keymap?.get("S-s")).toBe("customize-save")
+  expect(getMode("customize-mode")?.keymap?.get("s")).toBe("customize-set-variable")
+  expect(getMode("customize-mode")?.keymap?.get("S-s")).toBe("customize-save-variable")
   expect(editor.currentBuffer.text).toContain("Variable: jemacs-customize-test-flag")
   expect(editor.currentBuffer.text).toContain("State: STANDARD")
 
-  const setPromise = editor.run("customize-set")
+  const setPromise = editor.run("customize-set-variable")
   editor.activeBuffer.setText("true", true)
   editor.minibufferSubmit()
   await setPromise
@@ -161,17 +161,13 @@ test("customize displays user options and updates values", async () => {
   expect(getCustomVariable("jemacs-customize-test-flag")?.customized).toBe(true)
   expect(editor.currentBuffer.text).toContain("State: SET for current session")
 
-  const savePromise = editor.run("customize-save")
+  const savePromise = editor.run("customize-save-variable")
   editor.activeBuffer.setText("false", true)
   editor.minibufferSubmit()
   await savePromise
   expect(getCustom<boolean>("jemacs-customize-test-flag")).toBe(false)
   expect(getCustomVariable("jemacs-customize-test-flag")?.savedValue).toBe(false)
   expect(editor.currentBuffer.text).toContain("State: SAVED and set")
-
-  await editor.run("customize-reset")
-  expect(getCustom<boolean>("jemacs-customize-test-flag")).toBe(false)
-  expect(getCustomVariable("jemacs-customize-test-flag")?.customized).toBe(false)
 })
 
 test("customize registers Emacs customize.el command surface", () => {
@@ -194,7 +190,6 @@ test("customize registers Emacs customize.el command surface", () => {
     "customize-apropos-groups",
     "customize-changed",
     "customize-changed-options",
-    "customize-customized",
     "customize-saved",
     "customize-unsaved",
     "customize-rogue",
@@ -207,8 +202,15 @@ test("customize registers Emacs customize.el command surface", () => {
     "customize-save-customized",
     "customize-create-theme",
     "custom-theme-visit-theme",
-    "custom-buffer-create",
-    "custom-toggle-hide-all-widgets",
+    "widget-browse",
+    "widget-browse-at",
+    "widget-browse-other-window",
+    "widget-minor-mode",
+  ]) {
+    expect(editor.commands.get(name), name).toBeDefined()
+  }
+
+  for (const name of [
     "Custom-set",
     "Custom-save",
     "Custom-buffer-done",
@@ -221,33 +223,22 @@ test("customize registers Emacs customize.el command surface", () => {
     "Custom-reset-current",
     "Custom-reset-saved",
     "Custom-reset-standard",
+    "customize-customized",
+    "custom-toggle-hide-all-widgets",
+    "widget-forward",
     "widget-backward",
-    "widget-beginning-of-line",
-    "widget-browse",
-    "widget-browse-at",
-    "widget-browse-other-window",
-    "widget-button-click",
     "widget-button-press",
     "widget-complete",
     "widget-describe",
-    "widget-end-of-line",
-    "widget-field-activate",
-    "widget-forward",
-    "widget-key-sequence-read-event",
-    "widget-kill-line",
-    "widget-minor-mode",
-    "widget-move-and-invoke",
-    "widget-narrow-to-field",
   ]) {
-    expect(editor.commands.get(name), name).toBeDefined()
+    expect(editor.commands.get(name), name).toBeUndefined()
   }
 
-  expect(getMode("customize-mode")?.keymap?.get("C-c C-c")).toBe("Custom-set")
-  expect(getMode("customize-mode")?.keymap?.get("C-x C-s")).toBe("Custom-save")
-  expect(getMode("customize-mode")?.keymap?.get("return")).toBe("Custom-newline")
-  expect(getMode("customize-mode")?.keymap?.get("tab")).toBe("widget-forward")
-  expect(getMode("customize-mode")?.keymap?.get("u")).toBe("Custom-goto-parent")
-  expect(getMode("custom-theme-choose-mode")?.keymap?.get("return")).toBe("customize-theme-toggle")
+  expect(getMode("customize-mode")?.keymap?.get("C-c C-c")).toBe("customize-set-variable")
+  expect(getMode("customize-mode")?.keymap?.get("C-x C-s")).toBe("customize-save-variable")
+  expect(getMode("customize-mode")?.keymap?.get("return")).toBe("customize-set-variable")
+  expect(getMode("customize-mode")?.keymap?.get("tab")).toBe("next-line")
+  expect(getMode("custom-theme-choose-mode")?.keymap?.get("return")).toBe("enable-theme")
 })
 
 test("customize direct setters and filtered buffers match Emacs customize flows", async () => {
@@ -275,27 +266,6 @@ test("customize direct setters and filtered buffers match Emacs customize flows"
   expect(editor.currentBuffer.text).not.toContain("Variable: jemacs-customize-direct-flag")
 })
 
-test("Custom reset commands operate on the current customize buffer", async () => {
-  const editor = new Editor()
-  installDefaultConfig(editor)
-  defcustom("jemacs-customize-reset-flag", "boolean", false, "reset customize flag")
-  await editor.run("customize-save-variable", ["jemacs-customize-reset-flag", "true"])
-  expect(getCustomVariable("jemacs-customize-reset-flag")?.savedValue).toBe(true)
-
-  await editor.run("customize-variable", ["jemacs-customize-reset-flag"])
-  await editor.run("Custom-reset-standard")
-  expect(getCustom<boolean>("jemacs-customize-reset-flag")).toBe(false)
-  expect(getCustomVariable("jemacs-customize-reset-flag")?.savedValue).toBeUndefined()
-  expect(editor.currentBuffer.text).toContain("State: STANDARD")
-
-  await editor.run("customize-save-variable", ["jemacs-customize-reset-flag", "true"])
-  await editor.run("customize-set-variable", ["jemacs-customize-reset-flag", "false"])
-  await editor.run("customize-variable", ["jemacs-customize-reset-flag"])
-  await editor.run("Custom-reset-saved")
-  expect(getCustom<boolean>("jemacs-customize-reset-flag")).toBe(true)
-  expect(editor.currentBuffer.text).toContain("State: SAVED and set")
-})
-
 test("customize-themes toggles and saves plugin themes", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
@@ -309,15 +279,15 @@ test("customize-themes toggles and saves plugin themes", async () => {
   expect(editor.currentBuffer.text).toContain("Source: plugin")
 
   editor.currentBuffer.point = editor.currentBuffer.text.indexOf("Theme: gruvbox-dark-hard")
-  await editor.run("customize-theme-toggle")
+  await editor.run("enable-theme")
   expect(isBuiltinThemeEnabled("gruvbox-dark-hard")).toBe(true)
   expect(editor.theme.name).toBe("gruvbox-dark-hard")
   expect(editor.currentBuffer.text).toContain("Theme: gruvbox-dark-hard [X]")
 
-  await editor.run("customize-themes-save")
+  await editor.run("customize-save-customized")
   expect(listSavedBuiltinThemes()).toContain("gruvbox-dark-hard")
 
   editor.currentBuffer.point = editor.currentBuffer.text.indexOf("Theme: gruvbox-dark-hard")
-  await editor.run("customize-theme-toggle")
+  await editor.run("enable-theme")
   expect(isBuiltinThemeEnabled("gruvbox-dark-hard")).toBe(false)
 })
