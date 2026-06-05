@@ -5,6 +5,7 @@ import type { Editor } from "../kernel/editor"
 import type { Evaluator } from "../runtime/evaluator"
 import { addToLoadPath } from "../runtime/load-path"
 import { installCoreCommands } from "../core/commands"
+import { installIvyMode } from "../modes/ivy-mode"
 import { installLinumMode } from "../modes/linum-mode"
 import { installMinorModeCommands } from "../modes/minor-mode"
 import { bindDefaultKeybindings } from "./default-bindings"
@@ -20,8 +21,9 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   addToLoadPath(root)
   addToLoadPath(join(homedir(), ".jemacs"))
   const evaluator = installCoreCommands(editor)
-  installMinorModeCommands(editor)
   installLinumMode()
+  installIvyMode()
+  installMinorModeCommands(editor)
   bindDefaultKeybindings(editor)
   installDefaultCustomVariables(editor)
   installUserConfig(editor)

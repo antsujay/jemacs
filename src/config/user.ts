@@ -5,4 +5,5 @@ import { gruvboxDarkHardTheme } from "../themes"
 export function installUserConfig(editor: Editor): void {
   editor.setTheme(gruvboxDarkHardTheme)
   editor.enableMinorMode("linum-mode")
+  editor.enableMinorMode("ivy-mode")
 }
