@@ -13,7 +13,8 @@ import { makeEditor } from "../plugins/helper"
 // the editor instance from onEnable rather than touching editor.ts.
 
 test("t-8c81ab4c: linum gutter defaults off for non-file buffers", () => {
-  const editor = makeEditor() // user.ts enables linum-mode globally on startup
+  const editor = makeEditor()
+  editor.enableMinorMode("linum-mode")
 
   // file-visiting buffer: gutter on
   const file = editor.addBuffer(new BufferModel({ name: "foo.ts", path: "/tmp/foo.ts", kind: "file" }))
