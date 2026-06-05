@@ -7,7 +7,7 @@ import type { LspWorkspace } from "../../src/lsp/workspace"
 import { applyTheme } from "../../src/display/theme"
 import { buildDisplayModel } from "../../src/display/build-display-model"
 import { themedTextPlain } from "../../src/display/themed-text"
-import { gruvboxDarkHardTheme } from "../../src/themes"
+import { gruvboxDarkHardTheme } from "../../plugins/gruvbox-dark-hard"
 
 // t-1f96245b: in gruvbox, the `error` face was {fg:#fb4933, bold:true} —
 // byte-identical to `keyword`, so an LSP diagnostic span on an identifier
