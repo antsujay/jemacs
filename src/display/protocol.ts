@@ -22,6 +22,8 @@ export type WindowPaneModel = {
   syncPoint: number
   /** Buffer-absolute spans for Textarea font-lock / region highlights. */
   syncSpans: TextSpan[]
+  /** Per-buffer text scale factor (1 = default; from `text-scale-mode-amount`). */
+  textScale: number
 }
 
 export type WindowSplitModel = {
@@ -57,6 +59,8 @@ export type HostCapabilities = {
   mouse: boolean
   clipboard: boolean
   osc52: boolean
+  /** When true, the host applies per-chunk font-family and height (Electron only). */
+  perFaceFonts?: boolean
 }
 
 export type NormalizedInput =

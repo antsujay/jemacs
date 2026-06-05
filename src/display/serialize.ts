@@ -1,7 +1,19 @@
 import type { DisplayModel, WindowDisplayNode } from "./protocol"
 import type { ThemedText } from "./themed-text"
 
-export type SerializedThemedText = { chunks: Array<{ text: string; fg?: string; bg?: string; bold?: boolean; italic?: boolean; underline?: boolean }> }
+export type SerializedThemedText = {
+  chunks: Array<{
+    text: string
+    fg?: string
+    bg?: string
+    bold?: boolean
+    italic?: boolean
+    underline?: boolean
+    family?: string
+    height?: number
+    heightScale?: number
+  }>
+}
 export type SerializedDisplayModel = {
   title: SerializedThemedText
   windows: SerializedWindowNode
@@ -29,6 +41,7 @@ export type SerializedPane = {
   bodyLineBudget: number
   syncText: string
   syncPoint: number
+  textScale: number
 }
 
 export function serializeThemedText(text: ThemedText): SerializedThemedText {
@@ -64,6 +77,7 @@ function serializeWindowNode(node: WindowDisplayNode): SerializedWindowNode {
         bodyLineBudget: node.pane.bodyLineBudget,
         syncText: node.pane.syncText,
         syncPoint: node.pane.syncPoint,
+        textScale: node.pane.textScale,
       },
     }
   }

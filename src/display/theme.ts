@@ -1,16 +1,23 @@
+import type { BufferModel } from "../kernel/buffer"
 import type { FaceName, TextSpan } from "../modes/mode"
+import { mergeFaceStyles, resolveFace } from "../runtime/faces"
 import type { FaceStyle, Theme } from "./theme-types"
-import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-text"
+import { faceStyleHasVisual } from "./theme-types"
+import { plainThemedText, styleToChunk, type ThemedChunk, type ThemedText } from "./themed-text"
 
 export type { FaceStyle, Theme } from "./theme-types"
 export { defineTheme } from "./theme-types"
+
+export type ApplyThemeOptions = {
+  buffer?: BufferModel
+}
 
 export function themeFaceBackground(theme: Theme, face: FaceName = "default"): string | undefined {
   return theme.faces[face]?.bg ?? theme.faces.default?.bg
 }
 
-export function applyTheme(text: string, spans: TextSpan[], theme: Theme): ThemedText {
-  const defaultStyle = theme.faces.default
+export function applyTheme(text: string, spans: TextSpan[], theme: Theme, options: ApplyThemeOptions = {}): ThemedText {
+  const defaultStyle = resolveFace("default", theme, options.buffer)
   if (!spans.length) return plainThemedText(text, defaultStyle)
 
   const ordered = spans
@@ -25,29 +32,15 @@ export function applyTheme(text: string, spans: TextSpan[], theme: Theme): Theme
     if (start === end) continue
     const style = ordered.reduce<FaceStyle | undefined>((merged, span) => {
       if (span.start > start || span.end < end) return merged
-      return mergeStyle(merged, theme.faces[span.face])
+      const faceStyle = resolveFace(span.face, theme, options.buffer)
+      return mergeFaceStyles(merged, faceStyle)
     }, defaultStyle)
     chunks.push(themedChunk(text.slice(start, end), style))
   }
   return { chunks }
 }
 
-function mergeStyle(base: FaceStyle | undefined, overlay: FaceStyle | undefined): FaceStyle | undefined {
-  if (!overlay) return base
-  if (!base) return overlay
-  return { ...base, ...overlay }
-}
-
 function themedChunk(text: string, style?: FaceStyle): ThemedChunk {
-  if (!style?.fg && !style?.bg && !style?.bold && !style?.italic && !style?.underline) {
-    return { text }
-  }
-  return {
-    text,
-    fg: style.fg,
-    bg: style.bg,
-    bold: style.bold,
-    italic: style.italic,
-    underline: style.underline,
-  }
+  if (!faceStyleHasVisual(style)) return { text }
+  return { text, ...styleToChunk(style) }
 }

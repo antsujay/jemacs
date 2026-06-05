@@ -1,3 +1,4 @@
+import type { BufferModel } from "../kernel/buffer"
 import type { TextSpan } from "../modes/mode"
 import {
   adjustSpansForLineNumbers,
@@ -19,6 +20,7 @@ export function visibleStyledText(
     markActive?: boolean
     spans?: TextSpan[]
     theme: Theme
+    buffer?: BufferModel
     maxLines?: number
     showLineNumbers?: boolean
   },
@@ -36,6 +38,7 @@ export function visibleStyledTextFromStart(
   options: {
     spans?: TextSpan[]
     theme: Theme
+    buffer?: BufferModel
     maxLines?: number
     showLineNumbers?: boolean
     mark?: number | null
@@ -57,6 +60,7 @@ function styledRegion(
     markActive?: boolean
     spans?: TextSpan[]
     theme: Theme
+    buffer?: BufferModel
     showLineNumbers?: boolean
     showCursor?: boolean
   },
@@ -84,7 +88,7 @@ function styledRegion(
       shiftedSpans = visibleSpans.map(s => ({ ...s, start: shift(s.start), end: shift(s.end) }))
     }
   }
-  if (!options.showLineNumbers) return applyTheme(visible, shiftedSpans, options.theme)
+  if (!options.showLineNumbers) return applyTheme(visible, shiftedSpans, options.theme, { buffer: options.buffer })
 
   const firstLine = firstVisibleLineNumber(region.visibleStart, text)
   const format = formatWithLineNumbers(visible, firstLine)
@@ -110,5 +114,5 @@ function styledRegion(
     ...adjustSpansForLineNumbers(contentSpans, visible, format.prefixLen),
     ...regionSpans,
   ]
-  return applyTheme(format.text, displaySpans, options.theme)
+  return applyTheme(format.text, displaySpans, options.theme, { buffer: options.buffer })
 }

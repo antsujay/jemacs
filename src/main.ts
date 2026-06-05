@@ -1,5 +1,5 @@
 import { Editor } from "./kernel/editor"
-import { installDefaultConfig, installDefaultHooks } from "./config"
+import { installDefaultConfig, installDefaultHooks, loadCustomFile } from "./config"
 import { loadStartupConfig, parseStartupArgs } from "./config/startup"
 import { installDefaultModes } from "./modes/default-modes"
 import { installMarkdownMode } from "./modes/markdown"
@@ -20,6 +20,7 @@ async function main(): Promise<void> {
   installDefaultHooks(editor)
   installXref(editor)
   await installBuiltinPlugins(editor)
+  await loadCustomFile(editor, evaluator)
 
   const file = args.files[0]
   if (file) await editor.openFile(file)

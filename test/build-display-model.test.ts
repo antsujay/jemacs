@@ -4,6 +4,7 @@ import { themedTextPlain } from "../src/display/themed-text"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultConfig } from "../src/config"
 import { installDefaultModes } from "../src/modes/default-modes"
+import { composeTheme, resetFace, setFaceAttribute } from "../src/runtime/faces"
 import { defaultTheme } from "../src/themes"
 import { install as installOrg } from "../plugins/org"
 
@@ -40,6 +41,25 @@ test("buildDisplayModel uses theme from editor", () => {
   const editor = new Editor()
   expect(buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24 } }).theme.name)
     .toBe(defaultTheme.name)
+})
+
+test("buildDisplayModel body chunks include customized default face font attrs", () => {
+  installDefaultModes()
+  const editor = new Editor()
+  resetFace("default")
+  setFaceAttribute("default", "family", "Fira Code")
+  setFaceAttribute("default", "height", 140)
+  editor.setTheme(composeTheme(defaultTheme))
+  const buffer = editor.scratch("font-test", "hello", "text")
+  buffer.point = buffer.text.length
+  const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24, cols: 80 } })
+  expect(model.theme.faces.default?.family).toBe("Fira Code")
+  const leaf = model.windows.kind === "leaf" ? model.windows.pane : null
+  expect(leaf).not.toBeNull()
+  const styled = leaf!.body.chunks.find(chunk => chunk.text.includes("hello"))
+  expect(styled?.family).toBe("Fira Code")
+  expect(styled?.height).toBe(140)
+  resetFace("default")
 })
 
 // t-fb6d4cdb: displayFilter is the only place a mode reshapes what reaches the

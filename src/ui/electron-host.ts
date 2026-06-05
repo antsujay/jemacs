@@ -21,6 +21,7 @@ export class ElectronHost implements UiHost {
     mouse: true,
     clipboard: true,
     osc52: false,
+    perFaceFonts: true,
   }
 
   private window: BrowserWindow | null = null

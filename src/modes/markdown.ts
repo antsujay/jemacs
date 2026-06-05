@@ -1,6 +1,7 @@
 import type { BufferModel } from "../kernel/buffer"
 import type { Editor } from "../kernel/editor"
 import { Keymap } from "../kernel/keymap"
+import { defface, faceRemapAddRelative } from "../runtime/faces"
 import { defineMode } from "./mode"
 import { createTreeSitterFontLock } from "./tree-sitter"
 
@@ -11,9 +12,19 @@ const BLOCKQUOTE_RE = /^(\s*)>+\s?/
 const FENCED_CODE_RE = /^```/
 let lastIndentCommand: "markdown-indent-line" | "markdown-cycle" | "markdown-enter-key" | null = null
 
+const MARKDOWN_HEADER_FACES = [
+  ["markdown-header-face-1", 2.0],
+  ["markdown-header-face-2", 1.7],
+  ["markdown-header-face-3", 1.4],
+  ["markdown-header-face-4", 1.2],
+  ["markdown-header-face-5", 1.1],
+  ["markdown-header-face-6", 1.0],
+] as const
+
 export function installMarkdownMode(editor: Editor): void {
   installMarkdownCommands(editor)
 
+  for (const [name] of MARKDOWN_HEADER_FACES) defface(name, {}, "Markdown ATX/setext header face.")
   const keymap = new Keymap("markdown-map")
   bindMarkdownModeMap(keymap)
 
@@ -24,6 +35,7 @@ export function installMarkdownMode(editor: Editor): void {
     keymap,
     indentLine: markdownIndentLine,
     fontLock: createTreeSitterFontLock("markdown"),
+    onEnter: applyMarkdownFaceRemap,
   })
 
   const gfmKeymap = new Keymap("gfm-map")
@@ -33,7 +45,15 @@ export function installMarkdownMode(editor: Editor): void {
     parent: "markdown",
     keymap: gfmKeymap,
     fontLock: createTreeSitterFontLock("gfm"),
+    onEnter: applyMarkdownFaceRemap,
   })
+}
+
+function applyMarkdownFaceRemap(buffer: BufferModel): void {
+  faceRemapAddRelative(buffer, "default", { family: "Helvetica Neue", height: 200 })
+  for (const [face, scale] of MARKDOWN_HEADER_FACES) {
+    faceRemapAddRelative(buffer, face, { heightScale: scale })
+  }
 }
 
 function bindMarkdownModeMap(keymap: Keymap): void {

@@ -1,6 +1,7 @@
 import { createTextAttributes, parseColor, StyledText, type TextChunk } from "@opentui/core"
 import type { ThemedChunk, ThemedText } from "../display/themed-text"
 
+/** TUI hosts ignore per-chunk family/height; only color and weight attrs are forwarded. */
 export function themedTextToStyledText(model: ThemedText): StyledText {
   const chunks: TextChunk[] = model.chunks.map(chunk => themedChunkToTextChunk(chunk))
   return new StyledText(chunks)

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test"
 import { BufferModel } from "../src/kernel/buffer"
 import { Editor } from "../src/kernel/editor"
 import { installDefaultModes } from "../src/modes/default-modes"
+import { getBufferFaceRemap } from "../src/runtime/faces"
+import { enterMode } from "../src/modes/mode"
 import { installMarkdownMode, markdownCalcIndents, markdownIndentLine } from "../src/modes/markdown"
 import { treeSitterFontLock } from "../src/modes/tree-sitter"
 
@@ -43,4 +45,13 @@ test("markdown-mode keymap binds RET to markdown-enter-key", () => {
   const result = editor.keymaps.lookup("return")
   expect(result.status).toBe("matched")
   expect(result.status === "matched" ? result.command : "").toBe("markdown-enter-key")
+})
+
+test("markdown-mode onEnter applies proportional default face remap", () => {
+  installDefaultModes()
+  installMarkdownMode(new Editor())
+  const buffer = new BufferModel({ name: "doc.md", text: "# Title", mode: "text" })
+  enterMode(buffer, "markdown")
+  expect(getBufferFaceRemap(buffer, "default")?.family).toBe("Helvetica Neue")
+  expect(getBufferFaceRemap(buffer, "default")?.height).toBe(200)
 })

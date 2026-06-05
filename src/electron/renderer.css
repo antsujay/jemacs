@@ -1,5 +1,5 @@
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; background: #1e1e1e; color: #d4d4d4; }
+html, body { margin: 0; height: 100%; font-size: 14px; background: #1e1e1e; color: #d4d4d4; }
 #jemacs-root { display: flex; flex-direction: column; height: 100%; background: #1e1e1e; color: #d4d4d4; }
 #jemacs-title { padding: 4px 8px; border-bottom: 1px solid #252526; flex-shrink: 0; }
 #jemacs-windows { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -7,7 +7,7 @@ html, body { margin: 0; height: 100%; font-family: ui-monospace, SFMono-Regular,
 #jemacs-minibuffer-completions { max-height: 40vh; overflow: hidden; }
 .window-pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border: 1px solid #252526; margin: 2px; }
 .window-pane.selected { border-color: #264f78; }
-.window-body { flex: 1; overflow: auto; padding: 4px 8px; white-space: pre; font-size: 13px; line-height: 1.35; }
-.window-modeline { padding: 2px 8px; background: #252526; font-size: 12px; flex-shrink: 0; }
+.window-body { flex: 1; overflow: auto; padding: 4px 8px; white-space: pre; line-height: 1.35; }
+.window-modeline { padding: 2px 8px; background: #252526; flex-shrink: 0; }
 .split-row { display: flex; flex-direction: row; flex: 1; min-height: 0; }
 .split-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }

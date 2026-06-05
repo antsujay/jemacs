@@ -11,6 +11,7 @@ import { makeDiredBuffer } from "../modes/dired"
 import { pointFromWindowClick, type WindowClickState } from "../display/click-to-point"
 import { pageScrollLines } from "../display/viewport"
 import type { Theme } from "../display/theme"
+import { composeTheme } from "../runtime/faces"
 import { defaultTheme } from "../themes"
 import { fileCompletionCandidates } from "./completion"
 import { findBackward, findForward, isearchPrompt, type IsearchState } from "./isearch"
@@ -118,6 +119,7 @@ export class Editor {
   private set windowLayout(layout: WindowNode) { this._windowLayout = layout }
   selectedWindowId: string
   theme: Theme = defaultTheme
+  private baseTheme: Theme = defaultTheme
   selectedTab = 0
   minibuffer: MinibufferRequest | null = null
   isearch: IsearchState | null = null
@@ -617,7 +619,11 @@ export class Editor {
       return { status: "command", command: "digit-argument" }
     }
 
-    const fed = this.keymaps.feed(key)
+    let fed = this.keymaps.feed(key)
+    if (fed.status === "unmatched" && this.overridingMap) {
+      this.overridingMap = null
+      fed = this.keymaps.feed(key)
+    }
     if (fed.status === "matched") {
       const wasRecording = this.macroRecording
       const isearchBefore = this.isearch
@@ -757,7 +763,13 @@ export class Editor {
   }
 
   setTheme(theme: Theme): void {
-    this.theme = theme
+    this.baseTheme = theme
+    this.theme = composeTheme(theme)
+    void this.changed("theme")
+  }
+
+  refreshComposedTheme(): void {
+    this.theme = composeTheme(this.baseTheme)
     void this.changed("theme")
   }
 

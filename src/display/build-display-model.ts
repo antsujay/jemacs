@@ -1,4 +1,5 @@
 import type { Editor } from "../kernel/editor"
+import { textScaleFactor, textScaleLighter } from "../core/text-scale"
 import { isearchLazyHighlightSpans, isearchMatchSpan } from "../kernel/isearch"
 import { findWindowLeaf, type WindowLeaf, type WindowNode } from "../kernel/window"
 import { diagnosticsForBuffer } from "../lsp/diagnostics"
@@ -136,6 +137,7 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
       syncText: "",
       syncPoint: 0,
       syncSpans: [],
+      textScale: 1,
     }
   }
 
@@ -169,6 +171,7 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
       mark: dMark,
       spans: dSpans,
       theme: editor.theme,
+      buffer,
       maxLines,
       showLineNumbers,
       showCursor: selected,
@@ -176,7 +179,7 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
     availableCols,
     clickState.gutterPrefixLen,
   )
-  const lighters = editor.minorModeLighters(buffer)
+  const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer)
   const region = selected && buffer.markActive && buffer.mark != null
     ? `  (${Math.abs(point - buffer.mark)} chars)`
     : ""
@@ -199,6 +202,7 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
     syncText: buffer.text,
     syncPoint: point,
     syncSpans,
+    textScale: textScaleFactor(buffer),
   }
 }
 

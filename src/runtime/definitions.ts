@@ -3,6 +3,7 @@ import type { SourceLocation } from "./source"
 export type DefinitionKind =
   | "command"
   | "variable"
+  | "face"
   | "key"
   | "mode"
   | "hook"
@@ -55,6 +56,12 @@ export function definitionRefFromForm(form: string): DefinitionRef | null {
 
   const variable = form.match(/defvar\s*\(\s*["'`]([^"'`]+)["'`]/)
   if (variable) return { kind: "variable", name: variable[1]! }
+
+  const face = form.match(/defface\s*\(\s*["'`]([^"'`]+)["'`]/)
+  if (face) return { kind: "face", name: face[1]! }
+
+  const setFace = form.match(/setFaceAttribute\s*\(\s*["'`]([^"'`]+)["'`]/)
+  if (setFace) return { kind: "face", name: setFace[1]! }
 
   const key = form.match(/editor\.key\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*["'`]([^"'`]+)["'`]/)
   if (key) return { kind: "key", name: key[1]!, detail: "global-map" }

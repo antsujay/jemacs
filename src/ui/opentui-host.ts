@@ -36,6 +36,7 @@ export class OpenTuiHost implements UiHost {
     mouse: true,
     clipboard: true,
     osc52: true,
+    perFaceFonts: false,
   }
 
   private renderer!: CliRenderer

@@ -33,6 +33,7 @@ import { installLiveSourceCommands } from "../runtime/live-source"
 import { revertAllDefinitions } from "../runtime/patch-eval"
 import { inspectValue } from "../runtime/inspect"
 import { installEmacsStandardCommands, readKey, type KillRingApi } from "./emacs-standard"
+import { clearTextScaleAdjustMap, installTextScaleCommands } from "./text-scale"
 import { isPrintable } from "../kernel/keymap"
 import { listWindowLeaves, nextWindowId } from "../kernel/window"
 import { pageScrollLines } from "../display/viewport"
@@ -183,6 +184,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   editor.command("keyboard-quit", ({ editor }) => {
     editor.keymaps.clearPending()
     editor.prefixArg.clear()
+    clearTextScaleAdjustMap(editor)
     if (editor.isearch) editor.cancelIsearch()
     if (editor.minibuffer) editor.minibufferCancel()
     editor.currentBuffer.clearMark()
@@ -748,6 +750,7 @@ export function installCoreCommands(editor: Editor): Evaluator {
   }, "Offer to save modified buffers, then quit the editor.")
 
   installEmacsStandardCommands(editor, killApi)
+  installTextScaleCommands(editor)
 
   // Registered after installEmacsStandardCommands so this is the canonical revert-buffer.
   editor.command("revert-buffer", async ({ buffer, editor, args }) => {

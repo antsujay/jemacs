@@ -6,7 +6,7 @@ import { buildDisplayModel } from "./display/build-display-model"
 import { findPaneInModel } from "./display/find-pane"
 import { Editor } from "./kernel/editor"
 import { listWindowLeaves } from "./kernel/window"
-import { installDefaultConfig, installDefaultHooks } from "./config"
+import { installDefaultConfig, installDefaultHooks, loadCustomFile } from "./config"
 import { loadStartupConfig, parseStartupArgs } from "./config/startup"
 import { installDefaultModes } from "./modes/default-modes"
 import { installMarkdownMode } from "./modes/markdown"
@@ -71,6 +71,7 @@ async function main(): Promise<void> {
   const args = parseStartupArgs(argv)
   const evaluator = installDefaultConfig(editor, { installStephen: false })
   for (const config of args.configs) await loadStartupConfig(editor, evaluator, config)
+  await loadCustomFile(editor, evaluator)
   installLspMode(editor)
   installDefaultHooks(editor)
   installXref(editor)

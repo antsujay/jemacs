@@ -126,6 +126,10 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("C-h v", "describe-variable")
   editor.key("C-h a", "apropos-command")
   editor.key("C-h C-h", "help-for-help")
+
+  for (const key of ["C-x C-+", "C-x C-=", "C-x C--", "C-x C-0"]) {
+    editor.key(key, "text-scale-adjust")
+  }
 }
 
 function bindMinibufferKeys(editor: Editor): void {

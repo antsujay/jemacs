@@ -12,6 +12,19 @@ import {
   type CustomType,
   type CustomVariable,
 } from "../runtime/custom"
+import { saveCustomFile } from "../config/load-custom"
+import type { FaceAttribute } from "../runtime/faces"
+import {
+  faceCustomState,
+  getCustomFace,
+  listKnownFaceNames,
+  resetFace,
+  resetFaceToSaved,
+  resolveThemeFace,
+  saveFace,
+  setFaceAttribute,
+} from "../runtime/faces"
+import type { FaceName } from "./mode"
 import {
   getBuiltinTheme,
   listBuiltinThemeNames,
@@ -23,6 +36,9 @@ import {
 
 export const CUSTOMIZE_VARIABLE_KEY = "jemacs-customize-variable"
 export const CUSTOMIZE_THEME_KEY = "jemacs-customize-theme"
+export const CUSTOMIZE_FACE_KEY = "jemacs-customize-face"
+
+const FACE_ATTRIBUTES: FaceAttribute[] = ["family", "height", "fg", "bg", "bold", "italic", "underline"]
 
 export function installCustomizeMode(): void {
   const keymap = new Keymap("customize-mode-map")
@@ -53,6 +69,20 @@ export function installCustomizeMode(): void {
   themeKeymap.bind("p", "previous-line")
   themeKeymap.bind("q", "quit-window")
   defineMode({ name: "custom-theme-choose-mode", parent: "text", keymap: themeKeymap })
+
+  const faceKeymap = new Keymap("customize-face-mode-map")
+  for (const key of ["return", "enter", "RET"]) faceKeymap.bind(key, "customize-set-face")
+  faceKeymap.bind("s", "customize-set-face")
+  faceKeymap.bind("S-s", "customize-save-face")
+  faceKeymap.bind("C-c C-c", "customize-set-face")
+  faceKeymap.bind("C-x C-s", "customize-save-face")
+  faceKeymap.bind("r", "customize-reset-face")
+  faceKeymap.bind("u", "customize-reset-face-to-saved")
+  faceKeymap.bind("g", "customize-refresh")
+  faceKeymap.bind("n", "next-line")
+  faceKeymap.bind("p", "previous-line")
+  faceKeymap.bind("q", "quit-window")
+  defineMode({ name: "customize-face-mode", parent: "text", keymap: faceKeymap })
 }
 
 export function installCustomizeCommands(editor: Editor): void {
@@ -142,14 +172,53 @@ export function installCustomizeCommands(editor: Editor): void {
     refreshCustomizeBuffer(editor)
   }, "Redisplay the current Customize buffer.")
 
-  editor.command("customize-save-customized", ({ editor }) => {
+  editor.command("customize-save-customized", async ({ editor }) => {
     const variables = listCustomVariables().filter(variable => variable.customized)
     for (const variable of variables) saveCustom(variable.name)
     saveEnabledBuiltinThemes()
+    await saveCustomFile()
     const themes = listSavedBuiltinThemes().length
-    editor.message(`Saved ${variables.length} customized option${variables.length === 1 ? "" : "s"} and ${themes} theme${themes === 1 ? "" : "s"}`)
+    editor.message(`Saved ${variables.length} customized option${variables.length === 1 ? "" : "s"} and ${themes} theme${themes === 1 ? "" : "s"} to ~/.jemacs/custom.ts`)
     refreshCustomizeBuffer(editor)
   }, "Save all user options which have been set in this session.")
+
+  editor.command("customize-set-face", async ({ editor, args }) => {
+    await customizeSetFace(editor, args, false)
+  }, "Set a face attribute for the current session.")
+
+  editor.command("customize-save-face", async ({ editor, args }) => {
+    await customizeSetFace(editor, args, true)
+  }, "Set a face attribute and save it for future sessions.")
+
+  editor.command("customize-reset-face", ({ editor, args }) => {
+    const name = args[0] ?? customizeFaceAtPoint(editor)?.name
+    if (!name) {
+      editor.message("No face at point")
+      return
+    }
+    if (!resetFace(name)) {
+      editor.message(`Unknown face: ${name}`)
+      return
+    }
+    editor.refreshComposedTheme()
+    editor.message(`Reset face ${name}`)
+    refreshCustomizeBuffer(editor)
+  }, "Reset FACE to its standard definition.")
+
+  editor.command("customize-reset-face-to-saved", ({ editor, args }) => {
+    const name = args[0] ?? customizeFaceAtPoint(editor)?.name
+    if (!name) {
+      editor.message("No face at point")
+      return
+    }
+    if (!resetFaceToSaved(name)) {
+      editor.message(`No saved value for face ${name}`)
+      return
+    }
+    editor.refreshComposedTheme()
+    editor.message(`Reset face ${name} to saved value`)
+    refreshCustomizeBuffer(editor)
+  }, "Reset FACE to its saved customization.")
 
   editor.command("customize-unsaved", ({ editor }) => {
     showCustomizeBuffer(editor, listCustomVariables().filter(isUnsavedCustom), "Customize Unsaved Options")
@@ -275,6 +344,12 @@ function showCustomizeBuffer(editor: Editor, variables: CustomVariable[], title:
 }
 
 function refreshCustomizeBuffer(editor: Editor): void {
+  const faces = editor.currentBuffer.locals.get(CUSTOMIZE_FACE_KEY) as string[] | undefined
+  if (faces) {
+    const title = editor.currentBuffer.text.split("\n", 1)[0] || "Customize Faces"
+    showCustomizeFacesBuffer(editor, faces, title)
+    return
+  }
   const themes = editor.currentBuffer.locals.get(CUSTOMIZE_THEME_KEY) as string[] | undefined
   if (themes) {
     const title = editor.currentBuffer.text.split("\n", 1)[0] || "Custom Themes"
@@ -423,18 +498,105 @@ async function customizeApropos(editor: Editor, args: string[], type: "all" | "o
 }
 
 async function showCustomizeFaces(editor: Editor, pattern?: string): Promise<void> {
-  const theme = editor.theme
-  const names = Object.keys(theme.faces).sort()
+  const names = listKnownFaceNames()
   const re = pattern ? new RegExp(pattern, "i") : null
   const filtered = re ? names.filter(name => re.test(name)) : names
+  const title = pattern ? `Customize Faces: ${pattern}` : "Customize Faces"
+  showCustomizeFacesBuffer(editor, filtered, title)
+}
+
+function showCustomizeFacesBuffer(editor: Editor, faceNames: string[], title: string): void {
+  const body = formatCustomizeFacesBuffer(editor, title, faceNames)
+  const buffer = editor.scratch("*Customize Faces*", body, "customize-face-mode")
+  buffer.readOnly = true
+  buffer.locals.set(CUSTOMIZE_FACE_KEY, faceNames)
+  buffer.locals.delete(CUSTOMIZE_VARIABLE_KEY)
+  buffer.locals.delete(CUSTOMIZE_THEME_KEY)
+  buffer.point = body.indexOf("Face: ")
+  if (buffer.point < 0) buffer.point = 0
+}
+
+function formatCustomizeFacesBuffer(editor: Editor, title: string, faceNames: string[]): string {
   const lines = [
-    pattern ? `Customize Faces: ${pattern}` : "Customize Faces",
+    title,
     "",
-    "Face editing is represented by the active theme face table.",
+    "Keys: RET/s set attribute, S save, r reset, u reset-saved, g refresh, n/p move, q quit",
     "",
-    ...filtered.map(name => `Face: ${name}\n  Value: ${JSON.stringify(theme.faces[name as keyof typeof theme.faces])}`),
   ]
-  editor.scratch("*Customize Faces*", lines.join("\n") || "No faces match.", "customize-mode")
+  if (!faceNames.length) {
+    lines.push("No faces match.")
+    return lines.join("\n")
+  }
+  for (const name of faceNames) {
+    const resolved = resolveThemeFace(editor.theme, name as FaceName)
+    lines.push(`Face: ${name}`, `  State: ${faceCustomState(name)}`)
+    for (const attr of FACE_ATTRIBUTES) {
+      const value = resolved?.[attr]
+      if (value != null) lines.push(`  ${attr}: ${JSON.stringify(value)}`)
+    }
+    const doc = getCustomFace(name)?.doc
+    if (doc) lines.push(`  ${doc}`)
+    lines.push("")
+  }
+  return lines.join("\n")
+}
+
+function customizeFaceAtPoint(editor: Editor): { name: string } | null {
+  const line = editor.currentBuffer.lineBoundsAt().text
+  const direct = /^Face:\s+(.+)$/.exec(line)?.[1]
+  if (direct) return { name: direct.trim() }
+
+  const before = editor.currentBuffer.text.slice(0, editor.currentBuffer.point)
+  const matches = [...before.matchAll(/^Face:\s+(.+)$/gm)]
+  const name = matches.at(-1)?.[1]?.trim()
+  return name ? { name } : null
+}
+
+async function customizeSetFace(editor: Editor, args: string[], save: boolean): Promise<void> {
+  const faceAtPoint = customizeFaceAtPoint(editor)
+  const name = args[0] ?? faceAtPoint?.name ?? await editor.completingRead("Customize face: ", {
+    collection: listKnownFaceNames(),
+    history: "customize-face",
+  })
+  if (!name) return
+  const attribute = (args[1] ?? await editor.completingRead("Face attribute: ", {
+    collection: FACE_ATTRIBUTES,
+    history: "face-attribute",
+  })) as FaceAttribute | null
+  if (!attribute || !FACE_ATTRIBUTES.includes(attribute)) {
+    editor.message("No face attribute specified")
+    return
+  }
+  const current = resolveThemeFace(editor.theme, name as FaceName)?.[attribute]
+  const raw = args[2] ?? await editor.prompt(`Set ${name} ${attribute}: `, current == null ? "" : JSON.stringify(current), `customize-face-${name}-${attribute}`)
+  if (raw == null) return
+  const value = parseFaceAttribute(attribute, raw)
+  setFaceAttribute(name, attribute, value)
+  if (save) {
+    saveFace(name)
+    await saveCustomFile()
+    editor.message(`Saved ${name} ${attribute}`)
+  } else {
+    editor.message(`Set ${name} ${attribute}`)
+  }
+  editor.refreshComposedTheme()
+  refreshCustomizeBuffer(editor)
+}
+
+function parseFaceAttribute(attribute: FaceAttribute, text: string): unknown {
+  if (attribute === "bold" || attribute === "italic" || attribute === "underline") {
+    const value = text.trim().toLowerCase()
+    return !["nil", "false", "0", "no", "off"].includes(value)
+  }
+  if (attribute === "height") {
+    const value = Number(text.trim())
+    if (Number.isNaN(value)) throw new Error(`Invalid height: ${text}`)
+    return value
+  }
+  if (text.startsWith("\"") || text.startsWith("'")) {
+    try { return JSON.parse(text.replace(/^'/, "\"").replace(/'$/, "\"")) } catch { /* fall through */ }
+  }
+  return text.trim()
 }
 
 function formatCustomValue(type: CustomType, value: unknown): string {

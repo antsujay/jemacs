@@ -5,6 +5,8 @@ import { BufferModel } from "../src/kernel/buffer"
 import { isPrintable, keyToken, Keymap, KeymapStack } from "../src/kernel/keymap"
 import { listWindowLeaves } from "../src/kernel/window"
 import { Editor } from "../src/kernel/editor"
+import { buildDisplayModel } from "../src/display/build-display-model"
+import { getTextScaleAmount, textScaleFactor } from "../src/core/text-scale"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { installStephenConfig } from "../src/config/stephen"
 import { defaultTheme } from "../src/themes"
@@ -713,6 +715,32 @@ test("exchange-point-and-mark with prefix jumps without activating the region", 
   expect(buffer.point).toBe(0)
   expect(buffer.mark).toBe(5)
   expect(buffer.markActive).toBe(false)
+})
+
+test("text-scale-adjust increases buffer scale and binds s-= in Stephen config", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  installStephenConfig(editor)
+  const buffer = editor.currentBuffer
+
+  expect(editor.keymap.get("s-=")).toBe("text-scale-adjust")
+  expect(getTextScaleAmount(buffer)).toBe(0)
+
+  await editor.run("text-scale-adjust", [], { name: "=", sequence: "=" })
+  expect(getTextScaleAmount(buffer)).toBe(1)
+  expect(textScaleFactor(buffer)).toBeCloseTo(1.2)
+  expect(editor.overridingMap).not.toBeNull()
+
+  await editor.run("text-scale-adjust", [], { name: "=", sequence: "=" })
+  expect(getTextScaleAmount(buffer)).toBe(2)
+
+  await editor.run("text-scale-adjust", [], { name: "0", sequence: "0" })
+  expect(getTextScaleAmount(buffer)).toBe(0)
+  expect(editor.overridingMap).toBeNull()
+
+  const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24, cols: 80 } })
+  const leaf = model.windows.kind === "leaf" ? model.windows.pane : null
+  expect(leaf?.textScale).toBe(1)
 })
 
 test("Stephen protobuf and generic code helpers run inside Jemacs", async () => {
