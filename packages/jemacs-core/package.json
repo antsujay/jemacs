@@ -9,6 +9,8 @@
     "./display/*": "../../src/display/*",
     "./kernel/*": "../../src/kernel/*",
     "./modes/*": "../../src/modes/*",
-    "./runtime/*": "../../src/runtime/*"
+    "./runtime/*": "../../src/runtime/*",
+    "./platform/*": "../../src/platform/*",
+    "./lsp/*": "../../src/lsp/*"
   }
 }
