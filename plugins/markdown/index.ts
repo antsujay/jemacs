@@ -352,8 +352,10 @@ function markupOpAt(ops: MarkupOp[], pos: number): MarkupOp | undefined {
 
 function protectedInlineCodeRanges(line: string, lineStart: number): Array<[number, number]> {
   const out: Array<[number, number]> = []
-  for (const m of line.matchAll(/`[^`\n]+`/g)) {
-    if (m.index != null) out.push([lineStart + m.index, lineStart + m.index + m[0].length])
+  for (const m of line.matchAll(/`([^`\n]+)`/g)) {
+    if (m.index == null) continue
+    const innerStart = lineStart + m.index + 1
+    out.push([innerStart, innerStart + m[1]!.length])
   }
   return out
 }

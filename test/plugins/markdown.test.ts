@@ -142,6 +142,18 @@ describe("markdownDisplayFilter", () => {
     expect(buffer.text).toBe("# Title\nSome **bold** text\n")
   })
 
+  test("hides inline code backticks when markdown-hide-markup is on", () => {
+    const buffer = new BufferModel({
+      name: "doc.md",
+      text: "Use `hello` here\n",
+      mode: "markdown",
+    })
+    buffer.locals.set("markdown-hide-markup", true)
+    const result = markdownDisplayFilter(buffer)
+    expect(result?.text).toBe("Use hello here\n")
+    expect(result?.text).not.toContain("`")
+  })
+
   test("hides fenced code delimiter lines when markdown-hide-markup is on", () => {
     const buffer = new BufferModel({
       name: "doc.md",
