@@ -5,7 +5,7 @@ import type { BufferModel } from "../src/kernel/buffer"
 import type { TextSpan } from "../src/modes/mode"
 import { defvar } from "../src/runtime/custom"
 import { isPrintable } from "../src/kernel/keymap"
-import { pageScrollLines } from "../src/display/viewport"
+import { scrollDownCommand, scrollUpCommand } from "../src/display/scroll"
 import { pythonBeginningOfDefun, pythonEndOfDefun } from "../src/modes/python"
 import { spawnProcess } from "../src/platform/runtime"
 import { readKey } from "./misc"
@@ -48,8 +48,8 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     buffer.point = Math.min(offset, buffer.text.length)
   }, "Move point to a line number.")
 
-  editor.command("scroll-up-command", ({ editor, prefixArgument }) => scrollScreen(editor, true, prefixArgument ?? 1), "Scroll forward one screenful.")
-  editor.command("scroll-down-command", ({ editor, prefixArgument }) => scrollScreen(editor, false, prefixArgument ?? 1), "Scroll backward one screenful.")
+  editor.command("scroll-up-command", ({ editor, prefixArgument }) => scrollUpCommand(editor, prefixArgument), "Scroll forward one screenful.")
+  editor.command("scroll-down-command", ({ editor, prefixArgument }) => scrollDownCommand(editor, prefixArgument), "Scroll backward one screenful.")
 
   // Shadowed by plugins/mark-ring in production; retained so a core-only
   // editor (new Editor() with no builtins) still has C-space bound.
@@ -460,21 +460,6 @@ function yankRectangle(buffer: BufferModel, rectangle: string): void {
     parts[idx] = row.slice(0, at) + lines[i]! + row.slice(at)
   }
   buffer.setText(parts.join("\n"), true)
-}
-
-/** Scroll selected window by `screens` pages and move point with it (Emacs scroll-up/down). */
-function scrollScreen(editor: Editor, forward: boolean, screens: number): void {
-  const leaf = editor.selectedWindowLeaf()
-  if (!leaf) return
-  const buffer = editor.currentBuffer
-  const lines = buffer.text.split("\n")
-  const delta = (forward ? 1 : -1) * pageScrollLines() * screens
-  editor.setSelectedWindowStartLine(Math.max(0, Math.min(lines.length - 1, leaf.startLine + delta)))
-  const { line, col } = buffer.lineCol()
-  const targetLine = Math.max(0, Math.min(lines.length - 1, line - 1 + delta))
-  let offset = 0
-  for (let i = 0; i < targetLine; i++) offset += lines[i]!.length + 1
-  buffer.point = Math.max(0, Math.min(buffer.text.length, offset + Math.min(col - 1, lines[targetLine]!.length)))
 }
 
 /** Unicode-aware word motion so non-ASCII letters and combining marks are

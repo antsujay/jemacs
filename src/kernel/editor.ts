@@ -19,6 +19,8 @@ import { allMinorModes, getMinorMode } from "../modes/minor-mode"
 import { makeDiredBuffer } from "../modes/dired"
 import { pointFromWindowClick } from "../display/click-to-point"
 import { syncViewportStartLine } from "../display/visual-line-height"
+import type { HostCapabilities } from "../display/protocol"
+import type { ViewportSize } from "../display/viewport"
 import { composeTheme } from "../runtime/faces"
 import { defaultTheme } from "../themes"
 import { fileCompletionCandidates } from "./completion"
@@ -144,6 +146,10 @@ export class Editor {
   completer: Completer | null = null
   /** Gutter predicate consulted by build-display-model; modes (linum) install the policy. */
   showLineNumbers: (buffer?: BufferModel) => boolean = () => false
+  /** Last host viewport; updated each redisplay for page scroll sizing.
+   *  Left unset until the first present(); scroll.ts falls back to terminal rows. */
+  lastViewport?: ViewportSize
+  lastHostCapabilities?: HostCapabilities
   readonly searchRing: string[] = []
   private minibufferDepth = 0
   private readonly displayNames = new Map<string, string>()

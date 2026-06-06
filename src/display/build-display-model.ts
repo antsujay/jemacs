@@ -14,6 +14,7 @@ import { bufferHighlightSpans } from "./buffer-highlights"
 import { applyTheme } from "./theme"
 import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-text"
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
+import { setEditorDisplayContext } from "./scroll"
 import { computeLineVisualRows, visibleLineCountForBudget } from "./visual-line-height"
 
 export type BuildDisplayOptions = {
@@ -25,6 +26,7 @@ export type BuildDisplayOptions = {
 
 export function buildDisplayModel(editor: Editor, options: BuildDisplayOptions): DisplayModel {
   const { viewport, lastMessage, hostLabel = "Jemacs" } = options
+  setEditorDisplayContext(editor, viewport, options.hostCapabilities)
   const buffer = editor.currentBuffer
   const pending = editor.keymaps.pendingSequence()
   const depth = editor.minibuffer && editor.minibufferDepthLevel > 1
@@ -193,6 +195,7 @@ function buildLeafPane(
   // Hosts hard-wrap overflowing rows at column 0, which paints continuation
   // text into the next line's gutter (t-16be1a86). Pre-wrap here so every
   // continuation row carries the gutter's left padding.
+  const keepWrappedTop = startLine === 0
   const body = wrapBodyRows(
     visibleStyledTextFromStart(dText, dPoint, startLine, {
       mark: dMark,
@@ -206,6 +209,7 @@ function buildLeafPane(
     availableCols,
     clickState.gutterPrefixLen,
     displayLines,
+    keepWrappedTop,
   )
   const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer)
   const region = selected && buffer.markActive && buffer.mark != null
@@ -260,7 +264,7 @@ function proportionalBudget(total: number, firstRatio: number, min: number): num
  *  Output is capped at `maxRows`; when wrapping would exceed that, leading
  *  rows are dropped so the cursor (always in the last logical line of the
  *  input window) stays on screen. */
-function wrapBodyRows(body: ThemedText, cols: number | undefined, padLen: number, maxRows?: number): ThemedText {
+function wrapBodyRows(body: ThemedText, cols: number | undefined, padLen: number, maxRows?: number, keepTop = false): ThemedText {
   if (cols == null || cols <= padLen + 1) return body
   const pad = " ".repeat(padLen)
   // Build as row-chunk-lists so we can trim from the top without re-splitting.
@@ -277,7 +281,9 @@ function wrapBodyRows(body: ThemedText, cols: number | undefined, padLen: number
     }
     flush()
   }
-  const kept = maxRows != null && rows.length > maxRows ? rows.slice(rows.length - maxRows) : rows
+  const kept = maxRows != null && rows.length > maxRows
+    ? keepTop ? rows.slice(0, maxRows) : rows.slice(rows.length - maxRows)
+    : rows
   const out: ThemedChunk[] = []
   for (let i = 0; i < kept.length; i++) {
     if (i > 0) out.push({ text: "\n" })
