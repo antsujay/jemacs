@@ -6,13 +6,14 @@
  */
 
 import { spawn } from "node:child_process"
-import { existsSync } from "node:fs"
+import { createReadStream, existsSync } from "node:fs"
 import { join } from "node:path"
 
 /** Result of one subprocess invocation. */
 export type RunResult = { code: number; stdout: string; stderr: string }
+export type RunOpts = { stdinFile?: string }
 /** Spawn `argv[0]` with `argv[1..]` and resolve once it exits. Never rejects. */
-export type Run = (argv: string[]) => Promise<RunResult>
+export type Run = (argv: string[], opts?: RunOpts) => Promise<RunResult>
 
 export type InstallOpts = {
   /** Override the protocol revision; defaults to `jemacsRev()`. */
@@ -28,9 +29,11 @@ export type InstallOpts = {
 const JEMACS_ROOT = join(import.meta.dirname, "..", "..")
 
 /** Default `Run`: `child_process.spawn` with stdio captured. */
-export const realRun: Run = argv =>
+export const realRun: Run = (argv, opts) =>
   new Promise(resolve => {
-    const proc = spawn(argv[0]!, argv.slice(1), { stdio: ["ignore", "pipe", "pipe"] })
+    const stdin = opts?.stdinFile ? createReadStream(opts.stdinFile) : "ignore"
+    const proc = spawn(argv[0]!, argv.slice(1), { stdio: [stdin === "ignore" ? "ignore" : "pipe", "pipe", "pipe"] })
+    if (stdin !== "ignore") stdin.pipe(proc.stdin!)
     let stdout = "", stderr = ""
     proc.stdout.on("data", c => { stdout += c })
     proc.stderr.on("data", c => { stderr += c })
@@ -61,9 +64,17 @@ export function validateHost(host: string): string {
   return host
 }
 
+/** `rev` lands in remote shell strings — only allow git-sha/semver-ish. */
+export function validateRev(rev: string): string {
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(rev)) {
+    throw new Error(`shadow-install: invalid rev '${String(rev).slice(0, 80)}'`)
+  }
+  return rev
+}
+
 /** Remote install dir for `rev` (literal `~` — expanded by the remote shell). */
 export function remoteDir(rev: string): string {
-  return `~/.jemacs/bin/jemacs-${rev}`
+  return `~/.jemacs/bin/jemacs-${validateRev(rev)}`
 }
 
 /** Local bundle path `scripts/bundle.sh` writes for `rev`. */
@@ -125,18 +136,16 @@ export async function ensureRemote(host: string, opts: InstallOpts = {}): Promis
 
   log(`[shadow] ${host}: shipping jemacs-${rev}…`)
   const dir = remoteDir(rev)
-  // `ssh cat | tar x` — one fewer auth round-trip than scp+ssh, and no remote tmpfile.
-  const stream = await run([
-    "sh", "-c",
-    `ssh -- ${host} 'mkdir -p ${dir} && tar xzf - -C ${dir}' < ${shQuote(bundle)}`,
-  ])
+  // Stream the tarball over ssh's stdin (no local sh -c, no remote tmpfile).
+  // dir is validateRev'd; the remote command is a fixed string with that one
+  // pre-validated component, passed as a single ssh argv element.
+  const stream = await run(
+    ["ssh", "--", host, `mkdir -p ${dir} && tar xzf - -C ${dir}`],
+    { stdinFile: bundle },
+  )
   if (stream.code !== 0) throw new Error(`shadow-install: upload to ${host} failed: ${stream.stderr.trim()}`)
 
   log(`[shadow] ${host}: jemacs-${rev} installed`)
   return sshServeArgv(host, rev)
 }
 
-/** Single-quote `s` for a POSIX shell. */
-function shQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`
-}

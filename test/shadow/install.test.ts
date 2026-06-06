@@ -18,16 +18,16 @@ import {
 /** Scriptable `Run`: each call is matched against `script` (substring of joined
  *  argv) and the result returned; everything is recorded in `calls`. */
 function fakeRun(script: Array<{ match: string; result?: Partial<RunResult> }>) {
-  const calls: string[][] = []
-  const run: Run = async argv => {
-    calls.push(argv)
+  const calls: Array<{ argv: string[]; opts?: { stdinFile?: string } }> = []
+  const run: Run = async (argv, opts) => {
+    calls.push({ argv, opts })
     const joined = argv.join(" ")
     for (const s of script) {
       if (joined.includes(s.match)) return { code: 0, stdout: "", stderr: "", ...s.result }
     }
     return { code: 0, stdout: "", stderr: "" }
   }
-  return { run, calls }
+  return { run, calls, joined: () => calls.map(c => c.argv.join(" ")) }
 }
 
 describe("install primitives", () => {
@@ -58,7 +58,7 @@ describe("probeRemote / probeBun", () => {
   test("probeRemote: ssh test -x on the rev-pinned launcher", async () => {
     const hit = fakeRun([{ match: "test -x", result: { code: 0 } }])
     expect(await probeRemote("box", { rev: "r1", run: hit.run })).toBe(true)
-    expect(hit.calls[0]).toEqual(["ssh", "--", "box", "test -x ~/.jemacs/bin/jemacs-r1/jemacs"])
+    expect(hit.calls[0]!.argv).toEqual(["ssh", "--", "box", "test -x ~/.jemacs/bin/jemacs-r1/jemacs"])
 
     const miss = fakeRun([{ match: "test -x", result: { code: 1 } }])
     expect(await probeRemote("box", { rev: "r1", run: miss.run })).toBe(false)
@@ -67,7 +67,7 @@ describe("probeRemote / probeBun", () => {
   test("probeBun: checks PATH and ~/.bun/bin fallback", async () => {
     const { run, calls } = fakeRun([{ match: "command -v bun", result: { code: 0 } }])
     expect(await probeBun("box", { run })).toBe(true)
-    expect(calls[0]![3]).toContain("~/.bun/bin/bun")
+    expect(calls[0]!.argv[3]).toContain("~/.bun/bin/bun")
   })
 })
 
@@ -90,11 +90,13 @@ describe("ensureRemote", () => {
       { match: "tar xzf", result: { code: 0 } },
     ])
     const argv = await ensureRemote("box", { rev: "r1", bundle, run, log: m => log.push(m) })
-    const joined = calls.map(c => c.join(" "))
+    const joined = calls.map(c => c.argv.join(" "))
     expect(joined.some(c => c.includes("bun.sh/install"))).toBe(false)
     expect(joined.some(c => c.includes("mkdir -p ~/.jemacs/bin/jemacs-r1"))).toBe(true)
     expect(joined.some(c => c.includes("tar xzf - -C ~/.jemacs/bin/jemacs-r1"))).toBe(true)
-    expect(joined.some(c => c.includes(bundle))).toBe(true)
+    // bundle goes via stdinFile (no sh -c interpolation)
+    expect(calls.some(c => c.opts?.stdinFile === bundle)).toBe(true)
+    expect(joined.every(c => !c.startsWith("sh -c"))).toBe(true)
     expect(argv.at(-1)).toBe("--serve-stdio")
     expect(log.some(m => m.includes("shipping"))).toBe(true)
   })
@@ -107,7 +109,7 @@ describe("ensureRemote", () => {
       { match: "tar xzf", result: { code: 0 } },
     ])
     await ensureRemote("box", { rev: "r1", bundle, run })
-    const joined = calls.map(c => c.join(" "))
+    const joined = calls.map(c => c.argv.join(" "))
     const bunIdx = joined.findIndex(c => c.includes("bun.sh/install"))
     const tarIdx = joined.findIndex(c => c.includes("tar xzf"))
     expect(bunIdx).toBeGreaterThan(-1)
