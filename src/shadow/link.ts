@@ -55,9 +55,16 @@ export function applyRemoteOp(editor: Editor, link: ShadowLink, op: ShadowOp): b
       // accepted but unapplied until that lands.
       return true
     case "command": {
-      if (link.role !== "authority") return false
-      if (link.trust !== "full") return false
-      void editor.run(op.name, op.args as string[])
+      // trust:"full" means the peer is the same user over an SSH-auth'd channel —
+      // executing arbitrary commands is the *purpose* (M-x compile runs on A).
+      // The security boundary is the link's auth handshake, not an allowlist here.
+      // See DESIGN.md § Transport. trust is set server-side per auth, never from the wire.
+      if (link.role !== "authority" || link.trust !== "full") {
+        editor.message(`[shadow] rejected command '${String(op.name).slice(0, 40)}' on ${link.role}/${link.trust} link`)
+        return false
+      }
+      if (typeof op.name !== "string" || !Array.isArray(op.args)) return false
+      void editor.run(op.name, op.args.map(a => typeof a === "string" ? a : String(a)))
       return true
     }
     case "ack":
