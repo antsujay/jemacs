@@ -9,8 +9,13 @@ export function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex")
 }
 
-/** `~/.jemacs/cas/<sha>` — where the FileCas stores `text` whose sha256 is `sha`. */
+const SHA256_HEX = /^[0-9a-f]{64}$/
+
+/** `~/.jemacs/cas/<sha>` — where the FileCas stores `text` whose sha256 is `sha`.
+ *  `sha` arrives over the wire (BufferRef/Have ops); reject anything that isn't
+ *  a 64-hex digest so it can't path-traverse out of cas/. */
 export function casPath(sha: string): string {
+  if (!SHA256_HEX.test(sha)) throw new Error(`cas: invalid sha '${String(sha).slice(0, 80)}'`)
   return join(homedir(), ".jemacs", "cas", sha)
 }
 

@@ -121,9 +121,12 @@ export function parseConnectTarget(target: string): string[] {
     const rest = target.slice("ssh://".length)
     const slash = rest.indexOf("/")
     const host = slash === -1 ? rest : rest.slice(0, slash)
-    if (!host) throw new Error(`shadow-connect: missing host in '${target}'`)
+    // user@host[:port] only — anything else (leading -, spaces, ;) could become an ssh option.
+    if (!/^[A-Za-z0-9._@:-]+$/.test(host) || host.startsWith("-")) {
+      throw new Error(`shadow-connect: invalid host '${host}'`)
+    }
     // Version-pinned remote path per DESIGN.md §Self-install; bootstrap is a TODO.
-    return ["ssh", host, "~/.jemacs/bin/jemacs", "--serve-stdio"]
+    return ["ssh", "--", host, "~/.jemacs/bin/jemacs", "--serve-stdio"]
   }
   throw new Error(`shadow-connect: unsupported target '${target}' (want ssh://host or stdio:CMD)`)
 }

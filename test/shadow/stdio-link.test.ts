@@ -77,17 +77,20 @@ describe("parseConnectTarget", () => {
     expect(parseConnectTarget("stdio:bun run src/main.ts --serve-stdio"))
       .toEqual(["bun", "run", "src/main.ts", "--serve-stdio"])
   })
-  test("ssh://host builds remote argv", () => {
+  test("ssh://host builds remote argv with -- separator", () => {
     const argv = parseConnectTarget("ssh://user@box")
-    expect(argv[0]).toBe("ssh")
-    expect(argv[1]).toBe("user@box")
+    expect(argv.slice(0, 3)).toEqual(["ssh", "--", "user@box"])
     expect(argv.at(-1)).toBe("--serve-stdio")
   })
   test("ssh://host/path ignores path component for now", () => {
-    expect(parseConnectTarget("ssh://box/home/u/proj")[1]).toBe("box")
+    expect(parseConnectTarget("ssh://box/home/u/proj")[2]).toBe("box")
   })
   test("rejects unknown scheme", () => {
     expect(() => parseConnectTarget("ws://x")).toThrow(/unsupported/)
+  })
+  test("rejects host that could be an ssh option", () => {
+    expect(() => parseConnectTarget("ssh://-oProxyCommand=evil")).toThrow(/invalid host/)
+    expect(() => parseConnectTarget("ssh://box; rm -rf")).toThrow(/invalid host/)
   })
 })
 
