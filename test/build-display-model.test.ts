@@ -39,6 +39,7 @@ test("buildDisplayModel highlights isearch in selected window", async () => {
 test("buildDisplayModel uses theme from editor", () => {
   installDefaultModes()
   const editor = new Editor()
+  editor.setTheme(defaultTheme)
   expect(buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24 } }).theme.name)
     .toBe(defaultTheme.name)
 })

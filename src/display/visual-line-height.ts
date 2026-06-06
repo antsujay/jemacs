@@ -68,6 +68,8 @@ export function visualRowsUsed(rows: readonly number[], fromLine: number, toLine
   return sum
 }
 
+import { setDisplaySystem } from "../kernel/extension-points"
+
 /** Keep `cursorLine` visible within a weighted GUI row budget. */
 export function syncViewportStartLine(
   startLine: number,
@@ -85,6 +87,8 @@ export function syncViewportStartLine(
   if (start > cursorLine) start = cursorLine
   return start
 }
+
+setDisplaySystem({ syncViewportStartLine })
 
 /** How many logical lines fit in `lineBudget` GUI rows from `startLine`. */
 export function visibleLineCountForBudget(

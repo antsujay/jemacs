@@ -1,5 +1,6 @@
 import type { BufferModel } from "../kernel/buffer"
 import type { Editor } from "../kernel/editor"
+import { setModeSystem } from "../kernel/extension-points"
 import { Keymap } from "../kernel/keymap"
 
 export type MinorMode = {
@@ -29,6 +30,8 @@ export function getMinorMode(name: string): MinorMode | undefined {
 export function allMinorModes(): MinorMode[] {
   return [...minorModes.values()]
 }
+
+setModeSystem({ getMinorMode, allMinorModes })
 
 export function installMinorModeCommands(editor: Editor): void {
   for (const mode of minorModes.values()) {

@@ -157,3 +157,8 @@ export function enterMode(buffer: BufferModel, name: string): void {
     mode.onEnter?.(buffer)
   }
 }
+
+// Self-wire the kernel seam so importing modes/ is all it takes for editor.ts
+// mode dispatch to work — no explicit boot call needed.
+import { setModeSystem } from "../kernel/extension-points"
+setModeSystem({ getMode, modeLineage, modeFeature, enterMode })

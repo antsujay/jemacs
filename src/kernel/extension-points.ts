@@ -4,9 +4,10 @@ import type { Keymap } from "./keymap"
 /**
  * Kernel-owned structural types + the dependency-inversion seam that lets the
  * kernel stay independent of modes/, display/, themes/, lsp/ (ARCHITECTURE.md
- * 06-05 finding #2). Upper layers import these types from here; they install
- * behaviour via `setModeSystem` at boot. Until that wiring lands the
- * value-level coupling in editor.ts remains — see t-audit-1c671e26 sub-tasks.
+ * 06-05 finding #2). Upper layers import these types from here; modes/ and
+ * display/ self-wire via `setModeSystem` / `setDisplaySystem` at module load,
+ * so a bare `new Editor()` works with no-op defaults and the real behaviour
+ * appears as soon as those modules are imported.
  */
 
 // ── Faces / spans ───────────────────────────────────────────────────────────
@@ -101,14 +102,20 @@ export type MinorModeSpec = {
   lighter?: string
   global?: boolean
   keymap?: Keymap
+  // `editor` is the concrete Editor; typed loosely so this file stays acyclic with editor.ts.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onEnable?: (editor: any, buffer: BufferModel | null) => void
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onDisable?: (editor: any, buffer: BufferModel | null) => void
 }
 
-/** Late-bound mode/minor-mode/dired registry. `installDefaultConfig` (or
- *  `lisp/loadup`) installs the real implementation; the no-op default keeps
- *  a bare `new Editor()` usable for tests that don't touch mode dispatch. */
+/** Late-bound mode/minor-mode/dired registry. modes/ self-wires at module
+ *  load; the no-op default keeps a bare `new Editor()` usable for tests that
+ *  don't touch mode dispatch. */
 export interface KernelModeSystem {
   getMode(name: string): ModeSpec | undefined
   modeLineage(name: string): ModeSpec[]
+  modeFeature<K extends keyof ModeSpec>(name: string, feature: K): NonNullable<ModeSpec[K]> | undefined
   enterMode(buffer: BufferModel, name: string): void
   getMinorMode(name: string): MinorModeSpec | undefined
   allMinorModes(): MinorModeSpec[]
@@ -118,6 +125,7 @@ export interface KernelModeSystem {
 const noopModeSystem: KernelModeSystem = {
   getMode: () => undefined,
   modeLineage: () => [],
+  modeFeature: () => undefined,
   enterMode: (buffer, name) => { buffer.mode = name },
   getMinorMode: () => undefined,
   allMinorModes: () => [],
@@ -125,6 +133,27 @@ const noopModeSystem: KernelModeSystem = {
 
 export let modeSystem: KernelModeSystem = noopModeSystem
 
+/** Merge — independent layers (mode.ts, minor-mode.ts, dired) each wire their slice. */
 export function setModeSystem(impl: Partial<KernelModeSystem>): void {
-  modeSystem = { ...noopModeSystem, ...impl }
+  modeSystem = { ...modeSystem, ...impl }
+}
+
+// ── Display seam ────────────────────────────────────────────────────────────
+
+/** Viewport math the kernel needs but display/ owns the visual-row-aware
+ *  version of. Default handles the unweighted (TUI) case. */
+export interface KernelDisplaySystem {
+  syncViewportStartLine(startLine: number, cursorLine: number, lineBudget: number, visualRows?: readonly number[]): number
+}
+
+export let displaySystem: KernelDisplaySystem = {
+  syncViewportStartLine: (startLine, cursorLine, lineBudget) => {
+    if (cursorLine < startLine) return cursorLine
+    if (cursorLine >= startLine + lineBudget) return Math.max(0, cursorLine - lineBudget + 1)
+    return startLine
+  },
+}
+
+export function setDisplaySystem(impl: Partial<KernelDisplaySystem>): void {
+  displaySystem = { ...displaySystem, ...impl }
 }
