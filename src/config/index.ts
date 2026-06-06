@@ -5,6 +5,7 @@ import type { Editor } from "../kernel/editor"
 import type { Evaluator } from "../runtime/evaluator"
 import { addToLoadPath } from "../runtime/load-path"
 import { installLisp } from "../../lisp"
+import { defaultTheme } from "../themes"
 import { installLinumMode } from "../modes/linum-mode"
 import { installTextScaleMode } from "../core/text-scale"
 import { installMinorModeCommands } from "../modes/minor-mode"
@@ -31,6 +32,7 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   bindDefaultKeybindings(editor)
   installDefaultCustomVariables(editor)
   installDefaultFaces()
+  editor.setTheme(defaultTheme)
   return evaluator
 }
 

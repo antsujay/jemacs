@@ -3,6 +3,8 @@ import { copyFile, mkdir, stat } from "node:fs/promises"
 import { fileExists, readFileText, writeFileText } from "../platform/runtime"
 import { resolveBackupPath, type BackupDirectoryAlist } from "./backup-path"
 import { isTransientMarkModeEnabled } from "./transient-mark"
+import type { ShadowLink } from "../shadow/link"
+import type { Splice } from "../shadow/ops"
 
 export type BufferKind = "file" | "directory" | "scratch" | "messages" | "inspector" | "minibuffer" | "grep"
 
@@ -18,7 +20,7 @@ export type SaveContext = {
 }
 
 type Op = { from: number; to: number; removed: string; inserted: string; point: number }
-type UndoNode = { ops: Op[]; parent: UndoNode | null; children: UndoNode[] }
+type UndoNode = { ops: Op[]; parent: UndoNode | null; children: UndoNode[]; seq: number }
 
 export class BufferModel {
   readonly id: string
@@ -39,8 +41,15 @@ export class BufferModel {
   visitedFileModtime?: number
   readonly minorModes = new Set<string>()
   readonly locals = new Map<string, unknown>()
+  /** Set ⇒ this buffer's authoritative copy lives on the peer; save() etc. route via Cmd. */
+  link?: ShadowLink
   onTextChange?: (event: { start: number; end: number; text: string }) => void
-  private undoRoot: UndoNode = { ops: [], parent: null, children: [] }
+  /** Shadow send hook — fires per `_splice` with seq:0; the link layer assigns the real seq.
+   *  Second arg carries `_splice`'s opts so the link layer can filter undo/redo/append
+   *  (snapshot:false) to keep the pending↔undo-node 1:1 the rebase rewind relies on. */
+  onSplice?: (s: Splice, opts: { snapshot?: boolean; markDirty?: boolean }) => void
+  private nextSeq = 0
+  private undoRoot: UndoNode = { ops: [], parent: null, children: [], seq: 0 }
   private undoCur: UndoNode = this.undoRoot
   /** Tree node at which text matches disk. */
   private savedNode: UndoNode = this.undoRoot
@@ -123,6 +132,7 @@ export class BufferModel {
     this.assertWritable(markDirty)
     const removed = this._text.slice(a, b)
     if (opts.snapshot ?? true) this.record(a, b, removed, repl)
+    this.onSplice?.({ kind: "splice", bufferId: this.id, from: a, to: b, text: repl, seq: 0 }, opts)
     this.onTextChange?.({ start: a, end: b, text: repl })
     this._text = this._text.slice(0, a) + repl + this._text.slice(b)
     this._spliceLineStarts(a, b, removed, repl)
@@ -135,6 +145,12 @@ export class BufferModel {
 
   setText(text: string, markDirty = true, snapshot = true): void {
     this._splice(0, this._text.length, text, { markDirty, snapshot })
+  }
+
+  /** Public mutation funnel for callers that need explicit snapshot control
+   *  (shadow rebase applies authority ops with snapshot:false). Returns removed text. */
+  splice(from: number, to: number, repl: string, opts?: { markDirty?: boolean; snapshot?: boolean }): string {
+    return this._splice(from, to, repl, opts)
   }
 
   /** Append without snapshot/dirty — for *messages*, *compilation* streaming. */
@@ -306,6 +322,19 @@ export class BufferModel {
     this.dirty = false
   }
 
+  /** Seq of the current undo-tree tip. Monotone over `record()`; root is 0. */
+  get seq(): number { return this.undoCur.seq }
+
+  /** Walk parent pointers, undoing, until the tip is at `seq`. The target must lie
+   *  on the current node's ancestor chain (shadow rebase: baseSeq is the last sync point). */
+  rewindTo(seq: number): void {
+    while (this.undoCur.seq !== seq) {
+      if (!this.undoCur.parent) throw new Error(`rewindTo(${seq}): not on ancestor chain (at root)`)
+      if (this.undoCur.seq < seq) throw new Error(`rewindTo(${seq}): overshot to ${this.undoCur.seq}`)
+      this.undo()
+    }
+  }
+
   undo(): void {
     const node = this.undoCur
     if (!node.parent) return
@@ -319,8 +348,11 @@ export class BufferModel {
   }
 
   /** Fold the most recent mutation into the previous undo step. Call immediately
-   *  after the second mutation. */
+   *  after the second mutation. No-op while a shadow link is attached: unlinking a
+   *  node whose splice already shipped breaks the pending↔undo-node 1:1 that the
+   *  rebase rewind counts on, so over the wire each splice stays its own step. */
   amalgamateUndo(): void {
+    if (this.link) return
     const p = this.undoCur.parent
     if (!p?.parent) return
     this.undoCur.ops = [...p.ops, ...this.undoCur.ops]
@@ -371,7 +403,7 @@ export class BufferModel {
   }
 
   private record(from: number, to: number, removed: string, inserted: string): void {
-    const node: UndoNode = { ops: [{ from, to, removed, inserted, point: this._point }], parent: this.undoCur, children: [] }
+    const node: UndoNode = { ops: [{ from, to, removed, inserted, point: this._point }], parent: this.undoCur, children: [], seq: ++this.nextSeq }
     this.undoCur.children.push(node)
     this.undoCur = node
   }

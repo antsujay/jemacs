@@ -38,9 +38,12 @@ test("persist: disposing one editor's ctx leaves other editors' autosave running
 
   ctxA.dispose()
 
-  await new Promise(r => setTimeout(r, 60))
-
-  const raw = await readFile(join(dir, "history.json"), "utf8").catch(() => null)
+  // Poll instead of fixed sleep — CI runners are slow enough that 60ms missed.
+  let raw: string | null = null
+  for (let i = 0; i < 20 && raw == null; i++) {
+    await new Promise(r => setTimeout(r, 25))
+    raw = await readFile(join(dir, "history.json"), "utf8").catch(() => null)
+  }
   expect(raw).not.toBeNull()
   expect(JSON.parse(raw!).file).toEqual(["/from-b"])
 

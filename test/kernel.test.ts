@@ -587,6 +587,7 @@ test("theme support renders font-lock spans as styled TUI chunks", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   installDefaultModes()
   const editor = new Editor()
+  editor.setTheme(defaultTheme)
   const buffer = editor.scratch("theme.py", "def f():\n    return 1\n", "python")
   const rendered = visibleStyledText(buffer.text, buffer.text.length, { spans: editor.fontLock(buffer), theme: editor.theme })
   expect(rendered.chunks.length).toBeGreaterThan(1)
@@ -598,6 +599,7 @@ test("styled TUI chunks keep font-lock aligned when point covers highlighted tex
   const { installDefaultModes } = await import("../src/modes/default-modes")
   installDefaultModes()
   const editor = new Editor()
+  editor.setTheme(defaultTheme)
   const buffer = editor.scratch("cursor.py", "print('hello world')\n", "python")
   buffer.point = 0
 
@@ -608,6 +610,7 @@ test("styled TUI chunks keep font-lock aligned when point covers highlighted tex
 
 test("styled TUI chunks show the active region between mark and point", () => {
   const editor = new Editor()
+  editor.setTheme(defaultTheme)
   const rendered = visibleStyledText("hello world", 5, { mark: 0, markActive: true, theme: editor.theme })
 
   expect(rendered.chunks.some(chunk => chunk.text === "hello" && chunk.bg)).toBe(true)
@@ -635,6 +638,7 @@ test("region highlight skips the line number gutter", async () => {
 
 test("styled TUI chunks keep region highlight after movement deactivates the mark", () => {
   const editor = new Editor()
+  editor.setTheme(defaultTheme)
   const rendered = visibleStyledText("hello world", 5, { mark: 0, theme: editor.theme })
 
   expect(rendered.chunks.some(chunk => chunk.text === "hello" && chunk.bg)).toBe(true)

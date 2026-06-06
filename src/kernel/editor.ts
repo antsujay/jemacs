@@ -10,19 +10,11 @@ import type {
   MinorModeSpec as MinorMode,
   TextSpan,
   Theme,
-  WindowClickState,
 } from "./extension-points"
-import { modeSystem } from "./extension-points"
-// Value-level upward imports below remain until the per-import sub-tasks move
-// the calling methods out to lisp/ and wire `setModeSystem` (t-audit-1c671e26).
-import { enterMode, getMode, modeFeature, modeLineage } from "../modes/mode"
-import { allMinorModes, getMinorMode } from "../modes/minor-mode"
-import { pointFromWindowClick } from "../display/click-to-point"
-import { syncViewportStartLine } from "../display/visual-line-height"
+import { displaySystem, modeSystem } from "./extension-points"
 import type { HostCapabilities } from "../display/protocol"
 import type { ViewportSize } from "../display/viewport"
 import { composeTheme } from "../runtime/faces"
-import { defaultTheme } from "../themes"
 import { fileCompletionCandidates } from "./completion"
 import { findBackward, findForward, isearchPrompt, type IsearchState } from "./isearch"
 import {
@@ -115,14 +107,18 @@ export class Editor {
   readonly keymaps = new KeymapStack(() => this.activeKeymaps())
   readonly minibufferHistory = new Map<string, string[]>()
   readonly registers = new Map<string, RegisterContents>()
+  /** Editor-scoped scratch storage for plugins (parallels BufferModel.locals). */
+  readonly locals = new Map<string, unknown>()
   readonly tabs: Array<{ name: string; bufferId: string }> = []
   private _windowLayout!: WindowNode
   /** Read-only view of the window tree. Mutate via kernel primitives (setSelectedWindowPoint etc). */
   get windowLayout(): WindowNode { return this._windowLayout }
   private set windowLayout(layout: WindowNode) { this._windowLayout = layout }
   selectedWindowId: string
-  theme: Theme = defaultTheme
-  private baseTheme: Theme = defaultTheme
+  // Real theme arrives via `setTheme` from installDefaultConfig / load-theme;
+  // a bare kernel renders unstyled rather than reaching into themes/.
+  theme: Theme = { name: "none", faces: {} }
+  private baseTheme: Theme = this.theme
   selectedTab = 0
   minibuffer: MinibufferRequest | null = null
   isearch: IsearchState | null = null
@@ -247,7 +243,7 @@ export class Editor {
     const buffer = this.buffers.get(leaf.bufferId)
     if (!buffer) return
     const cursorLine = this.lineAtPoint(buffer.point)
-    const start = syncViewportStartLine(leaf.startLine, cursorLine, lineBudget, lineWeights)
+    const start = displaySystem.syncViewportStartLine(leaf.startLine, cursorLine, lineBudget, lineWeights)
     if (start !== leaf.startLine) {
       this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, start)
     }
@@ -265,14 +261,14 @@ export class Editor {
     this.restoreSelectedWindowPoint()
   }
 
-  /** Select a window and move point from a body click (terminal/GUI cell coordinates). */
-  clickWindow(windowId: string, row: number, col: number, clickState: WindowClickState, bodyLineBudget: number): void {
+  /** Select a window and move point. The host bridge maps cell→point before calling
+   *  (display/ owns that math), so the kernel only sees the resolved buffer offset. */
+  clickWindow(windowId: string, point: number): void {
     const leaf = findWindowLeaf(this.windowLayout, windowId)
     if (!leaf) return
     this.selectWindow(windowId)
     const buffer = this.buffers.get(leaf.bufferId)
     if (!buffer || buffer.readOnly && buffer.kind !== "minibuffer") return
-    const point = pointFromWindowClick(buffer.text, clickState, row, col, bodyLineBudget)
     buffer.point = point
     buffer.deactivateMark()
     this.windowLayout = setWindowLeafPoint(this.windowLayout, windowId, point)
@@ -372,9 +368,14 @@ export class Editor {
     return this.minibufferDepth
   }
 
+  /** Shadow attach hook — set by attachAuthority/attachShadow so buffers created
+   *  after attach (find-file, compile) get the same onSplice wiring as the initial set. */
+  onAddBuffer?: (buffer: BufferModel) => void
+
   addBuffer(buffer: BufferModel): BufferModel {
     this.buffers.set(buffer.id, buffer)
     this.uniquifyBufferNames()
+    this.onAddBuffer?.(buffer)
     return buffer
   }
 
@@ -484,8 +485,8 @@ export class Editor {
   }
 
   enterMode(buffer: BufferModel, modeName: string): void {
-    const resolved = getMode(modeName) ? modeName : "text"
-    enterMode(buffer, resolved)
+    const resolved = modeSystem.getMode(modeName) ? modeName : "text"
+    modeSystem.enterMode(buffer, resolved)
     void this.runHook(modeHookName(resolved), buffer)
   }
 
@@ -504,8 +505,8 @@ export class Editor {
     else if (map === "minibuffer-local-map") this.minibufferKeymap.bind(sequence, commandName)
     else {
       const base = map.slice(0, -4) // strip canonical "-map" suffix for mode lookup
-      const mode = getMode(base)
-      const minor = mode ? undefined : getMinorMode(base)
+      const mode = modeSystem.getMode(base)
+      const minor = mode ? undefined : modeSystem.getMinorMode(base)
       const target = mode?.keymap ?? minor?.keymap
       if (!target) throw new Error(`Unknown keymap: ${mapName}`)
       target.bind(sequence, commandName)
@@ -514,14 +515,14 @@ export class Editor {
   }
 
   isMinorModeEnabled(name: string, buffer: BufferModel = this.currentBuffer): boolean {
-    const mode = getMinorMode(name)
+    const mode = modeSystem.getMinorMode(name)
     if (!mode) return false
     if (this.globalMinorModes.has(name)) return true
     return buffer.minorModes.has(name)
   }
 
   activeMinorModes(buffer: BufferModel = this.currentBuffer): MinorMode[] {
-    return allMinorModes().filter(mode => this.isMinorModeEnabled(mode.name, buffer))
+    return modeSystem.allMinorModes().filter(mode => this.isMinorModeEnabled(mode.name, buffer))
   }
 
   minorModeLighters(buffer: BufferModel = this.currentBuffer): string {
@@ -529,7 +530,7 @@ export class Editor {
   }
 
   enableMinorMode(name: string, options: { buffer?: BufferModel } = {}): void {
-    const mode = getMinorMode(name)
+    const mode = modeSystem.getMinorMode(name)
     if (!mode) throw new Error(`Unknown minor mode: ${name}`)
     const buffer = options.buffer ?? this.currentBuffer
     if (mode.global) this.globalMinorModes.add(name)
@@ -539,7 +540,7 @@ export class Editor {
   }
 
   disableMinorMode(name: string, options: { buffer?: BufferModel } = {}): void {
-    const mode = getMinorMode(name)
+    const mode = modeSystem.getMinorMode(name)
     if (!mode) throw new Error(`Unknown minor mode: ${name}`)
     const buffer = options.buffer ?? this.currentBuffer
     if (mode.global) this.globalMinorModes.delete(name)
@@ -684,7 +685,7 @@ export class Editor {
   }
 
   indentLine(buffer = this.activeBuffer): void {
-    const indent = modeFeature(buffer.mode, "indentLine")
+    const indent = modeSystem.modeFeature(buffer.mode, "indentLine")
     if (indent) indent(buffer)
     else buffer.insert("  ")
     void this.changed("indent-line")
@@ -694,7 +695,7 @@ export class Editor {
     const lspCandidates = await this.lsp?.completionAtPoint(buffer) ?? []
     if (lspCandidates.length) return this.applyCompletionCandidates(buffer, lspCandidates)
 
-    const complete = modeFeature(buffer.mode, "completeAtPoint")
+    const complete = modeSystem.modeFeature(buffer.mode, "completeAtPoint")
     const candidates = complete?.(buffer) ?? []
     if (!candidates.length) return false
     return this.applyCompletionCandidates(buffer, candidates)
@@ -718,7 +719,7 @@ export class Editor {
   }
 
   fontLock(buffer = this.currentBuffer): TextSpan[] {
-    const fontLock = modeFeature(buffer.mode, "fontLock")
+    const fontLock = modeSystem.modeFeature(buffer.mode, "fontLock")
     const cached = this.fontLockCache.get(buffer)
     let spans: TextSpan[]
     if (cached && cached.text === buffer.text) spans = cached.spans
@@ -1168,7 +1169,7 @@ export class Editor {
     for (const mode of this.activeMinorModes()) {
       if (mode.keymap) maps.push({ name: `${mode.name}-map`, keymap: mode.keymap })
     }
-    for (const mode of modeLineage(this.currentBuffer.mode)) {
+    for (const mode of modeSystem.modeLineage(this.currentBuffer.mode)) {
       if (mode.keymap) maps.push({ name: `${mode.name}-map`, keymap: mode.keymap })
     }
     maps.push({ name: "global-map", keymap: this.keymap })
