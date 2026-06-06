@@ -402,3 +402,5 @@
 {"id": "t-audit-da7b6f58", "status": "done", "ts": 1780713338728}
 {"id": "t-audit-1c671e26", "status": "done", "ts": 1780713338728}
 {"id": "t-audit-45c70597", "status": "done", "ts": 1780713338728}
+{"id": "t-a4094cea", "ts": 1780726853973, "kind": "feature", "priority": "p1", "owns": "src/shadow/ws-link.ts + plugins/shadow/index.ts", "status": "open", "title": "shadow: WsLink + shadow-serve/shadow-connect commands", "detail": "After sim.prop passes: Bun.serve({websocket}) on 127.0.0.1, one-time token in handshake. shadow-connect dials + attachShadow. shadow-serve attachAuthority.", "by": "sujay-shadow"}
+{"id": "t-a87a08c7", "ts": 1780726853973, "kind": "feature", "priority": "p1", "owns": "scripts/shadow-pair.sh + test/shadow/integration.test.ts", "status": "open", "title": "shadow: scripts/shadow-pair.sh + test/shadow/integration.test.ts", "detail": "tmux split, left=serve right=connect. Integration test (skipIf TUI) spawns both, types in S via tui-drive, asserts A buffer via --dump-buffer flag (add to src/main.ts).", "by": "sujay-shadow"}

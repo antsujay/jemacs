@@ -1,5 +1,7 @@
 import type { Editor } from "../kernel/editor"
+import type { BufferModel } from "../kernel/buffer"
 import { textScaleFactor, textScaleLighter } from "../core/text-scale"
+import { defvar, getCustom } from "../runtime/custom"
 import type { HostCapabilities } from "./protocol"
 import { isearchLazyHighlightSpans, isearchMatchSpan } from "../kernel/isearch"
 import { findWindowLeaf, type WindowLeaf, type WindowNode } from "../kernel/window"
@@ -16,6 +18,11 @@ import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-tex
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
 import { setEditorDisplayContext } from "./scroll"
 import { computeLineVisualRows, visibleLineCountForBudget } from "./visual-line-height"
+
+/** Plugin-contributed modeline segments (Emacs `mode-line-misc-info`). Each fn
+ *  returns a string appended after the minor-mode lighters; empty string = nothing. */
+defvar("mode-line-misc-info", [] as Array<(buffer: BufferModel) => string>,
+  "Functions appended to the mode line after minor-mode lighters.")
 
 export type BuildDisplayOptions = {
   lastMessage: string
@@ -211,7 +218,9 @@ function buildLeafPane(
     displayLines,
     keepWrappedTop,
   )
-  const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer)
+  const misc = (getCustom<Array<(b: BufferModel) => string>>("mode-line-misc-info") ?? [])
+    .map(f => f(buffer)).join("")
+  const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer) + misc
   const region = selected && buffer.markActive && buffer.mark != null
     ? `  (${Math.abs(point - buffer.mark)} chars)`
     : ""

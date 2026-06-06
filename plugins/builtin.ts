@@ -44,6 +44,7 @@ const builtins: Array<[name: string, load: () => Promise<{ install: InstallFn }>
   ["markdown", () => import("./markdown")],
   ["lean4", () => import("./lean4")],
   ["tiling", () => import("./tiling")],
+  ["shadow", () => import("./shadow")],
 ]
 
 const HERE = dirname(fileURLToPath(import.meta.url))

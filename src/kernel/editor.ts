@@ -107,6 +107,8 @@ export class Editor {
   readonly keymaps = new KeymapStack(() => this.activeKeymaps())
   readonly minibufferHistory = new Map<string, string[]>()
   readonly registers = new Map<string, RegisterContents>()
+  /** Editor-scoped scratch storage for plugins (parallels BufferModel.locals). */
+  readonly locals = new Map<string, unknown>()
   readonly tabs: Array<{ name: string; bufferId: string }> = []
   private _windowLayout!: WindowNode
   /** Read-only view of the window tree. Mutate via kernel primitives (setSelectedWindowPoint etc). */
@@ -366,9 +368,14 @@ export class Editor {
     return this.minibufferDepth
   }
 
+  /** Shadow attach hook — set by attachAuthority/attachShadow so buffers created
+   *  after attach (find-file, compile) get the same onSplice wiring as the initial set. */
+  onAddBuffer?: (buffer: BufferModel) => void
+
   addBuffer(buffer: BufferModel): BufferModel {
     this.buffers.set(buffer.id, buffer)
     this.uniquifyBufferNames()
+    this.onAddBuffer?.(buffer)
     return buffer
   }
 
