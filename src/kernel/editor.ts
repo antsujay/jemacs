@@ -18,6 +18,7 @@ import { enterMode, getMode, modeFeature, modeLineage } from "../modes/mode"
 import { allMinorModes, getMinorMode } from "../modes/minor-mode"
 import { makeDiredBuffer } from "../modes/dired"
 import { pointFromWindowClick } from "../display/click-to-point"
+import { syncViewportStartLine } from "../display/visual-line-height"
 import { composeTheme } from "../runtime/faces"
 import { defaultTheme } from "../themes"
 import { fileCompletionCandidates } from "./completion"
@@ -234,15 +235,13 @@ export class Editor {
   }
 
   /** Keep the cursor on screen without recentering the whole window on focus changes. */
-  syncSelectedWindowViewport(lineBudget: number): void {
+  syncSelectedWindowViewport(lineBudget: number, lineWeights?: readonly number[]): void {
     const leaf = this.selectedWindowLeaf()
     if (!leaf) return
     const buffer = this.buffers.get(leaf.bufferId)
     if (!buffer) return
     const cursorLine = this.lineAtPoint(buffer.point)
-    let start = leaf.startLine
-    if (cursorLine < start) start = cursorLine
-    else if (cursorLine >= start + lineBudget) start = Math.max(0, cursorLine - lineBudget + 1)
+    const start = syncViewportStartLine(leaf.startLine, cursorLine, lineBudget, lineWeights)
     if (start !== leaf.startLine) {
       this.windowLayout = setWindowLeafStartLine(this.windowLayout, leaf.id, start)
     }

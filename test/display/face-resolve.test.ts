@@ -30,6 +30,41 @@ test("setFaceAttribute overrides composed theme default face", () => {
   resetFace("default")
 })
 
+test("font-lock faces inherit buffer default face-remap font metrics", () => {
+  const theme = defineTheme("test", {
+    default: { family: "Fira Code", height: 140 },
+    type: { fg: "#a0f" },
+  })
+  const buffer = new BufferModel({ name: "md", mode: "markdown", text: "# Title" })
+  faceRemapAddRelative(buffer, "default", { family: "Helvetica Neue", height: 200 })
+  const resolved = resolveFace("type", theme, buffer)
+  expect(resolved?.family).toBe("Helvetica Neue")
+  expect(resolved?.height).toBe(200)
+  expect(resolved?.fg).toBe("#a0f")
+
+  const themed = applyTheme("Title", [{ start: 0, end: 5, face: "type" }], theme, { buffer })
+  expect(themed.chunks[0]?.family).toBe("Helvetica Neue")
+  expect(themed.chunks[0]?.height).toBe(200)
+})
+
+test("region highlight keeps font-lock face metrics in markdown buffers", () => {
+  const theme = defineTheme("test", {
+    default: { family: "Fira Code", height: 140, bg: "#111" },
+    type: { fg: "#a0f" },
+    region: { bg: "#333" },
+  })
+  const buffer = new BufferModel({ name: "md", mode: "markdown", text: "Title" })
+  faceRemapAddRelative(buffer, "default", { family: "Helvetica Neue", height: 200 })
+  const themed = applyTheme("Title", [
+    { start: 0, end: 5, face: "type" },
+    { start: 0, end: 5, face: "region" },
+  ], theme, { buffer })
+  expect(themed.chunks).toHaveLength(1)
+  expect(themed.chunks[0]?.family).toBe("Helvetica Neue")
+  expect(themed.chunks[0]?.height).toBe(200)
+  expect(themed.chunks[0]?.bg).toBe("#333")
+})
+
 test("faceRemapAddRelative applies buffer-local font overrides", () => {
   const theme = defineTheme("test", {
     default: { family: "Fira Code", height: 140 },

@@ -43,6 +43,23 @@ scripts/tui-drive.sh stop
 
 Set `JEMACS_TMUX_SESSION` to run multiple instances side-by-side.
 
+`tui-drive.sh` exports `JEMACS_INIT_PATH=test/fixtures/empty-config.ts` so a broken `~/.jemacs/init.ts` does not break tmux probes.
+
+## Layer 3b — Emacs parity (tmux)
+
+For Emacs ports (major modes, personal hooks), drive **Stephen's Emacs** the same way and diff behavior:
+
+```bash
+scripts/emacs-drive.sh start examples/docs/guide.md
+scripts/emacs-drive.sh keys End Enter C-x C-s
+scripts/emacs-drive.sh cap
+scripts/emacs-drive.sh stop
+
+JEMACS_PARITY_EMACS=1 npx bun test test/tui/markdown-parity.test.ts
+```
+
+Do not use `emacs --batch` for markdown-mode parity: `my-markdown-mode-hook` calls `markdown-display-inline-images`, which errors in batch. Use `emacs-drive.sh` (`emacs -nw` in tmux) instead.
+
 ## Pre-land checklist
 
 1. `bun test` — full suite green (the one preexisting `proto-renumber` failure is known).

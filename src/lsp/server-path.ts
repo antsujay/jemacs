@@ -19,31 +19,58 @@ export function emacsLspNpmBinary(packageName: string, binaryName = packageName)
   return existsSync(candidate) ? candidate : null
 }
 
-/** Resolve an LSP server executable: PATH, Emacs lsp-mode cache, then `node_modules/.bin` walking up. */
-export function findServerBinary(name: string, searchFrom?: string): string | null {
-  const onPath = whichExecutable(name)
-  if (onPath) return onPath
+function jemacsHome(): string | null {
+  const home = process.env.JEMACS_HOME
+  if (!home) return null
+  const resolved = resolve(home)
+  return existsSync(resolved) ? resolved : null
+}
 
-  const fromEmacs = emacsLspNpmBinary(name)
-  if (fromEmacs) return fromEmacs
+function nodeModulesBin(name: string, root: string): string | null {
+  const candidate = join(root, "node_modules", ".bin", name)
+  return existsSync(candidate) ? candidate : null
+}
 
-  let dir = searchFrom ? resolve(searchFrom) : process.cwd()
-  if (searchFrom) {
-    try {
-      if (statSync(dir).isFile()) dir = dirname(dir)
-    } catch {
-      dir = dirname(dir)
-    }
-  }
+/** Walk from `startDir` toward `/` looking for `node_modules/.bin/<name>`. */
+function walkNodeModulesBin(name: string, startDir: string): string | null {
+  let dir = resolve(startDir)
   const root = resolve("/")
   while (true) {
-    const candidate = join(dir, "node_modules", ".bin", name)
-    if (existsSync(candidate)) return candidate
+    const candidate = nodeModulesBin(name, dir)
+    if (candidate) return candidate
     const parent = dirname(dir)
     if (parent === dir || dir === root) break
     dir = parent
   }
   return null
+}
+
+/** Resolve an LSP server executable: PATH, project tree, JEMACS_HOME, then Emacs lsp-mode cache. */
+export function findServerBinary(name: string, searchFrom?: string): string | null {
+  const onPath = whichExecutable(name)
+  if (onPath) return onPath
+
+  if (searchFrom) {
+    let dir = resolve(searchFrom)
+    try {
+      if (statSync(dir).isFile()) dir = dirname(dir)
+    } catch {
+      dir = dirname(dir)
+    }
+    const fromProject = walkNodeModulesBin(name, dir)
+    if (fromProject) return fromProject
+  } else {
+    const fromCwd = walkNodeModulesBin(name, process.cwd())
+    if (fromCwd) return fromCwd
+  }
+
+  const home = jemacsHome()
+  if (home) {
+    const fromHome = nodeModulesBin(name, home)
+    if (fromHome) return fromHome
+  }
+
+  return emacsLspNpmBinary(name)
 }
 
 export function searchRootForBuffer(buffer?: BufferModel): string {

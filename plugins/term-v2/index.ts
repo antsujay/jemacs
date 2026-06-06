@@ -4,8 +4,22 @@ import type { BufferModel } from "../../src/kernel/buffer"
 import type { FaceName, TextSpan } from "../../src/modes/mode"
 import { defineMode, getMode } from "../../src/modes/mode"
 import { Keymap, normalizeSequence, type KeyEventLike } from "../../src/kernel/keymap"
-import { spawnPty, type Pty } from "../term/pty"
-import { Terminal as XTerm, type IBuffer, type IBufferCell } from "@xterm/headless"
+import type { Pty } from "../term/pty"
+import { makeXTerm, type IBuffer, type IBufferCell, type Terminal as XTerm } from "./xterm-shim"
+
+export { makeXTerm } from "./xterm-shim"
+
+type PtyModule = typeof import("../term/pty")
+let ptyModule: PtyModule | null = null
+
+async function loadPtyModule(): Promise<PtyModule> {
+  if (!ptyModule) {
+    ptyModule = typeof Bun !== "undefined"
+      ? await import("../term/pty")
+      : await import("../term/pty-stub")
+  }
+  return ptyModule
+}
 
 /** Emacs term-raw-map: every key resolves to term-send-raw; C-c is the only
  *  prefix escape. Installed as overriding-terminal-local-map so nothing falls
@@ -208,10 +222,6 @@ export function feed(session: TermSession, buffer: BufferModel, chunk: string, d
   }))
 }
 
-export function makeXTerm(rows: number, cols: number): XTerm {
-  return new XTerm({ rows, cols, allowProposedApi: true, scrollback: 10_000 })
-}
-
 export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   // Idempotent re-install: keep an already-registered term-map so a second
   // install() (tests, plugin reload) preserves any extra bindings on it.
@@ -229,6 +239,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const buffer = editor.scratch(`*term*<${shell}>`, "")
     buffer.mode = "term"
     const rows = 30, cols = 100
+    const { spawnPty } = await loadPtyModule()
     const pty = spawnPty([shell, "-i"], { cwd, rows, cols })
     const session: TermSession = { pty, xt: makeXTerm(rows, cols), rows, cols }
     attachSession(buffer, session)

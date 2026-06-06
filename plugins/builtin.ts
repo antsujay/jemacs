@@ -41,6 +41,7 @@ const builtins: Array<[name: string, load: () => Promise<{ install: InstallFn }>
   ["avy", () => import("./avy")],
   ["register-text", () => import("./register-text")],
   ["org", () => import("./org")],
+  ["markdown", () => import("./markdown")],
   ["lean4", () => import("./lean4")],
   ["tiling", () => import("./tiling")],
 ]

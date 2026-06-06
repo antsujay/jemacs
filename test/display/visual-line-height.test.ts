@@ -1,0 +1,46 @@
+import { expect, test } from "bun:test"
+import { BufferModel } from "../../src/kernel/buffer"
+import { faceRemapAddRelative } from "../../src/runtime/faces"
+import { defineTheme } from "../../src/display/theme"
+import { DOM_FRAME_LINE_HEIGHT_RATIO, DOM_FRAME_ROW_PX } from "../../src/display/dom-frame"
+import {
+  computeLineVisualRows,
+  syncViewportStartLine,
+  visibleLineCountForBudget,
+} from "../../src/display/visual-line-height"
+import type { TextSpan } from "../../src/modes/mode"
+
+const theme = defineTheme("test", {
+  default: { height: 200 },
+})
+
+test("computeLineVisualRows gives body lines proportional cost, not double-counted", () => {
+  const text = "# Big\nbody\n"
+  const buffer = new BufferModel({ name: "doc.md", mode: "markdown", text })
+  faceRemapAddRelative(buffer, "default", { height: 200 })
+  faceRemapAddRelative(buffer, "markdown-header-face-1", { heightScale: 2 })
+  const spans: TextSpan[] = [{ start: 0, end: 5, face: "markdown-header-face-1" as TextSpan["face"] }]
+  const rows = computeLineVisualRows(text, spans, theme, buffer)
+  const bodyCost = (20 * DOM_FRAME_LINE_HEIGHT_RATIO) / DOM_FRAME_ROW_PX
+  expect(rows[1]).toBeCloseTo(bodyCost, 5)
+  expect(rows[0]!).toBeGreaterThan(rows[1]!)
+  expect(rows[0]!).toBeCloseTo(bodyCost * 2, 5)
+})
+
+test("visibleLineCountForBudget fills pane for uniform markdown body text", () => {
+  const budget = 26
+  const bodyCost = (20 * DOM_FRAME_LINE_HEIGHT_RATIO) / DOM_FRAME_ROW_PX
+  const visualRows = Array.from({ length: 40 }, () => bodyCost)
+  expect(visibleLineCountForBudget(0, budget, visualRows.length, visualRows)).toBe(Math.floor(budget / bodyCost))
+})
+
+test("syncViewportStartLine scrolls earlier when cursor line is visually tall", () => {
+  const rows = [3, 1, 1, 1, 1]
+  expect(syncViewportStartLine(0, 0, 4, rows)).toBe(0)
+  expect(syncViewportStartLine(0, 4, 4, rows)).toBe(1)
+})
+
+test("visibleLineCountForBudget fits fewer logical lines when headings are tall", () => {
+  const rows = [3, 1, 1, 1, 1, 1]
+  expect(visibleLineCountForBudget(0, 5, rows.length, rows)).toBe(3)
+})
