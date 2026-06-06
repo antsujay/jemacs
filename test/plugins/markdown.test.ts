@@ -221,8 +221,13 @@ describe("markdown-fontify-code-blocks-natively", () => {
     const editor = makeEditor()
     install(editor)
     const buffer = editor.scratch("doc.md", "```js\nx\n```\n", "markdown")
+    // Toggle is relative to the current effective value (global default may have
+    // been set by another test's installStephenConfig).
     await editor.run("markdown-toggle-fontify-code-blocks-natively")
-    expect(buffer.locals.get("markdown-fontify-code-blocks-natively")).toBe(true)
+    const after1 = buffer.locals.get("markdown-fontify-code-blocks-natively")
+    expect(typeof after1).toBe("boolean")
+    await editor.run("markdown-toggle-fontify-code-blocks-natively")
+    expect(buffer.locals.get("markdown-fontify-code-blocks-natively")).toBe(!after1)
   })
 })
 
