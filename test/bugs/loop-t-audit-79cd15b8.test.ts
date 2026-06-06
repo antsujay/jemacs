@@ -33,7 +33,7 @@ test("save-some-buffers: one failing save does not abort the loop; summary repor
   const dir = await mkdtemp(join(tmpdir(), "jemacs-savesome-"))
   try {
     let lastMessage = ""
-    const ed = await script()
+    const ed = await script({ plugins: false })
       .do(e => { e.events.on("message", ({ text }) => { lastMessage = text }) })
       .done()
     const mk = (path: string) => {
