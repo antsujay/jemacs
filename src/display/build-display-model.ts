@@ -203,7 +203,17 @@ function buildLeafPane(
   // text into the next line's gutter (t-16be1a86). Pre-wrap here so every
   // continuation row carries the gutter's left padding.
   const keepWrappedTop = startLine === 0
-  const body = wrapBodyRows(
+  const visualFill = visualFillSettings(buffer)
+  const contentWidth = availableCols != null
+    ? Math.max(1, availableCols - clickState.gutterPrefixLen)
+    : undefined
+  const columnWidth = visualFill && contentWidth != null
+    ? Math.min(visualFill.fillColumn, contentWidth)
+    : undefined
+  const wrapCols = columnWidth != null
+    ? clickState.gutterPrefixLen + columnWidth
+    : availableCols
+  let body = wrapBodyRows(
     visibleStyledTextFromStart(dText, dPoint, startLine, {
       mark: dMark,
       spans: dSpans,
@@ -213,11 +223,15 @@ function buildLeafPane(
       showLineNumbers,
       showCursor: selected,
     }),
-    availableCols,
+    wrapCols,
     clickState.gutterPrefixLen,
     displayLines,
     keepWrappedTop,
   )
+  if (visualFill?.center && columnWidth != null && contentWidth != null && columnWidth < contentWidth) {
+    const leftMargin = Math.floor((contentWidth - columnWidth) / 2)
+    if (leftMargin > 0) body = padBodyLines(body, " ".repeat(leftMargin))
+  }
   const misc = (getCustom<Array<(b: BufferModel) => string>>("mode-line-misc-info") ?? [])
     .map(f => f(buffer)).join("")
   const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer) + misc
@@ -266,6 +280,54 @@ function proportionalBudget(total: number, firstRatio: number, min: number): num
   if (total <= min * 2) return Math.floor(total / 2)
   const ratio = Math.max(0.05, Math.min(0.95, firstRatio))
   return Math.max(min, Math.min(total - min, Math.floor(total * ratio)))
+}
+
+/** Emacs `visual-fill-column-mode` for markdown buffers: narrow wrap width and
+ *  optional centering (see `~/.emacs.d/stephen.el` markdown-mode-hook). */
+function visualFillSettings(buffer: BufferModel): { fillColumn: number; center: boolean } | null {
+  if (buffer.locals.get("markdown-visual-fill-column-mode") !== true) return null
+  const fillColumn = buffer.locals.get(MARKDOWN_FILL_COLUMN) as number | undefined
+    ?? getCustom<number>(MARKDOWN_FILL_COLUMN)
+    ?? 100
+  const center = buffer.locals.get(MARKDOWN_VISUAL_FILL_CENTER) as boolean | undefined
+    ?? getCustom<boolean>(MARKDOWN_VISUAL_FILL_CENTER)
+    ?? true
+  return { fillColumn: Math.max(1, Math.floor(fillColumn)), center }
+}
+
+const MARKDOWN_FILL_COLUMN = "markdown-fill-column"
+const MARKDOWN_VISUAL_FILL_CENTER = "markdown-visual-fill-column-center-text"
+
+function themedChunkStyleEqual(a: ThemedChunk, b: ThemedChunk): boolean {
+  return a.fg === b.fg && a.bg === b.bg && a.bold === b.bold && a.italic === b.italic
+    && a.underline === b.underline && a.family === b.family && a.height === b.height
+    && a.heightScale === b.heightScale
+}
+
+/** Prefix every body row (including wrapped continuations) with `leftPad`. */
+function padBodyLines(body: ThemedText, leftPad: string): ThemedText {
+  if (!leftPad) return body
+  const pad: ThemedChunk = { text: leftPad }
+  const out: ThemedChunk[] = [pad]
+  const append = (style: ThemedChunk, ch: string) => {
+    const last = out[out.length - 1]!
+    if (last.text !== leftPad && themedChunkStyleEqual(last, style) && !last.text.endsWith("\n")) {
+      last.text += ch
+      return
+    }
+    out.push({ ...style, text: ch })
+  }
+  for (const chunk of body.chunks) {
+    for (const ch of chunk.text) {
+      if (ch === "\n") {
+        append(chunk, ch)
+        out.push(pad)
+      } else {
+        append(chunk, ch)
+      }
+    }
+  }
+  return { chunks: out }
 }
 
 /** Hard-wrap themed body rows at `cols`, left-padding continuation rows by

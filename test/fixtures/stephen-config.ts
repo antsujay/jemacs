@@ -15,6 +15,9 @@ export async function install(editor: Editor): Promise<void> {
   await installTreeSitterGrammars(editor)
   const userTemporaryFileDirectory = join(tmpdir(), userInfo().username)
   setCustom("backup-directory-alist", [[".", userTemporaryFileDirectory]])
+  setCustom("markdown-fontify-code-blocks-natively", true)
+  setCustom("markdown-fill-column", 100)
+  setCustom("markdown-visual-fill-column-center-text", true)
 
   installGruvboxDarkHardTheme(editor)
   enableBuiltinTheme(gruvboxDarkHardTheme.name)

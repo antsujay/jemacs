@@ -22,6 +22,7 @@ const builtins: Array<[name: string, load: () => Promise<{ install: InstallFn }>
   ["flymake-nav", () => import("./flymake-nav")],
   ["fido", () => import("./fido")],
   ["persist", () => import("./persist")],
+  ["bookmark", () => import("./bookmark")],
   ["auto-revert", () => import("./auto-revert")],
   ["auto-save", () => import("./auto-save")],
   ["lsp-extras", () => import("./lsp-extras")],

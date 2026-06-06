@@ -7,6 +7,7 @@ import { installDefaultModes } from "../src/modes/default-modes"
 import { composeTheme, resetFace, setFaceAttribute } from "../src/runtime/faces"
 import { defaultTheme } from "../src/themes"
 import { install as installOrg } from "../plugins/org"
+import { install as installMarkdown } from "../plugins/markdown"
 
 test("buildDisplayModel includes buffer name in title", () => {
   installDefaultModes()
@@ -97,4 +98,26 @@ test("buildDisplayModel applies mode displayFilter: folds body, remaps point and
   expect(leaf!.body.chunks.some(c => c.underline)).toBe(false)
   // (3) point inside the fold clamps to the end of `* H`; cursor sits on the ellipsis.
   expect(body.indexOf("█")).toBe("* H".length)
+})
+
+test("buildDisplayModel centers markdown body at markdown-fill-column", () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  installMarkdown(editor)
+  const line = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+  const buffer = editor.scratch("md-fill", line, "markdown")
+  buffer.locals.set("markdown-visual-fill-column-mode", true)
+  buffer.locals.set("markdown-fill-column", 40)
+  buffer.locals.set("markdown-visual-fill-column-center-text", true)
+  buffer.point = 0
+
+  const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24, cols: 80 } })
+  const leaf = model.windows.kind === "leaf" ? model.windows.pane : null
+  expect(leaf).not.toBeNull()
+  const rows = themedTextPlain(leaf!.body).split("\n")
+  expect(rows.length).toBeGreaterThan(1)
+  const margin = " ".repeat(20)
+  for (const row of rows) expect(row.startsWith(margin)).toBe(true)
+  expect(rows[0]!.slice(20).length).toBeLessThanOrEqual(40)
 })

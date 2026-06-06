@@ -771,8 +771,9 @@ function applyMarkdownFaceRemap(buffer: BufferModel): void {
     faceRemapAddRelative(buffer, face, { heightScale: scale })
   }
   buffer.minorModes.delete("linum-mode")
-  buffer.locals.set(MARKDOWN_FILL_COLUMN, 100)
+  buffer.locals.set(MARKDOWN_FILL_COLUMN, getCustom<number>("markdown-fill-column") ?? 100)
   buffer.locals.set(MARKDOWN_VISUAL_FILL, true)
+  buffer.locals.set("markdown-visual-fill-column-center-text", getCustom<boolean>("markdown-visual-fill-column-center-text") ?? true)
   buffer.locals.set("word-wrap", true)
   buffer.locals.set("adaptive-wrap-prefix-mode", true)
 }
