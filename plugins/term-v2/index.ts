@@ -18,7 +18,9 @@ async function loadPtyModule(): Promise<PtyModule> {
   }
   return ptyModule
 }
-import { Terminal as XTerm, type IBuffer, type IBufferCell } from "@xterm/headless"
+import { makeXTerm, type IBuffer, type IBufferCell, type Terminal as XTerm } from "./xterm-shim"
+
+export { makeXTerm } from "./xterm-shim"
 
 /** Emacs term-raw-map: every key resolves to term-send-raw; C-c is the only
  *  prefix escape. Installed as overriding-terminal-local-map so nothing falls
@@ -219,10 +221,6 @@ export function feed(session: TermSession, buffer: BufferModel, chunk: string, d
       resolve()
     })
   }))
-}
-
-export function makeXTerm(rows: number, cols: number): XTerm {
-  return new XTerm({ rows, cols, allowProposedApi: true, scrollback: 10_000 })
 }
 
 export function install(editor: Editor): void {

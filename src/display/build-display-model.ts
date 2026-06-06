@@ -1,5 +1,6 @@
 import type { Editor } from "../kernel/editor"
 import { textScaleFactor, textScaleLighter } from "../core/text-scale"
+import type { HostCapabilities } from "./protocol"
 import { isearchLazyHighlightSpans, isearchMatchSpan } from "../kernel/isearch"
 import { findWindowLeaf, type WindowLeaf, type WindowNode } from "../kernel/window"
 import { diagnosticsForBuffer } from "../lsp/diagnostics"
@@ -13,11 +14,13 @@ import { bufferHighlightSpans } from "./buffer-highlights"
 import { applyTheme } from "./theme"
 import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-text"
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
+import { computeLineVisualRows, visibleLineCountForBudget } from "./visual-line-height"
 
 export type BuildDisplayOptions = {
   lastMessage: string
   viewport: ViewportSize
   hostLabel?: string
+  hostCapabilities?: HostCapabilities
 }
 
 export function buildDisplayModel(editor: Editor, options: BuildDisplayOptions): DisplayModel {
@@ -36,7 +39,7 @@ export function buildDisplayModel(editor: Editor, options: BuildDisplayOptions):
   // Minibuffer may carry a multi-line completion overlay (fido); steal those rows from the window stack.
   const overlayRows = editor.minibuffer ? editor.activeBuffer.text.split("\n").length - 1 : 0
   const areaLines = Math.max(2, contentAreaLines(viewport.rows) - completionLines - overlayRows)
-  const windows = buildWindowTree(editor, editor.windowLayout, areaLines, viewport.cols)
+  const windows = buildWindowTree(editor, editor.windowLayout, areaLines, viewport.cols, options.hostCapabilities)
 
   const minibuffer = buildMinibufferChunk(editor, depth)
   // The minibuffer chunk owns the prompt row while a minibuffer or isearch is
@@ -105,9 +108,19 @@ function buildMinibufferChunk(editor: Editor, depth: string) {
   return applyTheme(" ", [], editor.theme)
 }
 
-function buildWindowTree(editor: Editor, layout: WindowNode, availableLines: number, availableCols?: number): WindowDisplayNode {
+function buildWindowTree(
+  editor: Editor,
+  layout: WindowNode,
+  availableLines: number,
+  availableCols?: number,
+  hostCapabilities?: HostCapabilities,
+): WindowDisplayNode {
   if (layout.kind === "leaf") {
-    return { kind: "leaf", pane: buildLeafPane(editor, layout, availableLines, availableCols), lineBudget: availableLines }
+    return {
+      kind: "leaf",
+      pane: buildLeafPane(editor, layout, availableLines, availableCols, hostCapabilities),
+      lineBudget: availableLines,
+    }
   }
   const lines = splitLineBudget(availableLines, layout.direction, layout.firstRatio)
   const cols = splitColBudget(availableCols, layout.direction, layout.firstRatio)
@@ -115,12 +128,18 @@ function buildWindowTree(editor: Editor, layout: WindowNode, availableLines: num
     kind: "split",
     direction: layout.direction,
     firstRatio: layout.firstRatio,
-    first: buildWindowTree(editor, layout.first, lines.first, cols.first),
-    second: buildWindowTree(editor, layout.second, lines.second, cols.second),
+    first: buildWindowTree(editor, layout.first, lines.first, cols.first, hostCapabilities),
+    second: buildWindowTree(editor, layout.second, lines.second, cols.second, hostCapabilities),
   }
 }
 
-function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number, availableCols?: number) {
+function buildLeafPane(
+  editor: Editor,
+  leaf: WindowLeaf,
+  availableLines: number,
+  availableCols?: number,
+  hostCapabilities?: HostCapabilities,
+) {
   const selected = leaf.id === editor.selectedWindowId
   const maxLines = windowBodyLines(availableLines)
   const buffer = editor.buffers.get(leaf.bufferId)
@@ -144,10 +163,18 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
   const point = selected ? buffer.point : leaf.point
   const dirty = buffer.dirty ? "*" : ""
   const { line, col } = pointLineCol(buffer.text, point)
-  if (selected) editor.syncSelectedWindowViewport(maxLines)
-  const startLine = findWindowLeaf(editor.windowLayout, leaf.id)?.startLine ?? leaf.startLine
 
   const spans = [...editor.fontLock(buffer)]
+  const useVisualWeights = hostCapabilities?.perFaceFonts === true
+  const visualRows = useVisualWeights
+    ? computeLineVisualRows(buffer.text, spans, editor.theme, buffer, textScaleFactor(buffer))
+    : undefined
+  if (selected) editor.syncSelectedWindowViewport(maxLines, visualRows)
+  const startLine = findWindowLeaf(editor.windowLayout, leaf.id)?.startLine ?? leaf.startLine
+  const lineCount = buffer.text.split("\n").length
+  const displayLines = visualRows
+    ? visibleLineCountForBudget(startLine, maxLines, lineCount, visualRows)
+    : maxLines
   if (selected && editor.isearch) {
     const match = isearchMatchSpan(buffer, editor.isearch)
     if (match) spans.push(match)
@@ -162,7 +189,7 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
   const dPoint = filt ? filt.map(point) : point
   const dMark = filt && mark != null ? filt.map(mark) : mark
   const dSpans = filt ? spans.map(s => ({ ...s, start: filt.map(s.start), end: filt.map(s.end) })) : spans
-  const clickState = windowClickState(dText, startLine, maxLines, showLineNumbers)
+  const clickState = windowClickState(dText, startLine, displayLines, showLineNumbers)
   // Hosts hard-wrap overflowing rows at column 0, which paints continuation
   // text into the next line's gutter (t-16be1a86). Pre-wrap here so every
   // continuation row carries the gutter's left padding.
@@ -172,13 +199,13 @@ function buildLeafPane(editor: Editor, leaf: WindowLeaf, availableLines: number,
       spans: dSpans,
       theme: editor.theme,
       buffer,
-      maxLines,
+      maxLines: displayLines,
       showLineNumbers,
       showCursor: selected,
     }),
     availableCols,
     clickState.gutterPrefixLen,
-    maxLines,
+    displayLines,
   )
   const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer)
   const region = selected && buffer.markActive && buffer.mark != null

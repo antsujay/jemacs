@@ -5,6 +5,8 @@ export type SerializedChunk = SerializedThemedText["chunks"][number]
 
 export const DOM_FRAME_ROW_PX = 18
 export const DOM_FRAME_COL_PX = 9
+/** Matches `body.style.lineHeight` in `renderWindows`. */
+export const DOM_FRAME_LINE_HEIGHT_RATIO = 1.35
 const DOM_FRAME_BODY_FONT_PX = 13
 const DOM_FRAME_MODELINE_FONT_PX = 12
 
@@ -83,7 +85,7 @@ export function renderWindows(
     if (defaultFace?.family) body.style.fontFamily = defaultFace.family
     const bodyDefaultPx = defaultFace?.height != null ? defaultFace.height / 10 : DOM_FRAME_BODY_FONT_PX
     body.style.fontSize = `${bodyDefaultPx * textScale}px`
-    body.style.lineHeight = String(1.35)
+    body.style.lineHeight = String(DOM_FRAME_LINE_HEIGHT_RATIO)
     renderThemedText(body, node.pane.body, { textScale, defaultFontPx: bodyDefaultPx })
     body.addEventListener("mousedown", event => sendMouse(event, body))
     pane.addEventListener("mousedown", event => {

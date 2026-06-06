@@ -4,8 +4,8 @@ import { addHook } from "../../src/kernel/hooks"
 import { Keymap } from "../../src/kernel/keymap"
 import { defcustom } from "../../src/runtime/custom"
 import { defface, faceRemapAddRelative } from "../../src/runtime/faces"
-import { defineMode, enterMode } from "../../src/modes/mode"
-import { createTreeSitterFontLock } from "../../src/modes/tree-sitter"
+import { defineMode, enterMode, type FaceName, type TextSpan } from "../../src/modes/mode"
+import { treeSitterFontLock } from "../../src/modes/tree-sitter"
 
 const TAB_WIDTH = 4
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+/
@@ -328,6 +328,29 @@ function markdownOutdentLine(buffer: BufferModel): void {
   }
   buffer.replaceRange(line.start, line.end, " ".repeat(desired) + content)
   buffer.point = line.start + Math.max(desired, column + (desired - currentIndent))
+}
+
+function markdownHeaderFace(level: number): FaceName {
+  return `markdown-header-face-${Math.min(6, Math.max(1, level))}` as FaceName
+}
+
+function overlayMarkdownHeaderFaces(text: string, spans: TextSpan[]): TextSpan[] {
+  const headings = markdownParseHeadings(text)
+  if (!headings.length) return spans
+  const headerSpans = headings.map(h => ({
+    start: h.start,
+    end: h.end,
+    face: markdownHeaderFace(h.level),
+  }))
+  const filtered = spans.filter(span =>
+    !headings.some(h => span.start >= h.start && span.end <= h.end),
+  )
+  return [...filtered, ...headerSpans].sort((a, b) => a.start - b.start || a.end - b.end)
+}
+
+function markdownFontLock(buffer: BufferModel): TextSpan[] {
+  const lang = buffer.mode === "gfm" ? "gfm" : "markdown"
+  return overlayMarkdownHeaderFaces(buffer.text, treeSitterFontLock(lang, buffer))
 }
 
 function applyMarkdownFaceRemap(buffer: BufferModel): void {
@@ -677,7 +700,7 @@ export function install(editor: Editor): void {
     commentStart: "<!--",
     keymap,
     indentLine: markdownIndentLine,
-    fontLock: createTreeSitterFontLock("markdown"),
+    fontLock: markdownFontLock,
     displayFilter: markdownDisplayFilter,
     onEnter: applyMarkdownFaceRemap,
   })
@@ -688,7 +711,7 @@ export function install(editor: Editor): void {
     name: "gfm",
     parent: "markdown",
     keymap: gfmKeymap,
-    fontLock: createTreeSitterFontLock("gfm"),
+    fontLock: markdownFontLock,
     onEnter: applyMarkdownFaceRemap,
   })
 

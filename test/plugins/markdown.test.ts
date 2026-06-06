@@ -36,6 +36,16 @@ test("tree-sitter font-lock highlights markdown structure", () => {
   expect(spans.some(span => span.face === "comment")).toBe(true)
 })
 
+test("markdown font-lock applies proportional header faces", () => {
+  const editor = makeEditor()
+  install(editor)
+  const buffer = new BufferModel({ name: "doc.md", text: "# One\n## Two\nbody", mode: "text" })
+  enterMode(buffer, "markdown")
+  const spans = editor.fontLock(buffer)
+  expect(spans.some(span => String(span.face) === "markdown-header-face-1")).toBe(true)
+  expect(spans.some(span => String(span.face) === "markdown-header-face-2")).toBe(true)
+})
+
 test("markdown-indent-line follows previous list marker", () => {
   const text = "- item one\n"
   const buffer = new BufferModel({ name: "list.md", text, mode: "markdown" })

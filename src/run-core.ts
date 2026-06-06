@@ -20,7 +20,12 @@ export function bindJemacsHost(editor: Editor, host: UiHost): JemacsHostBinding 
   const present = () => {
     const viewport = host.getViewport()
     const label = host.kind === "gui" ? "Jemacs GUI" : "Jemacs OpenTUI"
-    lastModel = buildDisplayModel(editor, { lastMessage, viewport, hostLabel: label })
+    lastModel = buildDisplayModel(editor, {
+      lastMessage,
+      viewport,
+      hostLabel: label,
+      hostCapabilities: host.capabilities,
+    })
     host.present(lastModel)
   }
 
