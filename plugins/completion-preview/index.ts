@@ -61,8 +61,6 @@ function previewShow(editor: Editor, buffer: BufferModel): void {
   }
 }
 
-let adviceInstalled = false
-
 export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   defcustom("completion-preview-minimum-symbol-length", "number", 3,
     "Minimum length of the symbol at point before showing a preview.")
@@ -99,13 +97,9 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     previewHide(editor, buffer)
   }, "Accept the current completion preview, inserting the suggested suffix.")
 
-  if (!adviceInstalled) {
-    ctx.advice("self-insert-command", {
-      after: ({ editor, buffer }) => previewShow(editor, buffer),
-    })
-    adviceInstalled = true
-    ctx.onDispose(() => { adviceInstalled = false })
-  }
+  ctx.advice("self-insert-command", {
+    after: ({ editor, buffer }) => previewShow(editor, buffer),
+  })
 
   editor.events.on("changed", ({ reason }) => {
     if (!reason.startsWith("command:")) return

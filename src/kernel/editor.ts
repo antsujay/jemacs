@@ -5,11 +5,19 @@ import { CommandRegistry, type CommandFn } from "./command"
 import { Emitter } from "./events"
 import { isPrintable, Keymap, KeymapStack, keyToken, type KeyEventLike } from "./keymap"
 import { digitFromKey, PrefixArgumentState } from "./prefix-argument"
-import { enterMode, getMode, modeFeature, modeLineage, type CompletionCandidate, type TextSpan } from "../modes/mode"
-import { allMinorModes, getMinorMode, type MinorMode } from "../modes/minor-mode"
+import type {
+  CompletionCandidate,
+  MinorModeSpec as MinorMode,
+  TextSpan,
+  Theme,
+  WindowClickState,
+} from "./extension-points"
+// Value-level upward imports below remain until the per-import sub-tasks move
+// the calling methods out to lisp/ and wire `setModeSystem` (t-audit-1c671e26).
+import { enterMode, getMode, modeFeature, modeLineage } from "../modes/mode"
+import { allMinorModes, getMinorMode } from "../modes/minor-mode"
 import { makeDiredBuffer } from "../modes/dired"
-import { pointFromWindowClick, type WindowClickState } from "../display/click-to-point"
-import type { Theme } from "../display/theme"
+import { pointFromWindowClick } from "../display/click-to-point"
 import { composeTheme } from "../runtime/faces"
 import { defaultTheme } from "../themes"
 import { fileCompletionCandidates } from "./completion"
@@ -115,6 +123,8 @@ export class Editor {
   selectedTab = 0
   minibuffer: MinibufferRequest | null = null
   isearch: IsearchState | null = null
+  /** Per-key dispatch while isearch is active; the UI loop is owned by lisp/isearch-ui (DESIGN.md). */
+  isearchKeyHandler: ((key: KeyEventLike) => Promise<KeyDispatchResult | null>) | null = null
   running = true
   overridingTerminalLocalMap: Keymap | null = null
   overridingMap: Keymap | null = null
@@ -133,7 +143,7 @@ export class Editor {
   completer: Completer | null = null
   /** Gutter predicate consulted by build-display-model; modes (linum) install the policy. */
   showLineNumbers: (buffer?: BufferModel) => boolean = () => false
-  private readonly searchRing: string[] = []
+  readonly searchRing: string[] = []
   private minibufferDepth = 0
   private readonly displayNames = new Map<string, string>()
   /** Buffer ids most-recently-selected first; killBuffer's fallback source. */
@@ -564,8 +574,8 @@ export class Editor {
   async handleKey(key: KeyEventLike): Promise<KeyDispatchResult> {
     this.lastKeyEvent = key
 
-    if (this.isearch) {
-      const isearchResult = await this.handleIsearchKey(key)
+    if (this.isearch && this.isearchKeyHandler) {
+      const isearchResult = await this.isearchKeyHandler(key)
       if (isearchResult) return isearchResult
     }
 
@@ -908,7 +918,7 @@ export class Editor {
     void this.changed("isearch-end")
   }
 
-  private setIsearchString(string: string): void {
+  setIsearchString(string: string): void {
     const state = this.isearch
     if (!state) return
     const buffer = this.buffers.get(state.bufferId)
@@ -932,47 +942,6 @@ export class Editor {
     buffer.point = match
     this.message(isearchPrompt(state))
     void this.changed("isearch-input")
-  }
-
-  private async handleIsearchKey(key: KeyEventLike): Promise<KeyDispatchResult | null> {
-    const state = this.isearch
-    if (state && key.ctrl && !key.meta && key.name === "w") {
-      const buffer = this.buffers.get(state.bufferId)
-      if (buffer) {
-        const from = buffer.point + state.string.length
-        const m = /^\W?\w*/.exec(buffer.text.slice(from))
-        if (m && m[0]) this.setIsearchString(state.string + m[0])
-      }
-      return { status: "inserted" }
-    }
-    switch (key.name) {
-      case "backspace":
-        if (this.isearch) this.setIsearchString(this.isearch.string.slice(0, -1))
-        return { status: "inserted" }
-      case "enter":
-      case "return":
-        this.endIsearch()
-        return { status: "inserted" }
-      case "delete":
-        return { status: "inserted" }
-      default:
-        if (key.meta && (key.name === "p" || key.name === "n")) {
-          const ring = this.searchRing
-          if (!ring.length) { this.message("No previous search string"); return { status: "inserted" } }
-          const cur = ring.indexOf(this.isearch?.string ?? "")
-          const i = key.name === "p"
-            ? (cur < 0 ? ring.length - 1 : Math.max(0, cur - 1))
-            : (cur < 0 ? 0 : Math.min(ring.length - 1, cur + 1))
-          this.setIsearchString(ring[i]!)
-          return { status: "inserted" }
-        }
-        if (isPrintable(key)) {
-          const text = (key.sequence ?? "").repeat(this.consumePrefixArgument() ?? 1)
-          if (this.isearch) this.setIsearchString(this.isearch.string + text)
-          return { status: "inserted" }
-        }
-    }
-    return null
   }
 
   async minibufferInsert(s: string): Promise<void> {

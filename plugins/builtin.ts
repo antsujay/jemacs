@@ -1,12 +1,7 @@
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { Editor } from "../src/kernel/editor"
-import { trackedContext, type PluginContext } from "../src/runtime/plugin-context"
-
-// Second arg is PluginContext for every plugin except compile (which keeps
-// CompileDeps positional-2 for test injection); both are optional so the
-// builtin loader can pass ctx uniformly without a per-plugin adapter.
-type InstallFn = (editor: Editor, ctx?: PluginContext) => void | Promise<void>
+import { Evaluator, type InstallFn } from "../src/runtime/evaluator"
 
 /**
  * Explicit, ordered load list. Order matters: state providers first
@@ -52,14 +47,16 @@ const builtins: Array<[name: string, load: () => Promise<{ install: InstallFn }>
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-export async function installBuiltinPlugins(editor: Editor): Promise<void> {
+export async function installBuiltinPlugins(
+  editor: Editor,
+  evaluator: Evaluator = new Evaluator(editor),
+): Promise<void> {
   for (const [name, load] of builtins) {
     try {
       const mod = await load()
       // Key by resolved index path so a later evaluator.loadPlugin on the same
       // file finds and disposes this boot-time context before re-installing.
-      const ctx = trackedContext(editor, join(HERE, name, "index.ts"))
-      await mod.install(editor, ctx)
+      await evaluator.installPlugin(join(HERE, name, "index.ts"), mod.install)
     } catch (err) {
       editor.message(`plugin ${name} failed: ${(err as Error).message}`)
       console.error(`[plugins/builtin] ${name}:`, err)
