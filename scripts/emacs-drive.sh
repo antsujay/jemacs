@@ -23,7 +23,7 @@ case "${1:-}" in
     tmux new-session -d -s "$S" -x 120 -y 35 \
       "emacs -nw -l ${INIT} $*"
     for _ in $(seq 120); do
-      tmux capture-pane -t "$S" -p 2>/dev/null | grep -qE '\(Markdown|\.md' && exit 0
+      tmux capture-pane -t "$S" -p 2>/dev/null | grep -qE '\(Markdown|TypeScript|typescript|Fundamental|\.ts|\.md|line [0-9]+' && exit 0
       sleep 0.1
     done
     echo "emacs did not draw within 12s" >&2; exit 1 ;;
