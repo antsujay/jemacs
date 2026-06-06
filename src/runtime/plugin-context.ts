@@ -66,20 +66,36 @@ export function createPluginContext(editor: Editor): PluginContext {
   }
 }
 
-/** Module-level registry so boot-time installs (lisp/, plugins/builtin) and
- *  path-based reloads (Evaluator.loadPlugin) share the same disposal map. */
-const contexts = new Map<string, PluginContext>()
+/** Per-editor registry so boot-time installs (lisp/, plugins/builtin) and
+ *  path-based reloads (Evaluator.loadPlugin) share the same disposal map
+ *  *for that editor*. A second Editor in the process must not dispose the
+ *  first's contexts. */
+const contexts = new WeakMap<Editor, Map<string, PluginContext>>()
 
-/** Dispose any prior context registered under `key`, create and register a
- *  fresh one, and return it. The single entry point for "give this plugin a
- *  tracked ctx" — used by both the boot path and hot reload. */
+function mapFor(editor: Editor): Map<string, PluginContext> {
+  let m = contexts.get(editor)
+  if (!m) { m = new Map(); contexts.set(editor, m) }
+  return m
+}
+
+/** Dispose any prior context registered under `key` for this editor, create
+ *  and register a fresh one. Used by both the boot path and hot reload. */
 export function trackedContext(editor: Editor, key: string): PluginContext {
-  contexts.get(key)?.dispose()
+  const m = mapFor(editor)
+  m.get(key)?.dispose()
   const ctx = createPluginContext(editor)
-  contexts.set(key, ctx)
+  m.set(key, ctx)
   return ctx
 }
 
-export function getPluginContext(key: string): PluginContext | undefined {
-  return contexts.get(key)
+export function getPluginContext(editor: Editor, key: string): PluginContext | undefined {
+  return contexts.get(editor)?.get(key)
+}
+
+/** Dispose every tracked context for `editor` (called from quit()). */
+export function disposeAllContexts(editor: Editor): void {
+  const m = contexts.get(editor)
+  if (!m) return
+  for (const ctx of m.values()) ctx.dispose()
+  contexts.delete(editor)
 }

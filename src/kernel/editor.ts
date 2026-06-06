@@ -435,12 +435,12 @@ export class Editor {
     if (existing) return this.switchToBuffer(existing.id)
     const buffer = await make(full)
     this.addBuffer(buffer)
-    this.lsp?.attachBuffer(buffer)
+    if (buffer.kind === "file") this.lsp?.attachBuffer(buffer)
     this.setSelectedWindowBuffer(buffer.id)
     if (this.tabs[this.selectedTab]) this.tabs[this.selectedTab]!.bufferId = buffer.id
     this.enterMode(buffer, mode ?? buffer.mode)
     await this.changed("visit-path")
-    await this.runHook("find-file-hook", buffer)
+    if (buffer.kind === "file") await this.runHook("find-file-hook", buffer)
     return buffer
   }
 

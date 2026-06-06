@@ -19,12 +19,15 @@ const path = (name: string) => join(HERE, `${name}.ts`)
  *  lives in exactly one place (and a later loadPlugin on the same path
  *  disposes the boot-time install). */
 export function installLisp(editor: Editor, evaluator: Evaluator = new Evaluator(editor)): Evaluator {
-  void evaluator.installPlugin(path("simple"), simple.install)
-  void evaluator.installPlugin(path("window-cmds"), windowCmds.install)
-  void evaluator.installPlugin(path("files"), files.install)
-  void evaluator.installPlugin(path("isearch-ui"), isearchUi.install)
-  void evaluator.installPlugin(path("minibuf"), minibuf.install)
-  void evaluator.installPlugin(path("misc"), (e, ctx) => misc.install(e, ctx, evaluator))
+  // The bodies are sync; installPlugin's promise is for trackedContext
+  // bookkeeping. Surface throws as boot errors instead of unhandled rejections.
+  const sink = (p: Promise<unknown>) => p.catch(err => { throw err instanceof Error ? err : new Error(String(err)) })
+  sink(evaluator.installPlugin(path("simple"), simple.install))
+  sink(evaluator.installPlugin(path("window-cmds"), windowCmds.install))
+  sink(evaluator.installPlugin(path("files"), files.install))
+  sink(evaluator.installPlugin(path("isearch-ui"), isearchUi.install))
+  sink(evaluator.installPlugin(path("minibuf"), minibuf.install))
+  sink(evaluator.installPlugin(path("misc"), (e, ctx) => misc.install(e, ctx, evaluator)))
   installLiveSourceCommands(editor, evaluator)
   return evaluator
 }

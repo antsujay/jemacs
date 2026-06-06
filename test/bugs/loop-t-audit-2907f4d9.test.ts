@@ -70,7 +70,7 @@ test("trackedContext: re-install under same key disposes the prior ctx", () => {
   install(editor, trackedContext(editor, "k"))
   install(editor, trackedContext(editor, "k"))
   expect(getHooks("tracked-probe")).toHaveLength(1)
-  expect(getPluginContext("k")).toBeDefined()
+  expect(getPluginContext(editor, "k")).toBeDefined()
 })
 
 test("removeAdvice exported and drops a single tracked entry", () => {

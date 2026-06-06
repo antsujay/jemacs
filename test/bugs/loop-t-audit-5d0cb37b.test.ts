@@ -30,7 +30,7 @@ test("installLisp routes every module through evaluator.installPlugin", () => {
     expect(names).toContain(m)
   }
   // tracked ctx actually registered under the resolved path
-  expect(getPluginContext(ev.keys[0]!)).toBeDefined()
+  expect(getPluginContext(ev.editor, ev.keys[0]!)).toBeDefined()
 })
 
 test("installBuiltinPlugins routes every plugin through evaluator.installPlugin", async () => {
@@ -46,5 +46,5 @@ test("installBuiltinPlugins routes every plugin through evaluator.installPlugin"
   for (const p of ["motion", "mark-ring", "compile", "magit", "tiling"]) {
     expect(names).toContain(p)
   }
-  expect(getPluginContext(ev.keys[0]!)).toBeDefined()
+  expect(getPluginContext(ev.editor, ev.keys[0]!)).toBeDefined()
 })
