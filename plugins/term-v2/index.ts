@@ -16,7 +16,7 @@ async function loadPtyModule(): Promise<PtyModule> {
   if (!ptyModule) {
     ptyModule = typeof Bun !== "undefined"
       ? await import("../term/pty")
-      : await import("../term/pty-stub")
+      : await import("../term/pty-node")
   }
   return ptyModule
 }

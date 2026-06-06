@@ -1,13 +1,32 @@
 import { dlopen, ptr } from "bun:ffi"
 import { read, write, close } from "node:fs"
 
-const util = dlopen("libutil.so.1", {
-  openpty: { args: ["ptr", "ptr", "ptr", "ptr", "ptr"], returns: "i32" },
-})
-const libc = dlopen("libc.so.6", {
-  ioctl: { args: ["i32", "u64", "ptr"], returns: "i32" },
-})
-const TIOCSWINSZ = 0x5414n
+const openptySig = { openpty: { args: ["ptr", "ptr", "ptr", "ptr", "ptr"], returns: "i32" } } as const
+const ioctlSig = { ioctl: { args: ["i32", "u64", "ptr"], returns: "i32" } } as const
+type OpenPtyLib = { symbols: { openpty: (...args: unknown[]) => number } }
+type IoctlLib = { symbols: { ioctl: (...args: unknown[]) => number } }
+
+/** Linux-only names in the original pty.ts; macOS/BSD need libutil.dylib + libSystem. */
+function ptyLibs(): { util: OpenPtyLib; libc: IoctlLib; winsz: bigint } {
+  switch (process.platform) {
+    case "darwin":
+      return {
+        util: dlopen("/usr/lib/libutil.dylib", openptySig) as unknown as OpenPtyLib,
+        libc: dlopen("/usr/lib/libSystem.B.dylib", ioctlSig) as unknown as IoctlLib,
+        winsz: 0x80087467n,
+      }
+    case "linux":
+      return {
+        util: dlopen("libutil.so.1", openptySig) as unknown as OpenPtyLib,
+        libc: dlopen("libc.so.6", ioctlSig) as unknown as IoctlLib,
+        winsz: 0x5414n,
+      }
+    default:
+      throw new Error(`term mode PTY is not supported on ${process.platform}`)
+  }
+}
+
+const { util, libc, winsz: TIOCSWINSZ } = ptyLibs()
 
 export type Pty = {
   pid: number
@@ -41,7 +60,7 @@ export function spawnPty(argv: string[], opts?: { cwd?: string; rows?: number; c
 
   function pump(): void {
     if (!alive) return
-    const buf = Buffer.alloc(4096)
+    const buf = new Uint8Array(4096)
     read(master, buf, 0, buf.length, null, (err, n) => {
       if (err || n <= 0) {
         if (alive) { alive = false; close(master, () => {}); for (const h of exitHandlers) h(proc.exitCode) }
@@ -57,7 +76,7 @@ export function spawnPty(argv: string[], opts?: { cwd?: string; rows?: number; c
 
   return {
     pid: proc.pid!,
-    write(data) { write(master, Buffer.from(data), () => {}) },
+    write(data) { write(master, new TextEncoder().encode(data), () => {}) },
     resize(rows, cols) {
       setWinsize(master, rows, cols)
       // Bun.spawn doesn't setsid()+TIOCSCTTY, so the slave isn't the child's

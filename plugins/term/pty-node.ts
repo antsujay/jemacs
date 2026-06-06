@@ -1,0 +1,101 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { existsSync } from "node:fs"
+
+export type Pty = {
+  pid: number
+  write(data: string): void
+  resize(rows: number, cols: number): void
+  onData(fn: (chunk: string) => void): void
+  onExit(fn: (code: number | null) => void): void
+  kill(): void
+}
+
+type PtyOptions = {
+  cwd?: string
+  rows?: number
+  cols?: number
+  env?: Record<string, string>
+}
+
+export function spawnPty(argv: string[], opts?: PtyOptions): Pty {
+  if (argv.length === 0) throw new Error("spawnPty requires a command")
+  const proc = spawn(pythonCommand(), ["-u", "-c", PY_PTY_BRIDGE, ...argv], {
+    cwd: opts?.cwd,
+    env: {
+      ...process.env,
+      TERM: "xterm-256color",
+      LINES: String(opts?.rows ?? 24),
+      COLUMNS: String(opts?.cols ?? 80),
+      ...opts?.env,
+    },
+    stdio: "pipe",
+  })
+
+  const dataHandlers: Array<(s: string) => void> = []
+  const exitHandlers: Array<(c: number | null) => void> = []
+
+  proc.stdout.setEncoding("utf8")
+  proc.stderr.setEncoding("utf8")
+  proc.stdout.on("data", chunk => { for (const h of dataHandlers) h(chunk) })
+  proc.stderr.on("data", chunk => { for (const h of dataHandlers) h(chunk) })
+  proc.on("exit", code => { for (const h of exitHandlers) h(code) })
+  proc.on("error", error => {
+    for (const h of dataHandlers) h(`term: ${error.message}\r\n`)
+    for (const h of exitHandlers) h(null)
+  })
+
+  return {
+    pid: proc.pid ?? -1,
+    write(data) { writeTo(proc, data) },
+    resize(_rows, _cols) {
+      // The Python bridge owns the real pty. Without a native addon there is no fd to
+      // ioctl, so Electron keeps Jemacs' xterm mirror sized but cannot SIGWINCH
+      // the child process.
+    },
+    onData(fn) { dataHandlers.push(fn) },
+    onExit(fn) { exitHandlers.push(fn) },
+    kill() { proc.kill() },
+  }
+}
+
+function writeTo(proc: ChildProcessWithoutNullStreams, data: string): void {
+  if (!proc.stdin.destroyed) proc.stdin.write(data)
+}
+
+function pythonCommand(): string {
+  if (process.env.PYTHON) return process.env.PYTHON
+  if (process.platform === "darwin" && existsSync("/usr/bin/python3")) return "/usr/bin/python3"
+  return "python3"
+}
+
+const PY_PTY_BRIDGE = String.raw`
+import os, pty, selectors, sys
+
+argv = sys.argv[1:]
+if not argv:
+    raise SystemExit("missing command")
+
+pid, master = pty.fork()
+if pid == 0:
+    os.execvpe(argv[0], argv, os.environ)
+
+selector = selectors.DefaultSelector()
+selector.register(master, selectors.EVENT_READ, "pty")
+selector.register(sys.stdin.buffer, selectors.EVENT_READ, "stdin")
+
+while True:
+    for key, _mask in selector.select():
+        if key.data == "pty":
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                raise SystemExit(0)
+            if not data:
+                raise SystemExit(0)
+            os.write(sys.stdout.fileno(), data)
+        else:
+            data = os.read(sys.stdin.fileno(), 4096)
+            if not data:
+                raise SystemExit(0)
+            os.write(master, data)
+`

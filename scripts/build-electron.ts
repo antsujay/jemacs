@@ -4,14 +4,14 @@ import path from "node:path"
 
 const root = path.join(import.meta.dirname, "..")
 const out = path.join(root, "dist/electron")
-const ptyStub = path.join(root, "plugins/term/pty-stub.ts")
+const ptyNode = path.join(root, "plugins/term/pty-node.ts")
 
-/** term/pty.ts uses bun:ffi; swap in a Node-safe stub for the Electron main bundle. */
-const electronPtyStubPlugin: BunPlugin = {
-  name: "electron-pty-stub",
+/** term/pty.ts uses bun:ffi; swap in the Node PTY adapter for the Electron main bundle. */
+const electronPtyNodePlugin: BunPlugin = {
+  name: "electron-pty-node",
   setup(build) {
     build.onLoad({ filter: /plugins\/term\/pty\.ts$/ }, async () => ({
-      contents: await readFile(ptyStub, "utf8"),
+      contents: await readFile(ptyNode, "utf8"),
       loader: "ts",
     }))
   },
@@ -56,7 +56,7 @@ const main = await Bun.build({
   target: "node",
   format: "esm",
   external: ELECTRON_MAIN_EXTERNALS,
-  plugins: [electronPtyStubPlugin],
+  plugins: [electronPtyNodePlugin],
 })
 if (!main.success) throw new Error(main.logs.join("\n"))
 
