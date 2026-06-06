@@ -10,6 +10,7 @@ import {
   markdownDisplayFilter,
   markdownIndentLine,
   markdownParseHeadings,
+  parseFencedCodeBlocks,
   MARKDOWN_FOLDED_LOCAL,
 } from "../../plugins/markdown"
 import { treeSitterFontLock } from "../../src/modes/tree-sitter"
@@ -127,6 +128,101 @@ describe("markdownDisplayFilter", () => {
     expect(result?.text).toContain("# Top")
     expect(result?.text).toContain("...")
     expect(result?.text).not.toContain("deep")
+  })
+
+  test("hides ATX header and emphasis markup when markdown-hide-markup is on", () => {
+    const buffer = new BufferModel({
+      name: "doc.md",
+      text: "# Title\nSome **bold** text\n",
+      mode: "markdown",
+    })
+    buffer.locals.set("markdown-hide-markup", true)
+    const result = markdownDisplayFilter(buffer)
+    expect(result?.text).toBe("Title\nSome bold text\n")
+    expect(buffer.text).toBe("# Title\nSome **bold** text\n")
+  })
+
+  test("hides fenced code delimiter lines when markdown-hide-markup is on", () => {
+    const buffer = new BufferModel({
+      name: "doc.md",
+      text: "Before\n\n```typescript\nconst x = 1\n```\nAfter\n",
+      mode: "markdown",
+    })
+    buffer.locals.set("markdown-hide-markup", true)
+    const result = markdownDisplayFilter(buffer)
+    expect(result?.text).toBe("Before\n\nconst x = 1\n\nAfter\n")
+    expect(result?.text).not.toContain("```")
+  })
+
+  test("composes link URLs when markdown-hide-urls is on", () => {
+    const buffer = new BufferModel({
+      name: "doc.md",
+      text: "[link](https://example.com)\n",
+      mode: "markdown",
+    })
+    buffer.locals.set("markdown-hide-markup", true)
+    buffer.locals.set("markdown-hide-urls", true)
+    const result = markdownDisplayFilter(buffer)
+    expect(result?.text).toBe("link↪\n")
+  })
+})
+
+describe("markdown-toggle-markup-hiding", () => {
+  test("toggles buffer-local markdown-hide-markup", async () => {
+    const editor = makeEditor()
+    install(editor)
+    const buffer = editor.scratch("doc.md", "# Hi\n", "markdown")
+    await editor.run("markdown-toggle-markup-hiding")
+    expect(buffer.locals.get("markdown-hide-markup")).toBe(true)
+    expect(markdownDisplayFilter(buffer)?.text).toBe("Hi\n")
+    await editor.run("markdown-toggle-markup-hiding")
+    expect(buffer.locals.get("markdown-hide-markup")).toBe(false)
+    expect(markdownDisplayFilter(buffer)).toBeNull()
+  })
+})
+
+describe("parseFencedCodeBlocks", () => {
+  test("parses GFM fenced blocks with language info", () => {
+    const text = "```typescript\nconst x = 1\n```\n"
+    const blocks = parseFencedCodeBlocks(text)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]?.lang).toBe("typescript")
+    expect(text.slice(blocks[0]!.bodyStart, blocks[0]!.bodyEnd)).toBe("const x = 1\n")
+  })
+})
+
+describe("markdown-fontify-code-blocks-natively", () => {
+  test("highlights fenced typescript when native fontification is enabled", () => {
+    const editor = makeEditor()
+    install(editor)
+    const buffer = new BufferModel({
+      name: "doc.md",
+      text: "```typescript\nconst n: number = 1\n```\n",
+      mode: "markdown",
+    })
+    buffer.locals.set("markdown-fontify-code-blocks-natively", true)
+    const spans = editor.fontLock(buffer)
+    expect(spans.some(span => span.face === "keyword" || span.face === "type" || span.face === "number")).toBe(true)
+  })
+
+  test("markdown-toggle-fontify-code-blocks-natively toggles buffer-local state", async () => {
+    const editor = makeEditor()
+    install(editor)
+    const buffer = editor.scratch("doc.md", "```js\nx\n```\n", "markdown")
+    await editor.run("markdown-toggle-fontify-code-blocks-natively")
+    expect(buffer.locals.get("markdown-fontify-code-blocks-natively")).toBe(true)
+  })
+})
+
+describe("markdown-view-mode", () => {
+  test("onEnter enables markup hiding by default", () => {
+    const editor = makeEditor()
+    install(editor)
+    const buffer = new BufferModel({ name: "doc.md", text: "# Title\n", mode: "text" })
+    enterMode(buffer, "markdown-view-mode")
+    expect(buffer.mode).toBe("markdown-view-mode")
+    expect(buffer.locals.get("markdown-hide-markup")).toBe(true)
+    expect(markdownDisplayFilter(buffer)?.text).toBe("Title\n")
   })
 })
 

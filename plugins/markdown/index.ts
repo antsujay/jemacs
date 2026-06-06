@@ -1,17 +1,18 @@
-import type { BufferModel } from "../../src/kernel/buffer"
+import { BufferModel, inferMode } from "../../src/kernel/buffer"
 import type { Editor } from "../../src/kernel/editor"
 import { addHook } from "../../src/kernel/hooks"
 import { Keymap } from "../../src/kernel/keymap"
-import { defcustom } from "../../src/runtime/custom"
+import { defcustom, getCustom } from "../../src/runtime/custom"
 import { defface, faceRemapAddRelative } from "../../src/runtime/faces"
-import { defineMode, enterMode, type FaceName, type TextSpan } from "../../src/modes/mode"
-import { treeSitterFontLock } from "../../src/modes/tree-sitter"
+import { defineMode, enterMode, getMode, modeFeature, type FaceName, type TextSpan } from "../../src/modes/mode"
+import { registeredTreeSitterLanguages, treeSitterFontLock } from "../../src/modes/tree-sitter"
 
 const TAB_WIDTH = 4
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+/
 const ATX_HEADER_RE = /^(#{1,6})\s/
 const BLOCKQUOTE_RE = /^(\s*)>+\s?/
-const FENCED_CODE_RE = /^```/
+const FENCED_CODE_RE = /^(`{3,}|~{3,})/
+const FENCE_LINE_RE = /^(\s*)(`{3,}|~{3,})(\S*)(\s*)$/
 const SETEXT_UNDERLINE_RE = /^(\s*)(=+|-+)\s*$/
 
 export const MARKDOWN_FOLDED_LOCAL = "markdown-folded"
@@ -24,9 +25,28 @@ const MARKDOWN_VISUAL_FILL = "markdown-visual-fill-column-mode"
 
 defcustom("markdown-fill-column", "number", 100, "Soft-wrap width for markdown buffers (Stephen's Notion-style layout).")
 defcustom("markdown-visual-fill-column-center-text", "boolean", true, "Center body text within the fill column.")
-defcustom("markdown-fontify-code-blocks-natively", "boolean", true, "Fontify fenced code blocks with their language mode.")
+defcustom("markdown-fontify-code-blocks-natively", "boolean", false, "Fontify fenced code blocks using the language major mode.")
+defcustom("markdown-fontify-code-block-default-mode", "string", "", "Default mode for fenced blocks with no language (empty = none).")
+defcustom("markdown-code-lang-modes", "sexp", [
+  ["cpp", "c"],
+  ["C", "c"],
+  ["C++", "c"],
+  ["shell", "text"],
+  ["bash", "text"],
+  ["sh", "text"],
+  ["elisp", "text"],
+], "Alist mapping fence info strings to jemacs major modes.")
 defcustom("markdown-display-inline-images", "boolean", true, "Replace image links with inline placeholders in the display layer.")
 defcustom("markdown-display-remote-images", "boolean", true, "Allow remote image URLs in inline image display.")
+defcustom("markdown-hide-markup", "boolean", false, "Hide markup delimiters in the display layer (WYSIWYG-style editing).")
+defcustom("markdown-hide-urls", "boolean", false, "Compose link URLs to a single glyph when markup hiding is active.")
+defcustom("markdown-hide-markup-in-view-modes", "boolean", true, "Enable hidden markup in markdown-view-mode and gfm-view-mode.")
+
+const MARKDOWN_HIDE_MARKUP = "markdown-hide-markup"
+const MARKDOWN_HIDE_URLS = "markdown-hide-urls"
+const MARKDOWN_FONTIFY_CODE_BLOCKS = "markdown-fontify-code-blocks-natively"
+const LIST_BULLET = "•"
+const URL_COMPOSE_CHAR = "↪"
 
 const MARKDOWN_HEADER_FACES = [
   ["markdown-header-face-1", 2.0],
@@ -45,11 +65,141 @@ export type MarkdownHeading = {
   title: string
 }
 
+export type FencedCodeBlock = {
+  openLine: number
+  closeLine: number
+  bodyStart: number
+  bodyEnd: number
+  lang: string | null
+  fence: string
+}
+
 export type FoldRange = [number, number]
 type SubtreeCycle = "folded" | "children" | "subtree"
 type GlobalCycle = 1 | 2 | 3
 type DisplayFilterResult = { text: string; map: (n: number) => number }
-type DisplayFilterCache = { text: string; ranges: FoldRange[]; result: DisplayFilterResult }
+type MarkupOp = { start: number; end: number; display: string }
+type DisplayFilterCache = {
+  text: string
+  ranges: FoldRange[]
+  hideMarkup: boolean
+  hideUrls: boolean
+  result: DisplayFilterResult
+}
+
+function markdownHideMarkup(buffer: BufferModel): boolean {
+  const local = buffer.locals.get(MARKDOWN_HIDE_MARKUP)
+  if (typeof local === "boolean") return local
+  return getCustom<boolean>("markdown-hide-markup") ?? false
+}
+
+function markdownHideUrls(buffer: BufferModel): boolean {
+  const local = buffer.locals.get(MARKDOWN_HIDE_URLS)
+  if (typeof local === "boolean") return local
+  return getCustom<boolean>("markdown-hide-urls") ?? false
+}
+
+function setMarkdownHideMarkup(buffer: BufferModel, value: boolean): void {
+  buffer.locals.set(MARKDOWN_HIDE_MARKUP, value)
+  buffer.locals.delete(MARKDOWN_FILTER_CACHE)
+}
+
+function setMarkdownHideUrls(buffer: BufferModel, value: boolean): void {
+  buffer.locals.set(MARKDOWN_HIDE_URLS, value)
+  buffer.locals.delete(MARKDOWN_FILTER_CACHE)
+}
+
+function markdownFontifyCodeBlocksNatively(buffer: BufferModel): boolean {
+  const local = buffer.locals.get(MARKDOWN_FONTIFY_CODE_BLOCKS)
+  if (typeof local === "boolean") return local
+  return getCustom<boolean>("markdown-fontify-code-blocks-natively") ?? false
+}
+
+function setMarkdownFontifyCodeBlocksNatively(buffer: BufferModel, value: boolean): void {
+  buffer.locals.set(MARKDOWN_FONTIFY_CODE_BLOCKS, value)
+}
+
+export function parseFencedCodeBlocks(text: string): FencedCodeBlock[] {
+  const lines = text.split("\n")
+  const blocks: FencedCodeBlock[] = []
+  let offset = 0
+  let open: { line: number; fence: string; lang: string | null; charEnd: number } | null = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const lineStart = offset
+    const lineEnd = lineStart + line.length
+    const m = line.match(FENCE_LINE_RE)
+    if (m?.[2]) {
+      const fence = m[2]
+      if (!open) {
+        open = { line: i, fence, lang: m[3] || null, charEnd: lineEnd }
+      } else if (fence === open.fence && !m[3]) {
+        blocks.push({
+          openLine: open.line,
+          closeLine: i,
+          bodyStart: open.charEnd + 1,
+          bodyEnd: lineStart,
+          lang: open.lang,
+          fence: open.fence,
+        })
+        open = null
+      }
+    }
+    offset = lineEnd + 1
+  }
+  return blocks
+}
+
+function markdownGetLangMode(lang: string | null): string | null {
+  const fallbackRaw = getCustom<string>("markdown-fontify-code-block-default-mode") ?? ""
+  const fallback = fallbackRaw && getMode(fallbackRaw) ? fallbackRaw : null
+  if (!lang?.trim()) return fallback
+  const normalized = lang.trim()
+  const alist = getCustom<Array<[string, string]>>("markdown-code-lang-modes") ?? []
+  for (const [key, mode] of alist) {
+    if ((key === normalized || key.toLowerCase() === normalized.toLowerCase()) && getMode(mode)) return mode
+  }
+  const candidates = [
+    inferMode(`block.${normalized}`),
+    inferMode(`block.${normalized}.txt`),
+    normalized,
+    normalized.toLowerCase(),
+  ]
+  for (const mode of candidates) {
+    if (mode !== "text" && modeFeature(mode, "fontLock")) return mode
+  }
+  if (registeredTreeSitterLanguages().includes(normalized)) return normalized
+  const lower = normalized.toLowerCase()
+  if (registeredTreeSitterLanguages().includes(lower)) return lower
+  return fallback
+}
+
+function spanInsideRegions(start: number, end: number, regions: ReadonlyArray<readonly [number, number]>): boolean {
+  return regions.some(([a, b]) => start >= a && end <= b)
+}
+
+function markdownFontifyCodeBlockNatively(lang: string | null, body: string): TextSpan[] {
+  const mode = markdownGetLangMode(lang)
+  if (!mode || !body) return [{ start: 0, end: body.length, face: "string" }]
+  const scratch = new BufferModel({ name: "markdown-code-fontification", text: body, mode })
+  const fontLock = modeFeature(mode, "fontLock")
+  if (!fontLock) return [{ start: 0, end: body.length, face: "string" }]
+  return fontLock(scratch)
+}
+
+function toggleBufferBoolean(
+  buffer: BufferModel,
+  current: () => boolean,
+  set: (buffer: BufferModel, value: boolean) => void,
+  prefixArgument: number | null | undefined,
+): boolean {
+  const next = prefixArgument == null
+    ? !current()
+    : prefixArgument > 0
+  set(buffer, next)
+  return next
+}
 
 export function markdownParseHeadings(text: string): MarkdownHeading[] {
   const lines = text.split("\n")
@@ -184,18 +334,221 @@ function syncFoldRanges(buffer: BufferModel): void {
   setFolded(buffer, recomputeFoldRanges(buffer))
 }
 
+function mergeMarkupOps(ops: MarkupOp[]): MarkupOp[] {
+  if (!ops.length) return []
+  const sorted = [...ops].sort((a, b) => a.start - b.start || b.end - a.end)
+  const merged: MarkupOp[] = []
+  for (const op of sorted) {
+    const last = merged.at(-1)
+    if (!last || op.start >= last.end) merged.push({ ...op })
+    else if (op.end > last.end) last.end = op.end
+  }
+  return merged
+}
+
+function markupOpAt(ops: MarkupOp[], pos: number): MarkupOp | undefined {
+  return ops.find(o => pos >= o.start && pos < o.end)
+}
+
+function protectedInlineCodeRanges(line: string, lineStart: number): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  for (const m of line.matchAll(/`[^`\n]+`/g)) {
+    if (m.index != null) out.push([lineStart + m.index, lineStart + m.index + m[0].length])
+  }
+  return out
+}
+
+function rangeProtected(start: number, end: number, protectedRanges: Array<[number, number]>): boolean {
+  return protectedRanges.some(([a, b]) => start >= a && end <= b)
+}
+
+function pushMarkupHide(
+  ops: MarkupOp[],
+  start: number,
+  end: number,
+  protectedRanges: Array<[number, number]>,
+  display = "",
+): void {
+  if (start >= end || rangeProtected(start, end, protectedRanges)) return
+  ops.push({ start, end, display })
+}
+
+function collectInlineMarkupHides(
+  line: string,
+  lineStart: number,
+  hideUrls: boolean,
+  protectedRanges: Array<[number, number]>,
+  ops: MarkupOp[],
+): void {
+  for (const m of line.matchAll(/!?\[([^\]]*)\]\(([^)]*)\)/g)) {
+    if (m.index == null) continue
+    const i = m.index
+    const textEnd = i + 1 + (m[1]?.length ?? 0)
+    const urlStart = textEnd + 2
+    const urlEnd = urlStart + (m[2]?.length ?? 0)
+    pushMarkupHide(ops, lineStart + i, lineStart + i + 1, protectedRanges)
+    pushMarkupHide(ops, lineStart + textEnd, lineStart + urlStart, protectedRanges)
+    if (hideUrls && m[2]) {
+      pushMarkupHide(ops, lineStart + urlStart, lineStart + urlEnd, protectedRanges, URL_COMPOSE_CHAR)
+    }
+    pushMarkupHide(ops, lineStart + urlEnd, lineStart + urlEnd + 1, protectedRanges)
+  }
+  for (const m of line.matchAll(/<((?:https?:\/\/|mailto:)[^>]+)>/g)) {
+    if (m.index == null) continue
+    pushMarkupHide(ops, lineStart + m.index, lineStart + m.index + 1, protectedRanges)
+    if (hideUrls) {
+      pushMarkupHide(ops, lineStart + m.index + 1, lineStart + m.index + 1 + m[1]!.length, protectedRanges, URL_COMPOSE_CHAR)
+    }
+    pushMarkupHide(ops, lineStart + m.index + m[0].length - 1, lineStart + m.index + m[0].length, protectedRanges)
+  }
+  for (const m of line.matchAll(/\*\*(\S(?:.*?\S)?)\*\*/g)) {
+    if (m.index == null) continue
+    pushMarkupHide(ops, lineStart + m.index, lineStart + m.index + 2, protectedRanges)
+    pushMarkupHide(ops, lineStart + m.index + m[0].length - 2, lineStart + m.index + m[0].length, protectedRanges)
+  }
+  for (const m of line.matchAll(/__(\S(?:.*?\S)?)__/g)) {
+    if (m.index == null) continue
+    pushMarkupHide(ops, lineStart + m.index, lineStart + m.index + 2, protectedRanges)
+    pushMarkupHide(ops, lineStart + m.index + m[0].length - 2, lineStart + m.index + m[0].length, protectedRanges)
+  }
+  for (const m of line.matchAll(/~~(\S(?:.*?\S)?)~~/g)) {
+    if (m.index == null) continue
+    pushMarkupHide(ops, lineStart + m.index, lineStart + m.index + 2, protectedRanges)
+    pushMarkupHide(ops, lineStart + m.index + m[0].length - 2, lineStart + m.index + m[0].length, protectedRanges)
+  }
+  for (const m of line.matchAll(/(?<!\*)\*(?!\*)(\S(?:.*?\S)?)\*(?!\*)/g)) {
+    if (m.index == null) continue
+    pushMarkupHide(ops, lineStart + m.index, lineStart + m.index + 1, protectedRanges)
+    pushMarkupHide(ops, lineStart + m.index + m[0].length - 1, lineStart + m.index + m[0].length, protectedRanges)
+  }
+  for (const m of line.matchAll(/(?<!_)_(?!_)(\S(?:.*?\S)?)_(?!_)/g)) {
+    if (m.index == null) continue
+    pushMarkupHide(ops, lineStart + m.index, lineStart + m.index + 1, protectedRanges)
+    pushMarkupHide(ops, lineStart + m.index + m[0].length - 1, lineStart + m.index + m[0].length, protectedRanges)
+  }
+  for (const m of line.matchAll(/`([^`\n]+)`/g)) {
+    if (m.index == null) continue
+    pushMarkupHide(ops, lineStart + m.index, lineStart + m.index + 1, protectedRanges)
+    pushMarkupHide(ops, lineStart + m.index + m[0].length - 1, lineStart + m.index + m[0].length, protectedRanges)
+  }
+}
+
+function collectMarkupHides(text: string, hideUrls: boolean): MarkupOp[] {
+  const ops: MarkupOp[] = []
+  const lines = text.split("\n")
+  const blocks = parseFencedCodeBlocks(text)
+  const codeBodyRanges: Array<[number, number]> = []
+  const lineStarts: number[] = []
+  let offset = 0
+  for (let i = 0; i < lines.length; i++) {
+    lineStarts[i] = offset
+    offset += lines[i]!.length + 1
+  }
+  for (const block of blocks) {
+    if (block.bodyEnd > block.bodyStart) codeBodyRanges.push([block.bodyStart, block.bodyEnd])
+  }
+
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx]!
+    const lineStart = lineStarts[lineIdx]!
+    const lineEnd = lineStart + line.length
+    if (codeBodyRanges.some(([a, b]) => lineStart >= a && lineEnd <= b)) continue
+
+    const atx = line.match(/^(\s*)(#{1,6})(\s+)(.*?)(\s+#+\s*)?$/)
+    if (atx) {
+      const markerStart = lineStart + atx[1]!.length
+      const titleStart = markerStart + atx[2]!.length + atx[3]!.length
+      pushMarkupHide(ops, markerStart, titleStart, [])
+      if (atx[5]) {
+        const closeStart = lineEnd - atx[5].length
+        pushMarkupHide(ops, closeStart, lineEnd, [])
+      }
+    } else if (SETEXT_UNDERLINE_RE.test(line) && lineIdx > 0 && lines[lineIdx - 1]!.trim()) {
+      pushMarkupHide(ops, lineStart, lineEnd, [])
+    }
+
+    const bq = line.match(/^(\s*)(>+\s?)/)
+    if (bq) {
+      const markerStart = lineStart + bq[1]!.length
+      pushMarkupHide(ops, markerStart, markerStart + bq[2]!.length, [], "")
+    }
+
+    const list = line.match(/^(\s*)([-*+]|\d+[.)])\s+/)
+    if (list) {
+      const markerStart = lineStart + list[1]!.length
+      const markerEnd = lineStart + list[0]!.length
+      const bullet = /^\d/.test(list[2]!) ? `${list[2]} ` : `${LIST_BULLET} `
+      pushMarkupHide(ops, markerStart, markerEnd, [], bullet)
+    }
+
+    if (/^(\s*)([-*_])\1{2,}\s*$/.test(line)) {
+      const hr = "─".repeat(Math.max(3, line.trim().length))
+      pushMarkupHide(ops, lineStart, lineEnd, [], hr)
+    }
+
+    const protectedRanges = protectedInlineCodeRanges(line, lineStart)
+    collectInlineMarkupHides(line, lineStart, hideUrls, protectedRanges, ops)
+  }
+  return mergeMarkupOps(ops)
+}
+
+function renderLineWithMarkup(line: string, lineStart: number, ops: MarkupOp[]): string {
+  const out: string[] = []
+  for (let col = 0; col < line.length; col++) {
+    const pos = lineStart + col
+    const op = markupOpAt(ops, pos)
+    if (op) {
+      if (pos === op.start) out.push(op.display)
+      continue
+    }
+    out.push(line[col]!)
+  }
+  return out.join("")
+}
+
+function mapColumnThroughMarkup(col: number, lineStart: number, ops: MarkupOp[], dispLineStart: number): number {
+  let disp = dispLineStart
+  for (let c = 0; c < col; c++) {
+    const pos = lineStart + c
+    const op = markupOpAt(ops, pos)
+    if (op) {
+      if (pos === op.start) disp += op.display.length
+      continue
+    }
+    disp++
+  }
+  return disp
+}
+
 export function markdownDisplayFilter(buffer: BufferModel): DisplayFilterResult | null {
   const ranges = foldedRanges(buffer)
-  if (!ranges.length) return null
+  const hideMarkup = markdownHideMarkup(buffer)
+  const hideUrls = markdownHideUrls(buffer)
+  if (!ranges.length && !hideMarkup) return null
   const src = buffer.text
   const cached = buffer.locals.get(MARKDOWN_FILTER_CACHE) as DisplayFilterCache | undefined
-  if (cached && cached.text === src && cached.ranges === ranges) return cached.result
+  if (cached
+    && cached.text === src
+    && cached.ranges === ranges
+    && cached.hideMarkup === hideMarkup
+    && cached.hideUrls === hideUrls) return cached.result
 
   const lines = src.split("\n")
   const L = lines.length
-  const lineHidden = new Uint8Array(L)
+  const foldHidden = new Uint8Array(L)
+  const skipHidden = new Uint8Array(L)
   for (const [a, b] of ranges)
-    for (let i = Math.max(0, a); i <= b && i < L; i++) lineHidden[i] = 1
+    for (let i = Math.max(0, a); i <= b && i < L; i++) foldHidden[i] = 1
+
+  const fenced = parseFencedCodeBlocks(src)
+  const markupOps = hideMarkup ? collectMarkupHides(src, hideUrls) : []
+  if (hideMarkup) {
+    for (const block of fenced) {
+      skipHidden[block.openLine] = 1
+      // Closing fence: drop the delimiter line but keep the paragraph break after the block.
+      skipHidden[block.closeLine] = 2
+    }
+  }
 
   const bufStart: number[] = new Array(L)
   const lineLen: number[] = new Array(L)
@@ -206,13 +559,23 @@ export function markdownDisplayFilter(buffer: BufferModel): DisplayFilterResult 
   let dispLen = 0
   let lastVisibleEnd = 0
   for (let i = 0; i < L; i++) {
-    if (lineHidden[i]) { dispStart[i] = lastVisibleEnd; continue }
+    if (foldHidden[i] || skipHidden[i] === 1) { dispStart[i] = lastVisibleEnd; continue }
+    if (skipHidden[i] === 2) {
+      dispStart[i] = lastVisibleEnd
+      parts.push("\n")
+      dispLen += 1
+      lastVisibleEnd = dispLen
+      continue
+    }
     if (dispLen > 0) { parts.push("\n"); dispLen += 1 }
     dispStart[i] = dispLen
-    parts.push(lines[i]!)
-    dispLen += lineLen[i]!
+    const rendered = hideMarkup
+      ? renderLineWithMarkup(lines[i]!, bufStart[i]!, markupOps)
+      : lines[i]!
+    parts.push(rendered)
+    dispLen += rendered.length
     lastVisibleEnd = dispLen
-    if (i + 1 < L && lineHidden[i + 1]) { parts.push("..."); dispLen += 3 }
+    if (i + 1 < L && foldHidden[i + 1]) { parts.push("..."); dispLen += 3 }
   }
   const text = parts.join("")
 
@@ -224,11 +587,19 @@ export function markdownDisplayFilter(buffer: BufferModel): DisplayFilterResult 
       if (bufStart[mid]! <= nn) lo = mid + 1; else hi = mid
     }
     const i = lo - 1
-    if (lineHidden[i]) return dispStart[i]!
-    return dispStart[i]! + Math.min(nn - bufStart[i]!, lineLen[i]!)
+    if (foldHidden[i] || skipHidden[i]) return dispStart[i]! // 1 = invisible, 2 = paragraph break
+    const col = nn - bufStart[i]!
+    if (!hideMarkup) return dispStart[i]! + Math.min(col, lineLen[i]!)
+    return mapColumnThroughMarkup(col, bufStart[i]!, markupOps, dispStart[i]!)
   }
   const result = { text, map }
-  buffer.locals.set(MARKDOWN_FILTER_CACHE, { text: src, ranges, result } satisfies DisplayFilterCache)
+  buffer.locals.set(MARKDOWN_FILTER_CACHE, {
+    text: src,
+    ranges,
+    hideMarkup,
+    hideUrls,
+    result,
+  } satisfies DisplayFilterCache)
   return result
 }
 
@@ -348,9 +719,48 @@ function overlayMarkdownHeaderFaces(text: string, spans: TextSpan[]): TextSpan[]
   return [...filtered, ...headerSpans].sort((a, b) => a.start - b.start || a.end - b.end)
 }
 
+function fenceLineSpan(text: string, line: number): TextSpan | null {
+  const lines = text.split("\n")
+  if (line < 0 || line >= lines.length) return null
+  let start = 0
+  for (let i = 0; i < line; i++) start += lines[i]!.length + 1
+  const end = start + lines[line]!.length
+  return { start, end, face: "string" }
+}
+
 function markdownFontLock(buffer: BufferModel): TextSpan[] {
-  const lang = buffer.mode === "gfm" ? "gfm" : "markdown"
-  return overlayMarkdownHeaderFaces(buffer.text, treeSitterFontLock(lang, buffer))
+  const mdLang = buffer.mode === "gfm" ? "gfm" : "markdown"
+  const blocks = parseFencedCodeBlocks(buffer.text)
+  const native = markdownFontifyCodeBlocksNatively(buffer)
+  const bodyRegions = blocks.map(b => [b.bodyStart, b.bodyEnd] as const)
+
+  let spans = treeSitterFontLock(mdLang, buffer)
+  if (bodyRegions.length) {
+    spans = spans.filter(s => !spanInsideRegions(s.start, s.end, bodyRegions))
+  }
+
+  for (const block of blocks) {
+    const openSpan = fenceLineSpan(buffer.text, block.openLine)
+    const closeSpan = fenceLineSpan(buffer.text, block.closeLine)
+    if (openSpan) spans.push(openSpan)
+    if (closeSpan) spans.push(closeSpan)
+
+    const body = buffer.text.slice(block.bodyStart, block.bodyEnd)
+    if (!body) continue
+    if (native) {
+      for (const span of markdownFontifyCodeBlockNatively(block.lang, body)) {
+        spans.push({
+          start: block.bodyStart + span.start,
+          end: block.bodyStart + span.end,
+          face: span.face,
+        })
+      }
+    } else {
+      spans.push({ start: block.bodyStart, end: block.bodyEnd, face: "string" })
+    }
+  }
+
+  return overlayMarkdownHeaderFaces(buffer.text, spans)
 }
 
 function applyMarkdownFaceRemap(buffer: BufferModel): void {
@@ -363,6 +773,13 @@ function applyMarkdownFaceRemap(buffer: BufferModel): void {
   buffer.locals.set(MARKDOWN_VISUAL_FILL, true)
   buffer.locals.set("word-wrap", true)
   buffer.locals.set("adaptive-wrap-prefix-mode", true)
+}
+
+function applyMarkdownViewModeEnter(buffer: BufferModel): void {
+  applyMarkdownFaceRemap(buffer)
+  if (getCustom<boolean>("markdown-hide-markup-in-view-modes") ?? true) {
+    setMarkdownHideMarkup(buffer, true)
+  }
 }
 
 function bindMarkdownModeMap(keymap: Keymap): void {
@@ -418,6 +835,9 @@ function bindMarkdownModeMap(keymap: Keymap): void {
   keymap.bind("C-c C-s 4", "markdown-insert-header-atx-4")
   keymap.bind("C-c C-s 5", "markdown-insert-header-atx-5")
   keymap.bind("C-c C-s 6", "markdown-insert-header-atx-6")
+  keymap.bind("C-c C-x C-m", "markdown-toggle-markup-hiding")
+  keymap.bind("C-c C-x C-l", "markdown-toggle-url-hiding")
+  keymap.bind("C-c C-x C-f", "markdown-toggle-fontify-code-blocks-natively")
 }
 
 function installMarkdownCommands(editor: Editor): void {
@@ -491,6 +911,35 @@ function installMarkdownCommands(editor: Editor): void {
   editor.command("markdown-shifttab", ({ editor, buffer }) => {
     cycleGlobalVisibility(editor, buffer)
   }, "Global heading visibility cycle (like S-TAB in markdown-mode).")
+
+  editor.command("markdown-toggle-markup-hiding", ({ editor, buffer, prefixArgument }) => {
+    const enabled = toggleBufferBoolean(buffer, () => markdownHideMarkup(buffer), setMarkdownHideMarkup, prefixArgument)
+    editor.message(`markdown-mode markup hiding ${enabled ? "enabled" : "disabled"}`)
+  }, "Toggle display of markup delimiters (`markdown-hide-markup`).")
+
+  editor.command("markdown-toggle-url-hiding", ({ editor, buffer, prefixArgument }) => {
+    const enabled = toggleBufferBoolean(buffer, () => markdownHideUrls(buffer), setMarkdownHideUrls, prefixArgument)
+    editor.message(`markdown-mode URL hiding ${enabled ? "enabled" : "disabled"}`)
+  }, "Toggle URL hiding in links (`markdown-hide-urls`).")
+
+  editor.command("markdown-toggle-fontify-code-blocks-natively", ({ editor, buffer, prefixArgument }) => {
+    const enabled = toggleBufferBoolean(
+      buffer,
+      () => markdownFontifyCodeBlocksNatively(buffer),
+      setMarkdownFontifyCodeBlocksNatively,
+      prefixArgument,
+    )
+    editor.message(`markdown-mode native code block fontification ${enabled ? "enabled" : "disabled"}`)
+    editor.changed("markdown-toggle-fontify-code-blocks-natively")
+  }, "Toggle native fontification of fenced code blocks (`markdown-fontify-code-blocks-natively`).")
+
+  editor.command("markdown-view-mode", ({ editor, buffer }) => {
+    editor.enterMode(buffer, "markdown-view-mode")
+  }, "Enter read-oriented Markdown view mode with markup hiding.")
+
+  editor.command("gfm-view-mode", ({ editor, buffer }) => {
+    editor.enterMode(buffer, "gfm-view-mode")
+  }, "Enter read-oriented GFM view mode with markup hiding.")
 
   editor.command("markdown-outdent-or-delete", ({ buffer }) => {
     if (buffer.deleteActiveRegion()) return
@@ -713,6 +1162,18 @@ export function install(editor: Editor): void {
     keymap: gfmKeymap,
     fontLock: markdownFontLock,
     onEnter: applyMarkdownFaceRemap,
+  })
+
+  defineMode({
+    name: "markdown-view-mode",
+    parent: "markdown",
+    onEnter: applyMarkdownViewModeEnter,
+  })
+
+  defineMode({
+    name: "gfm-view-mode",
+    parent: "gfm",
+    onEnter: applyMarkdownViewModeEnter,
   })
 
   addHook("find-file-hook", ({ buffer }) => {

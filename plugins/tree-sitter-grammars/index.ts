@@ -331,6 +331,5 @@ export function install(_editor: Editor): void {
   patchModeFontLock("html", "html", htmlKeywords, "<!--")
   patchModeFontLock("java", "java", javaKeywords, "//")
   patchModeFontLock("python", "python", pythonKeywords, "#")
-  patchModeFontLock("markdown", "markdown", new Set(), "")
-  patchModeFontLock("gfm", "gfm", new Set(), "")
+  // markdown/gfm: plugins/markdown already uses treeSitterFontLock + header face overlay.
 }
