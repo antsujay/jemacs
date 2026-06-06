@@ -1,5 +1,7 @@
 import type { Editor } from "./kernel/editor"
+import { findWindowLeaf } from "./kernel/window"
 import { buildDisplayModel } from "./display/build-display-model"
+import { pointFromWindowClick } from "./display/click-to-point"
 import { findPaneInModel } from "./display/find-pane"
 import type { DisplayModel, InputHandler, UiHost } from "./display/protocol"
 
@@ -37,8 +39,11 @@ export function bindJemacsHost(editor: Editor, host: UiHost): JemacsHostBinding 
         await editor.changed("paste")
       } else if (input.type === "mouse") {
         const pane = findPaneInModel(lastModel.windows, input.windowId)
-        if (pane) {
-          editor.clickWindow(input.windowId, input.row, input.col, pane.clickState, pane.bodyLineBudget)
+        const leaf = findWindowLeaf(editor.windowLayout, input.windowId)
+        const buffer = leaf && editor.buffers.get(leaf.bufferId)
+        if (pane && buffer) {
+          const point = pointFromWindowClick(buffer.text, pane.clickState, input.row, input.col, pane.bodyLineBudget)
+          editor.clickWindow(input.windowId, point)
         }
       }
     } catch (error) {
