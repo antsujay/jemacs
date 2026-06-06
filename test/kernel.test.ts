@@ -112,18 +112,19 @@ test("C-v and M-v scroll by a page and are bound", async () => {
   expect(editor.keymap.get("C-v")).toBe("scroll-up-command")
   expect(editor.keymap.get("M-v")).toBe("scroll-down-command")
 
+  const step = page - 2
   await editor.run("scroll-up-command")
-  expect(editor.currentBuffer.lineCol().line).toBe(page + 1)
+  expect(editor.currentBuffer.lineCol().line).toBe(step + 1)
 
   await editor.run("scroll-down-command")
-  expect(editor.currentBuffer.lineCol().line).toBe(1)
+  expect(editor.currentBuffer.lineCol().line).toBe(step + 1)
 
   editor.currentBuffer.point = 0
   expect(await editor.handleKey({ name: "v", ctrl: true })).toEqual({ status: "command", command: "scroll-up-command" })
-  expect(editor.currentBuffer.lineCol().line).toBe(page + 1)
+  expect(editor.currentBuffer.lineCol().line).toBe(step + 1)
 
   expect(await editor.handleKey({ name: "v", meta: true })).toEqual({ status: "command", command: "scroll-down-command" })
-  expect(editor.currentBuffer.lineCol().line).toBe(1)
+  expect(editor.currentBuffer.lineCol().line).toBe(step + 1)
 })
 
 test("M-d kills the word after point and supports yank", async () => {

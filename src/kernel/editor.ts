@@ -10,7 +10,8 @@ import { allMinorModes, getMinorMode, type MinorMode } from "../modes/minor-mode
 import { makeDiredBuffer } from "../modes/dired"
 import { pointFromWindowClick, type WindowClickState } from "../display/click-to-point"
 import { syncViewportStartLine } from "../display/visual-line-height"
-import { pageScrollLines } from "../display/viewport"
+import type { HostCapabilities } from "../display/protocol"
+import { defaultTerminalRows, pageScrollLines, type ViewportSize } from "../display/viewport"
 import type { Theme } from "../display/theme"
 import { composeTheme } from "../runtime/faces"
 import { defaultTheme } from "../themes"
@@ -145,6 +146,9 @@ export class Editor {
   showLineNumbers: (buffer?: BufferModel) => boolean = () => false
   /** Command currently executing (emacs `this-command`). */
   thisCommand: string | null = null
+  /** Last host viewport; updated each redisplay for page scroll sizing. */
+  lastViewport: ViewportSize = { rows: defaultTerminalRows() }
+  lastHostCapabilities?: HostCapabilities
   private readonly searchRing: string[] = []
   private minibufferDepth = 0
   private readonly displayNames = new Map<string, string>()
