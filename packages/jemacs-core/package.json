@@ -6,11 +6,11 @@
   "description": "Jemacs display-agnostic kernel and display layer (re-exports from monorepo root).",
   "exports": {
     ".": "./index.ts",
-    "./display/*": "../../src/display/*",
-    "./kernel/*": "../../src/kernel/*",
-    "./modes/*": "../../src/modes/*",
-    "./runtime/*": "../../src/runtime/*",
-    "./platform/*": "../../src/platform/*",
-    "./lsp/*": "../../src/lsp/*"
+    "./display/*": "./display/*",
+    "./kernel/*": "./kernel/*",
+    "./modes/*": "./modes/*",
+    "./runtime/*": "./runtime/*",
+    "./platform/*": "./platform/*",
+    "./lsp/*": "./lsp/*"
   }
 }
