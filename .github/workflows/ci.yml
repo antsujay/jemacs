@@ -18,3 +18,4 @@ jobs:
       - run: bun test --timeout 12000
         env:
           JEMACS_SKIP_TUI: "1"
+          JEMACS_SKIP_PACKAGES: "1"

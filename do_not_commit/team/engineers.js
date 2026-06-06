@@ -22,7 +22,7 @@ const out = await parallel(ready.tasks.map(t => () =>
     'Engineer task in ' + REPO + '. id=' + t.id + ' [' + t.kind + '] ' + t.title + '\n' + t.detail + '\n' +
     'OWNS (edit ONLY): ' + t.owns + '\n' +
     'If bug: test/bugs/loop-' + t.id + '.test.ts as test.failing → fix → flip. If feature: plugins/ + test. If refactor: minimal diff. ' +
-    'DO NOT commit. Verify: bun test in your area. Append nothing to the queue — return result.',
+    'DO NOT commit. DO NOT git stash (shared worktree — other agents are editing). Verify: JEMACS_SKIP_TUI=1 bun test <your test files only> — NOT the full suite (leaks tui processes). Append nothing to the queue — return result.',
     { label: 'eng:' + (t.id || t.title.slice(0,20)).replace(/\W+/g,'-'), phase: 'Drain', schema: RESULT })
 ))
 
