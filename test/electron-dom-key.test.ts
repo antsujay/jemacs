@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { domKeyFromKeyboardEvent, domKeyModifiers, domKeyName } from "../src/electron/dom-key"
+import { domKeyFromKeyboardEvent, domKeyModifiers, domKeyName, domKeyTerminalBytes, isDomModifierOnlyKey } from "../src/electron/dom-key"
 import { keyToken } from "../src/kernel/keymap"
 
 test("domKeyName maps DOM special keys to Emacs-style names", () => {
@@ -16,16 +16,16 @@ test("mac Option+v is Meta, Command+v is Super", () => {
     )
   expect(mods({ altKey: true })).toEqual({ meta: true })
   expect(mods({ metaKey: true })).toEqual({ super: true })
-  expect(keyToken(domKeyFromKeyboardEvent({ key: "v", ctrlKey: false, metaKey: false, altKey: true, shiftKey: false }, "mac"))).toBe("M-v")
-  expect(keyToken(domKeyFromKeyboardEvent({ key: "v", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false }, "mac"))).toBe("s-v")
+  expect(keyToken(domKeyFromKeyboardEvent({ key: "v", code: "KeyV", ctrlKey: false, metaKey: false, altKey: true, shiftKey: false }, "mac"))).toBe("M-v")
+  expect(keyToken(domKeyFromKeyboardEvent({ key: "v", code: "KeyV", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false }, "mac"))).toBe("s-v")
 })
 
 test("non-mac Alt+v is Meta, Win/Meta+v is Super", () => {
   expect(
-    keyToken(domKeyFromKeyboardEvent({ key: "v", ctrlKey: false, metaKey: false, altKey: true, shiftKey: false }, "other")),
+    keyToken(domKeyFromKeyboardEvent({ key: "v", code: "KeyV", ctrlKey: false, metaKey: false, altKey: true, shiftKey: false }, "other")),
   ).toBe("M-v")
   expect(
-    keyToken(domKeyFromKeyboardEvent({ key: "v", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false }, "other")),
+    keyToken(domKeyFromKeyboardEvent({ key: "v", code: "KeyV", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false }, "other")),
   ).toBe("s-v")
 })
 
@@ -49,4 +49,24 @@ test("mac Option+v uses physical KeyV despite √ in event.key", () => {
 
 test("macOptionMeta maps √ for terminal-style payloads", () => {
   expect(keyToken({ name: "√", sequence: "√" })).toBe("M-v")
+})
+
+test("GUI special keys carry terminal bytes, not DOM key names", () => {
+  const enter = domKeyFromKeyboardEvent({ key: "Enter", code: "Enter", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, "mac")
+  expect(enter.name).toBe("return")
+  expect(enter.sequence).toBe("\r")
+  expect(enter.raw).toBe("\r")
+
+  const backspace = domKeyFromKeyboardEvent({ key: "Backspace", code: "Backspace", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, "mac")
+  expect(backspace.name).toBe("backspace")
+  expect(backspace.sequence).toBe("\x7f")
+  expect(backspace.raw).toBe("\x7f")
+
+  expect(domKeyTerminalBytes({ key: "ArrowUp", code: "ArrowUp", shiftKey: false })).toBe("\x1b[A")
+})
+
+test("GUI renderer can ignore modifier-only keydown events", () => {
+  expect(isDomModifierOnlyKey("Shift")).toBe(true)
+  expect(isDomModifierOnlyKey("Meta")).toBe(true)
+  expect(isDomModifierOnlyKey("a")).toBe(false)
 })

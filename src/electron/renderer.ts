@@ -1,6 +1,6 @@
 import type { SerializedDisplayModel } from "../display/serialize"
 import { presentDomFrame } from "../display/dom-frame"
-import { domKeyFromKeyboardEvent } from "./dom-key"
+import { domKeyFromKeyboardEvent, isDomModifierOnlyKey } from "./dom-key"
 
 const titleEl = document.getElementById("jemacs-title")!
 const windowsEl = document.getElementById("jemacs-windows")!
@@ -30,6 +30,7 @@ function present(model: SerializedDisplayModel): void {
 
 document.addEventListener("keydown", event => {
   if (event.defaultPrevented) return
+  if (isDomModifierOnlyKey(event.key)) return
   window.jemacs.sendInput({ type: "key", key: domKeyFromKeyboardEvent(event) })
   event.preventDefault()
 })

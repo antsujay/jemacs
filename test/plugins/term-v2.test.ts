@@ -153,9 +153,21 @@ describe("term-v2: keyToPtyBytes (kept from v1)", () => {
     expect(keyToPtyBytes({ name: "return" })).toBe("\r")
     expect(keyToPtyBytes({ name: "enter" })).toBe("\r")
     expect(keyToPtyBytes({ name: "space" })).toBe(" ")
+    expect(keyToPtyBytes({ name: "backspace" })).toBe("\x7f")
+    expect(keyToPtyBytes({ name: "tab" })).toBe("\t")
   })
   test("falls back to raw escape for arrows", () => {
     expect(keyToPtyBytes({ name: "up", raw: "\x1b[A" })).toBe("\x1b[A")
+  })
+  test("GUI-style special-key sequences are sent as bytes, not DOM key names", () => {
+    expect(keyToPtyBytes({ name: "return", sequence: "\r", raw: "\r" })).toBe("\r")
+    expect(keyToPtyBytes({ name: "backspace", sequence: "\x7f", raw: "\x7f" })).toBe("\x7f")
+    expect(keyToPtyBytes({ name: "up", sequence: "\x1b[A", raw: "\x1b[A" })).toBe("\x1b[A")
+  })
+  test("control and meta keys encode like terminal input", () => {
+    expect(keyToPtyBytes({ name: "c", ctrl: true, sequence: "c" })).toBe("\x03")
+    expect(keyToPtyBytes({ name: "v", meta: true, sequence: "√" })).toBe("\x1bv")
+    expect(keyToPtyBytes({ name: "backspace", meta: true, sequence: "\x7f" })).toBe("\x1b\x7f")
   })
 })
 

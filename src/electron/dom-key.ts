@@ -22,6 +22,10 @@ export function domKeyName(key: string): string {
   return key.toLowerCase()
 }
 
+export function isDomModifierOnlyKey(key: string): boolean {
+  return key === "Shift" || key === "Meta" || key === "Alt" || key === "Control"
+}
+
 /** Physical key from KeyboardEvent.code (Option on macOS alters event.key, not the code). */
 export function domKeyNameFromCode(code: string): string | null {
   const letter = /^Key([A-Z])$/.exec(code)
@@ -79,6 +83,48 @@ export function domKeyNameFromCode(code: string): string | null {
   }
 }
 
+export function domKeyTerminalBytes(
+  event: Pick<KeyboardEvent, "key" | "code" | "shiftKey">,
+): string | undefined {
+  switch (event.key) {
+    case "Enter":
+      return "\r"
+    case "Escape":
+      return "\x1b"
+    case "Tab":
+      return event.shiftKey ? "\x1b[Z" : "\t"
+    case "Backspace":
+      return "\x7f"
+    case "Delete":
+      return "\x1b[3~"
+    case "ArrowLeft":
+      return "\x1b[D"
+    case "ArrowRight":
+      return "\x1b[C"
+    case "ArrowUp":
+      return "\x1b[A"
+    case "ArrowDown":
+      return "\x1b[B"
+    case "Home":
+      return "\x1b[H"
+    case "End":
+      return "\x1b[F"
+    case "PageUp":
+      return "\x1b[5~"
+    case "PageDown":
+      return "\x1b[6~"
+    case "Insert":
+      return "\x1b[2~"
+  }
+
+  switch (event.code) {
+    case "NumpadEnter":
+      return "\r"
+    default:
+      return undefined
+  }
+}
+
 function useMacOptionPhysicalKey(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "code">,
   platform: DomKeyPlatform,
@@ -117,10 +163,11 @@ export function domKeyFromKeyboardEvent(
       ? domKeyNameFromCode(event.code)
       : null
   const name = physical ?? domKeyName(event.key)
+  const bytes = domKeyTerminalBytes(event)
   return {
     name,
-    sequence: event.key,
-    raw: event.key,
+    sequence: bytes ?? event.key,
+    raw: bytes ?? event.key,
     ...domKeyModifiers(event, platform),
   }
 }

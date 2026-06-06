@@ -49,9 +49,26 @@ termRawMap.bind("C-c C-j", "term-line-mode")
 
 /** Map a key event to the bytes the pty should receive. */
 export function keyToPtyBytes(k: KeyEventLike): string {
+  if (k.meta) return "\x1b" + keyToPtyBytes({ ...k, meta: false, sequence: k.name.length === 1 ? k.name : k.sequence })
+  if (k.ctrl) {
+    const name = k.name.length === 1 ? k.name : k.sequence
+    if (name && name.length === 1) {
+      if (name === " ") return "\x00"
+      if (name === "?") return "\x7f"
+      const c = name.toUpperCase().charCodeAt(0)
+      if (c >= 0x40 && c <= 0x5f) return String.fromCharCode(c & 0x1f)
+    }
+  }
   if (k.sequence) return k.sequence
   if (k.name === "space") return " "
   if (k.name === "enter" || k.name === "return") return "\r"
+  if (k.name === "tab") return "\t"
+  if (k.name === "backspace") return "\x7f"
+  if (k.name === "delete") return "\x1b[3~"
+  if (k.name === "left") return "\x1b[D"
+  if (k.name === "right") return "\x1b[C"
+  if (k.name === "up") return "\x1b[A"
+  if (k.name === "down") return "\x1b[B"
   return k.raw ?? k.name
 }
 
