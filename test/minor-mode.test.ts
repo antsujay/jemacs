@@ -28,11 +28,11 @@ test("minor mode keymaps take precedence over major and global maps", () => {
   }
 })
 
-test("Stephen config enables linum-mode and vertico-mode", () => {
+test("Stephen config enables linum-mode and vertico-mode", async () => {
   installDefaultModes()
   const editor = new Editor()
   installDefaultConfig(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   expect(editor.isMinorModeEnabled("linum-mode")).toBe(true)
   expect(editor.isMinorModeEnabled("vertico-mode")).toBe(true)
   expect(editor.showLineNumbers()).toBe(true)

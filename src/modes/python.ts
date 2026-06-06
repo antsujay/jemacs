@@ -2,6 +2,7 @@ import type { BufferModel } from "../kernel/buffer"
 import { Keymap } from "../kernel/keymap"
 import { defineMode, type CompletionCandidate } from "./mode"
 import { createTreeSitterFontLock } from "./tree-sitter"
+import { codeFontLock } from "./generic"
 
 const pythonKeywords = new Set([
   "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield", "match", "case",
@@ -26,7 +27,10 @@ export function installPythonMode(): void {
     commentStart: "#",
     keymap,
     indentLine: pythonIndentLine,
-    fontLock: createTreeSitterFontLock("python"),
+    fontLock: buffer => {
+      const ts = createTreeSitterFontLock("python")(buffer)
+      return ts.length ? ts : codeFontLock(buffer, pythonKeywords, "#")
+    },
     completeAtPoint: pythonCompleteAtPoint,
   })
 }

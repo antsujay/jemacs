@@ -54,7 +54,7 @@ test("load-path resolves plugin modules", async () => {
 test("vertico-mode shows and selects minibuffer candidates", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   const promise = editor.prompt("Choose: ", "", undefined, { collection: ["alpha", "alphabet", "beta"] })
   editor.activeBuffer.setText("al", true)
   await editor.refreshMinibufferCompletions()
@@ -69,7 +69,7 @@ test("vertico-mode shows and selects minibuffer candidates", async () => {
 test("vertico-mode refreshes candidates while typing", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   const promise = editor.prompt("Choose: ", "", undefined, { collection: ["alpha", "alphabet", "beta"] })
   await editor.refreshMinibufferCompletions()
   expect(editor.minibufferCompletionDisplay?.text).toContain("alpha")
@@ -91,7 +91,7 @@ test("vertico file completion displays relative names and inserts selected direc
   await writeFile(join(dir, "README.md"), "readme")
   const editor = new Editor()
   installDefaultConfig(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   const promise = editor.completingRead("Find file: ", {
     completion: "file",
     history: "file",
@@ -117,7 +117,7 @@ test("vertico file completion displays relative names and inserts selected direc
 test("vertico-mode can be disabled to use icomplete candidates", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   editor.disableMinorMode("vertico-mode")
   const promise = editor.prompt("Choose: ", "", undefined, { collection: ["alpha", "alphabet", "beta"] })
   editor.activeBuffer.setText("al", true)
@@ -309,7 +309,7 @@ test("parseCustomValue accepts boolean false aliases and rejects non-numeric num
 test("customize-themes toggles and saves plugin themes", async () => {
   const editor = new Editor()
   installDefaultConfig(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   disableBuiltinTheme("gruvbox-dark-hard")
   saveEnabledBuiltinThemes([])
 

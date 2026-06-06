@@ -8,9 +8,11 @@ import { gruvboxDarkHardTheme, install as installGruvboxDarkHardTheme } from "..
 import { install as installVertico } from "../../plugins/vertico"
 import { install as installTiling } from "../../plugins/tiling"
 import { install as installWindow } from "../../plugins/window"
+import { install as installTreeSitterGrammars } from "../../plugins/tree-sitter-grammars"
 
 /** Test fixture mirroring Stephen's personal config (see jemacs-stephen-config). */
-export function install(editor: Editor): void {
+export async function install(editor: Editor): Promise<void> {
+  await installTreeSitterGrammars(editor)
   const userTemporaryFileDirectory = join(tmpdir(), userInfo().username)
   setCustom("backup-directory-alist", [[".", userTemporaryFileDirectory]])
 

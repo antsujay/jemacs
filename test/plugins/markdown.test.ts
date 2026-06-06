@@ -13,6 +13,9 @@ import {
   MARKDOWN_FOLDED_LOCAL,
 } from "../../plugins/markdown"
 import { treeSitterFontLock } from "../../src/modes/tree-sitter"
+import { registerTreeSitterGrammars } from "../../plugins/tree-sitter-grammars"
+
+registerTreeSitterGrammars()
 
 const DOC = [
   "# Top",

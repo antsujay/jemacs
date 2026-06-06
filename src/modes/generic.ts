@@ -42,13 +42,22 @@ function defineCodeMode(name: string, keywords: Set<string>, commentStart: strin
   })
 }
 
+function hybridCodeFontLock(name: string, keywords: Set<string>, commentStart: string): (buffer: BufferModel) => TextSpan[] {
+  const treeSitter = createTreeSitterFontLock(name)
+  return buffer => {
+    const ts = treeSitter(buffer)
+    if (ts.length) return ts
+    return codeFontLock(buffer, keywords, commentStart)
+  }
+}
+
 function defineTreeSitterCodeMode(name: string, keywords: Set<string>, commentStart: string, indentWidth: number, parent = "prog-mode"): Mode {
   return defineMode({
     name,
     parent,
     commentStart,
     indentLine: buffer => braceIndentLine(buffer, indentWidth),
-    fontLock: createTreeSitterFontLock(name),
+    fontLock: hybridCodeFontLock(name, keywords, commentStart),
     completeAtPoint: buffer => wordCompleteAtPoint(buffer, keywords),
   })
 }
