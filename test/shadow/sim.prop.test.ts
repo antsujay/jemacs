@@ -66,13 +66,10 @@ describe("shadow/sim property", () => {
     })
   }
 
-  // Known divergence: ≥2 pending splices straddling an external. S's rebase
-  // transforms each pending past the raw authority op without advancing the
-  // authority op past already-replayed pendings, so the second pending lands
-  // at the wrong offset. A applies the second pending untransformed (external
-  // already cleared), so A and S disagree. Flip to `test` once shadow.ts fixes
-  // the transform; until then this is the canonical repro.
-  test.failing("ext + 2 pending splices: rebase mis-transform (shadow.ts bug)", () => {
+  // Regression guard: ≥2 pending splices straddling an external. Covered by
+  // A advancing external past each applied S op and shipping the rebase
+  // deferred at flushExternal, so S applies it on top with no rewind.
+  test("ext + 2 pending splices: deferred rebase converges", () => {
     const sim = new Simulator(0)
     const script: Action[] = [
       { k: "ext", from: 0, to: 0, text: "Z" },

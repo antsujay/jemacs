@@ -1,8 +1,10 @@
 import { Editor } from "../../src/kernel/editor"
 import { BufferModel } from "../../src/kernel/buffer"
-import { attachAuthority, attachShadow, authorityState, shadowState } from "../../src/shadow/shadow"
-import type { ShadowLink, ShadowRole } from "../../src/shadow/link"
-import type { ShadowOp } from "../../src/shadow/ops"
+import { attachAuthority, attachShadow, authorityState, flushExternal, resendPending, shadowState } from "../../src/shadow/shadow"
+import { FakeLink, type Adversary } from "./fake-link"
+
+export { FakeLink } from "./fake-link"
+export type { Adversary } from "./fake-link"
 
 // ── SeededRng ───────────────────────────────────────────────────────────────
 // LCG (Numerical Recipes constants) — same generator as test/property/buffer.prop.test.ts,
@@ -15,58 +17,6 @@ export class SeededRng {
   /** Uniform int in [0, n). n=0 ⇒ 0. */
   int(n: number): number { return n > 0 ? Math.floor(this.next() * n) : 0 }
   pick<T>(xs: readonly T[]): T { return xs[this.int(xs.length)]! }
-}
-
-// ── FakeLink ────────────────────────────────────────────────────────────────
-// One half of an in-process A↔S pair. `send` enqueues onto the *peer's* inflight;
-// `tick(n)` dequeues from *this* side's inflight and dispatches to the registered
-// handler. `partitioned` gates *delivery* (tick), not send — i.e. partition is a
-// delay adversary, not a drop. shadow.ts has no resend-on-heal yet, so a true drop
-// adversary would just prove "no resend ⇒ no convergence", which isn't interesting.
-// reorder/drop/dup hooks are TODO once the protocol grows resend.
-
-export class FakeLink implements ShadowLink {
-  readonly peerId: string
-  readonly role: ShadowRole
-  readonly trust = "full" as const
-  /** Ops queued for delivery *to* this side. */
-  inflight: ShadowOp[] = []
-  partitioned = false
-  private handler: (op: ShadowOp) => void = () => {}
-  private peer!: FakeLink
-
-  private constructor(peerId: string, role: ShadowRole) {
-    this.peerId = peerId
-    this.role = role
-  }
-
-  /** Build a wired S↔A pair. */
-  static pair(): { sLink: FakeLink; aLink: FakeLink } {
-    const sLink = new FakeLink("A", "shadow")
-    const aLink = new FakeLink("S", "authority")
-    sLink.peer = aLink
-    aLink.peer = sLink
-    return { sLink, aLink }
-  }
-
-  send(op: ShadowOp): void { this.peer.inflight.push(op) }
-  on(handler: (op: ShadowOp) => void): void { this.handler = handler }
-  close(): void { this.handler = () => {} }
-
-  /** Deliver up to `n` queued ops to this side's handler. No-op while partitioned. */
-  tick(n: number): number {
-    if (this.partitioned) return 0
-    let i = 0
-    while (i < n && this.inflight.length > 0) {
-      this.handler(this.inflight.shift()!)
-      i++
-    }
-    return i
-  }
-
-  drainSide(): void {
-    while (!this.partitioned && this.inflight.length > 0) this.tick(this.inflight.length)
-  }
 }
 
 // ── Simulator ───────────────────────────────────────────────────────────────
@@ -102,13 +52,10 @@ function applyKey(buf: BufferModel, key: Key): void {
 export type SimulatorOpts = {
   initialText?: string
   bufferIds?: string[]
-  /** Include externalSplice(A) in the random action mix. Off by default: the
-   *  current `onShadowOp` rebase mis-transforms when ≥2 pending splices straddle
-   *  an external (it transforms each pending past the raw authority op, but
-   *  doesn't advance the authority op past already-replayed pendings — so the
-   *  second pending lands at the wrong offset). Flip this on to hunt that class
-   *  of bug; the soak test does. */
+  /** Include externalSplice(A) in the random action mix. */
   withExternalSplice?: boolean
+  /** Link adversary. Threaded to both directions of the FakeLink pair. */
+  adversary?: Partial<Adversary>
 }
 
 export class Simulator {
@@ -136,7 +83,9 @@ export class Simulator {
       this.S.addBuffer(new BufferModel({ id, name: id, text }))
       this.baseline.addBuffer(new BufferModel({ id, name: id, text }))
     }
-    const { sLink, aLink } = FakeLink.pair()
+    // Separate link rng so adversary draws don't perturb genAction's stream.
+    const linkRng = new SeededRng((seed ^ 0x9e3779b9) >>> 0)
+    const { sLink, aLink } = FakeLink.pair({ rng: linkRng, adversary: opts.adversary })
     this.sLink = sLink
     this.aLink = aLink
     attachAuthority(this.A, aLink)
@@ -145,11 +94,12 @@ export class Simulator {
 
   buf(e: Editor, id = this.bufferIds[0]!): BufferModel { return e.buffers.get(id)! }
 
-  /** Nothing in flight, no unacked pending on S, no unflushed external on A. */
+  /** Nothing in flight, no unacked pending on S, no unflushed external on A, nothing held. */
   private quiescent(): boolean {
     if (this.sLink.partitioned || this.sLink.inflight.length || this.aLink.inflight.length) return false
     const ss = shadowState(this.S)
     const as = authorityState(this.A)
+    if (as && as.held.size > 0) return false
     for (const id of this.bufferIds) {
       if ((ss?.pending.get(id)?.length ?? 0) > 0) return false
       if ((as?.external.get(id)?.length ?? 0) > 0) return false
@@ -157,8 +107,9 @@ export class Simulator {
     return true
   }
 
-  /** Heal, pump both directions to fixpoint, then force-flush any externals A is
-   *  sitting on (otherwise they only ship piggybacked on S's next splice). */
+  /** Heal, then alternate {pump, retransmit, flush} until quiescent. pump uses
+   *  the link's no-adversary drain, so anything that was dropped during tick()
+   *  is recovered by S resending pending and A re-acking. */
   drain(): void {
     this.sLink.partitioned = false
     this.aLink.partitioned = false
@@ -169,15 +120,13 @@ export class Simulator {
       }
     }
     pump()
-    const as = authorityState(this.A)!
-    for (const id of this.bufferIds) {
-      const ext = as.external.get(id)
-      if (ext?.length) {
-        as.link.send({ kind: "rebase", bufferId: id, baseSeq: as.lastSeq.get(id) ?? 0, ops: ext.slice() })
-        as.external.set(id, [])
-      }
+    for (let i = 0; !this.quiescent(); i++) {
+      if (i > 64) throw this.fail(this.bufferIds[0]!, `drain did not converge after ${i} rounds`)
+      resendPending(this.S)
+      pump()
+      flushExternal(this.A)
+      pump()
     }
-    pump()
   }
 
   step(): Action {
@@ -185,6 +134,11 @@ export class Simulator {
     const a = this.genAction()
     this.trace.push(a)
     this.apply(a)
+    // ext is bracketed by drains: one before (in genAction, so coords agree on
+    // A and baseline) and one after (here, so S has the ext before the next key).
+    // Without the trailing drain, absolute-position keys like <end> reference
+    // different text lengths on S vs baseline and the oracle is unsound.
+    if (a.k === "ext") this.drain()
     return a
   }
 
@@ -202,13 +156,14 @@ export class Simulator {
       return this.sLink.partitioned ? { k: "heal" } : { k: "partition" }
     }
     // externalSplice — only at a quiescent point so (from,to) means the same
-    // thing on A and baseline.
+    // thing on A and baseline. Pure insert: a non-empty replaced range can put
+    // S.point inside it, where the transform invalidates S's next op while
+    // baseline's gravity-clamped point applies it — A≢baseline by construction.
     if (!this.quiescent()) this.drain()
     const len = this.buf(this.A).text.length
     const from = r.int(len + 1)
-    const to = Math.min(len, from + r.int(3))
     const text = Array.from({ length: 1 + r.int(2) }, () => EXT_CHARS[r.int(EXT_CHARS.length)]).join("")
-    return { k: "ext", from, to, text }
+    return { k: "ext", from, to: from, text }
   }
 
   apply(a: Action): void {

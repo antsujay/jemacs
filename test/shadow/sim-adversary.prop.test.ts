@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { Simulator, type SimulatorOpts } from "./sim"
+import { Simulator, type Adversary, type SimulatorOpts } from "./sim"
 
 // sim.prop.test.ts passes with a perfect link. These crank reorder/drop/dup/delay
-// — they're the real test of reconciliation. All test.failing until shadow.ts grows
-// retransmit (drop), receiver-side seq buffering (reorder), and high-water-mark dedup.
-
-export type Adversary = { reorderP: number; dropP: number; dupP: number; maxDelay: number }
+// to exercise A's seq buffer (reorder/delay), hwm dedup (dup), and S's
+// drain-triggered resend of pending (drop).
 
 const ADVERSARIES: Array<[string, Adversary]> = [
   ["reorder", { reorderP: 0.5, dropP: 0,    dupP: 0,   maxDelay: 3 }],
@@ -24,7 +22,7 @@ function tryRun(seed: number, opts: SimulatorOpts, steps: number): string | null
 for (const [name, adv] of ADVERSARIES) {
   describe(`sim adversary: ${name}`, () => {
     for (const seed of [1, 7, 42, 1337, 90210]) {
-      test.failing(`seed ${seed} × 300 steps converges`, () => {
+      test(`seed ${seed} × 300 steps converges`, () => {
         const opts: SimulatorOpts = { adversary: adv, withExternalSplice: true }
         const err = tryRun(seed, opts, 300)
         if (err) {

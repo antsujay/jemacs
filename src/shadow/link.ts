@@ -70,7 +70,11 @@ export function applyRemoteOp(editor: Editor, link: ShadowLink, op: ShadowOp): b
     case "ack":
     case "rebase":
     case "lsp":
-      // Reconciliation / plugin-stub ops — consumed by the shadow layer, not the kernel.
+    case "buffer-ref":
+    case "have":
+    case "want":
+    case "chunk":
+      // Reconciliation / CAS-sync / plugin-stub ops — consumed by the shadow layer, not the kernel.
       return true
   }
 }

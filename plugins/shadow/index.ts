@@ -3,8 +3,10 @@ import type { BufferModel } from "../../src/kernel/buffer"
 import type { FaceName, TextSpan } from "../../src/modes/mode"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 import { defface } from "../../src/runtime/faces"
-import { defvar, getCustom } from "../../src/runtime/custom"
+import { defvar } from "../../src/runtime/custom"
 import { transformSplice, type Splice } from "../../src/shadow/ops"
+import { attachShadow, shadowState } from "../../src/shadow/shadow"
+import { parseConnectTarget, spawnStdioLink } from "../../src/shadow/stdio-link"
 
 /** buffer.locals key written by attachShadow (shadow.ts mirrors ShadowState.pending here). */
 export const SHADOW_PENDING_LOCAL = "shadow-pending"
@@ -61,4 +63,24 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const i = misc.indexOf(shadowModeLighter)
     if (i >= 0) misc.splice(i, 1)
   })
+
+  ctx.command("shadow-connect", async ({ editor, args }) => {
+    const target = args[0] ?? await editor.prompt("Connect to (ssh://host or stdio:CMD): ", "", "shadow-connect")
+    if (!target) return
+    if (shadowState(editor)) {
+      editor.message("[shadow] already connected; M-x shadow-disconnect first")
+      return
+    }
+    const link = spawnStdioLink(parseConnectTarget(target), {
+      onClose: () => editor.message(`[shadow] disconnected from ${target}`),
+    })
+    attachShadow(editor, link, ctx)
+    editor.message(`[shadow] connected to ${target}`)
+  }, "Attach this editor as a shadow of a remote authority over ssh:// or stdio:.")
+
+  ctx.command("shadow-disconnect", ({ editor }) => {
+    const state = shadowState(editor)
+    if (!state) { editor.message("[shadow] not connected"); return }
+    state.link.close()
+  }, "Close the active shadow link.")
 }

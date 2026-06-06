@@ -1,27 +1,43 @@
 import type { Editor } from "../kernel/editor"
-import type { BufferModel } from "../kernel/buffer"
+import { BufferModel } from "../kernel/buffer"
 import { applyRemoteOp, type ShadowLink } from "./link"
-import { transformSplice, type Seq, type ShadowOp, type Splice } from "./ops"
+import { advancePast, transformPast, type Cmd, type Point, type Seq, type ShadowOp, type Splice } from "./ops"
+import { chunkText, diffText, FileCas, sha256, type Cas } from "./cas"
 
 export type { ShadowLink } from "./link"
 export type { ShadowOp, Splice, Seq } from "./ops"
 
-type DisposeCtx = { onDispose(fn: () => void): void }
+/** Third arg to attach{Shadow,Authority}. `onDispose` kept at top level so the
+ *  pre-CAS call shape `attachX(editor, link, ctx)` still typechecks. */
+export type AttachOpts = { onDispose?(fn: () => void): void; cas?: Cas }
+
+/** S→A ops that carry a seq and are subject to in-order buffering on A. */
+type SeqOp = Splice | Point | Cmd
 
 // ── State stashed in editor.locals ──────────────────────────────────────────
 
 export type ShadowState = {
   link: ShadowLink
+  cas: Cas
   nextSeq: Seq
   /** Ops sent to A, not yet ack'd. Each list is also mirrored to buffer.locals["shadow-pending"] for display. */
   pending: Map<string, Splice[]>
+  /** Chunk reassembly: bufferId → text accumulated so far. Cleared on eof. */
+  partial: Map<string, string>
 }
 
 export type AuthorityState = {
   link: ShadowLink
+  cas: Cas
+  /** Reliability layer: highest contiguous seq received from S (global, dedup hwm). */
+  recvSeq: Seq
+  /** Reliability layer: out-of-order ops parked until their predecessor arrives. */
+  held: Map<Seq, SeqOp>
   /** Highest seq from S applied per buffer; rebase.baseSeq comes from here. */
   lastSeq: Map<string, Seq>
-  /** Splices that landed on A from somewhere other than S since lastSeq[bufferId]. */
+  /** Splices that landed on A from somewhere other than S since lastSeq[bufferId].
+   *  Kept in S's frame: advanced past each applied S op so flushExternal can ship
+   *  them as a rebase at baseSeq=lastSeq with no rewind needed on S. */
   external: Map<string, Splice[]>
 }
 
@@ -51,8 +67,8 @@ function setPending(editor: Editor, state: ShadowState, bufferId: string, list: 
 
 // ── Shadow side (S) ─────────────────────────────────────────────────────────
 
-export function attachShadow(editor: Editor, link: ShadowLink, ctx?: DisposeCtx): () => void {
-  const state: ShadowState = { link, nextSeq: 1, pending: new Map() }
+export function attachShadow(editor: Editor, link: ShadowLink, opts?: AttachOpts): () => void {
+  const state: ShadowState = { link, cas: opts?.cas ?? new FileCas(), nextSeq: 1, pending: new Map(), partial: new Map() }
   editor.locals.set(SHADOW_KEY, state)
 
   const restore: Array<() => void> = []
@@ -76,8 +92,20 @@ export function attachShadow(editor: Editor, link: ShadowLink, ctx?: DisposeCtx)
     for (const r of restore) r()
     editor.locals.delete(SHADOW_KEY)
   }
-  ctx?.onDispose(detach)
+  opts?.onDispose?.(detach)
   return detach
+}
+
+/** Re-send every unacked pending splice. For DST drain; real transports will
+ *  drive this off a timeout. A's seq buffer makes the resends idempotent. */
+export function resendPending(editor: Editor): number {
+  const state = shadowState(editor)
+  if (!state) return 0
+  let n = 0
+  for (const list of state.pending.values()) {
+    for (const op of list) { state.link.send(op); n++ }
+  }
+  return n
 }
 
 /** S-side receive: ack/rebase/lsp handled here; splice/point/buffer/layout via the chokepoint. */
@@ -97,18 +125,25 @@ function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, op: Sh
       withoutEmit(buf, () => {
         // 1. Rewind optimistic state past baseSeq.
         for (let i = 0; i < toRewind.length; i++) buf.undo()
-        // 2. Apply A's ops.
-        for (const a of op.ops) buf.replaceRange(a.from, a.to, a.text)
-        // 3. Transform surviving pending past A's ops, re-apply.
+        // 2. Apply A's ops with gravity point-adjust (not replaceRange's forced
+        //    jump) so S.point tracks baseline when toRewind is empty.
+        for (const a of op.ops) buf.splice(a.from, a.to, a.text)
+        // 3. Transform surviving pending past A's ops, re-apply, advancing A's
+        //    ops past each replayed pending so the next transform is in-frame.
+        let exts = op.ops.slice()
         const survived: Splice[] = []
         for (const p of toRewind) {
-          let t: Splice | null = p
-          for (const a of op.ops) t = t && transformSplice(t, a)
+          const t = transformPast(p, exts, true)
           if (t) { buf.replaceRange(t.from, t.to, t.text); survived.push(t) }
+          exts = advancePast(exts, p)
         }
         // 4. Pending now relative to A's tip.
         setPending(editor, state, op.bufferId, survived)
       })
+      // Stale-sync path lands here too: the diff arrived as a rebase, S is now
+      // at A's text. Record it in the CAS so the next BufferRef is a hit.
+      buf.locals.set("shadow-cached-sha", state.cas.write(buf.text))
+      buf.locals.delete("shadow-sync")
       break
     }
     case "lsp":
@@ -120,12 +155,51 @@ function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, op: Sh
       if (buf) hookBuffer(buf)
       break
     }
+    case "buffer-ref": {
+      // Hit: S's CAS has op.sha → render now, send Have{sha}, zero text bytes.
+      // Stale: S has *a* version (buffer.locals["shadow-cached-sha"]) but not op.sha
+      //   → keep rendering it with [⊘ syncing], send Have{cachedSha}; A diffs and
+      //   replies rebase{ops}. Same convergence machinery as an external splice.
+      // Miss: nothing → empty placeholder + Want; A streams Chunks.
+      const hit = state.cas.lookup(op.sha)
+      let buf = editor.buffers.get(op.id)
+      if (!buf) {
+        buf = editor.addBuffer(new BufferModel({ id: op.id, name: op.path ?? op.id, path: op.path, text: hit ?? "", mode: op.mode }))
+        hookBuffer(buf)
+      } else if (hit !== undefined && buf.text !== hit) {
+        withoutEmit(buf, () => buf!.replaceRange(0, buf!.text.length, hit))
+      }
+      buf.link = link
+      if (hit !== undefined) {
+        buf.locals.set("shadow-cached-sha", op.sha)
+        buf.locals.delete("shadow-sync")
+        link.send({ kind: "have", id: op.id, sha: op.sha })
+        break
+      }
+      buf.locals.set("shadow-sync", "syncing")
+      const cachedSha = buf.locals.get("shadow-cached-sha") as string | undefined
+      link.send(cachedSha ? { kind: "have", id: op.id, sha: cachedSha } : { kind: "want", id: op.id })
+      break
+    }
+    case "chunk": {
+      const buf = editor.buffers.get(op.id)
+      if (!buf) break
+      const sofar = (state.partial.get(op.id) ?? "") + op.data
+      if (!op.eof) { state.partial.set(op.id, sofar); break }
+      state.partial.delete(op.id)
+      withoutEmit(buf, () => buf.replaceRange(0, buf.text.length, sofar))
+      buf.locals.set("shadow-cached-sha", state.cas.write(sofar))
+      buf.locals.delete("shadow-sync")
+      break
+    }
     case "splice":
     case "point":
     case "layout":
       applyRemoteOp(editor, link, op)
       break
     case "command":
+    case "have":
+    case "want":
       // S→A only; never honored on S.
       break
   }
@@ -134,8 +208,8 @@ function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, op: Sh
 
 // ── Authority side (A) ──────────────────────────────────────────────────────
 
-export function attachAuthority(editor: Editor, link: ShadowLink, ctx?: DisposeCtx): () => void {
-  const state: AuthorityState = { link, lastSeq: new Map(), external: new Map() }
+export function attachAuthority(editor: Editor, link: ShadowLink, opts?: AttachOpts): () => void {
+  const state: AuthorityState = { link, cas: opts?.cas ?? new FileCas(), recvSeq: 0, held: new Map(), lastSeq: new Map(), external: new Map() }
   editor.locals.set(AUTHORITY_KEY, state)
 
   const restore: Array<() => void> = []
@@ -157,40 +231,113 @@ export function attachAuthority(editor: Editor, link: ShadowLink, ctx?: DisposeC
     for (const r of restore) r()
     editor.locals.delete(AUTHORITY_KEY)
   }
-  ctx?.onDispose(detach)
+  opts?.onDispose?.(detach)
   return detach
 }
 
-/** A-side receive: S may send splice/point/command. Anything else is wrong-direction. */
+/** A-side: announce `bufferId` to S as a `BufferRef` (sha, no text). S decides
+ *  hit/stale/miss against its CAS and replies Have or Want. Call this on
+ *  buffer-add (find-file, get-buffer-create) for buffers S should mirror. */
+export function announceBuffer(editor: Editor, bufferId: string): void {
+  const state = authorityState(editor)
+  const buf = editor.buffers.get(bufferId)
+  if (!state || !buf) return
+  const sha = state.cas.write(buf.text)
+  state.link.send({ kind: "buffer-ref", id: buf.id, path: buf.path, sha, mode: buf.mode })
+}
+
+/** Ship any buffered externals to S as a rebase at the current lastSeq, then clear.
+ *  Called from the DST drain after all of S's pending have been applied+acked, so
+ *  S's pending is empty and the rebase needs no rewind — just apply on top. */
+export function flushExternal(editor: Editor): number {
+  const state = authorityState(editor)
+  if (!state) return 0
+  let n = 0
+  for (const [bufferId, ext] of state.external) {
+    if (!ext.length) continue
+    state.link.send({ kind: "rebase", bufferId, baseSeq: state.lastSeq.get(bufferId) ?? 0, ops: ext.slice() })
+    state.external.set(bufferId, [])
+    n++
+  }
+  return n
+}
+
+/** A-side receive: S may send splice/point/command/have/want. Anything else is wrong-direction. */
 function onAuthorityOp(editor: Editor, link: ShadowLink, state: AuthorityState, op: ShadowOp): void {
   switch (op.kind) {
-    case "splice": {
-      const ext = state.external.get(op.bufferId)
-      if (ext?.length) {
-        link.send({ kind: "rebase", bufferId: op.bufferId, baseSeq: state.lastSeq.get(op.bufferId) ?? 0, ops: ext })
-        state.external.set(op.bufferId, [])
-        // S's op was relative to the pre-ext state; shift it past what we just told S about.
-        let t: Splice | null = op
-        for (const a of ext) t = t && transformSplice(t, a)
-        if (t) applyRemoteOp(editor, link, t)
-      } else {
-        applyRemoteOp(editor, link, op)
+    case "have": {
+      const buf = editor.buffers.get(op.id)
+      if (!buf) return
+      const cur = sha256(buf.text)
+      if (op.sha === cur) {
+        // S already has the exact text. Ack at current hwm so S clears any sync state.
+        link.send({ kind: "ack", upTo: state.recvSeq })
+        return
       }
-      state.lastSeq.set(op.bufferId, op.seq)
-      link.send({ kind: "ack", upTo: op.seq })
-      break
+      const cached = state.cas.lookup(op.sha)
+      if (cached !== undefined) {
+        // S has a stale version A can reconstruct → ship the diff as a rebase.
+        // baseSeq=lastSeq so S applies on top with no rewind (same as flushExternal).
+        const ops = diffText(cached, buf.text, op.id)
+        link.send({ kind: "rebase", bufferId: op.id, baseSeq: state.lastSeq.get(op.id) ?? 0, ops })
+        return
+      }
+      // A can't reconstruct S's version → fall through to full chunk stream.
+      for (const c of chunkText(op.id, buf.text)) link.send(c)
+      return
     }
+    case "want": {
+      const buf = editor.buffers.get(op.id)
+      if (!buf) return
+      for (const c of chunkText(op.id, buf.text)) link.send(c)
+      return
+    }
+    case "splice":
     case "point":
-      applyRemoteOp(editor, link, op)
-      state.lastSeq.set(op.bufferId, op.seq)
-      link.send({ kind: "ack", upTo: op.seq })
-      break
-    case "command":
-      applyRemoteOp(editor, link, op)
-      link.send({ kind: "ack", upTo: op.seq })
-      break
+    case "command": {
+      // Reliability: dedup + in-order. seq is monotone per S, global across kinds.
+      if (op.seq <= state.recvSeq) {
+        // Already applied (or held-then-applied). Re-ack so a resending S can
+        // clear pending even if the original ack was dropped.
+        link.send({ kind: "ack", upTo: state.recvSeq })
+        return
+      }
+      if (op.seq !== state.recvSeq + 1) {
+        state.held.set(op.seq, op)
+        return
+      }
+      applyAuthorityOp(editor, link, state, op)
+      // Drain any contiguous run that was waiting on this one.
+      let next: SeqOp | undefined
+      while ((next = state.held.get(state.recvSeq + 1))) {
+        state.held.delete(state.recvSeq + 1)
+        applyAuthorityOp(editor, link, state, next)
+      }
+      return
+    }
     default:
       // ack/rebase/buffer/layout/lsp are A→S only.
-      break
+      return
   }
+}
+
+/** Apply one in-order S op to A. Splices are transformed past any buffered
+ *  externals (S's frame → A's frame); externals are then advanced past the op
+ *  so the next S op transforms against the right frame. Rebase is *not* sent
+ *  here — it ships via flushExternal once S is quiescent. */
+function applyAuthorityOp(editor: Editor, link: ShadowLink, state: AuthorityState, op: SeqOp): void {
+  state.recvSeq = op.seq
+  if (op.kind === "splice") {
+    const ext = state.external.get(op.bufferId) ?? []
+    const t = transformPast(op, ext, true)
+    if (t) applyRemoteOp(editor, link, t)
+    state.external.set(op.bufferId, advancePast(ext, op))
+    state.lastSeq.set(op.bufferId, op.seq)
+  } else if (op.kind === "point") {
+    applyRemoteOp(editor, link, op)
+    state.lastSeq.set(op.bufferId, op.seq)
+  } else {
+    applyRemoteOp(editor, link, op)
+  }
+  link.send({ kind: "ack", upTo: op.seq })
 }

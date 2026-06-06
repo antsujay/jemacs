@@ -1,6 +1,12 @@
 import type { ShadowLink, ShadowRole } from "../../src/shadow/link"
 import type { ShadowOp } from "../../src/shadow/ops"
-import type { SeededRng } from "./rng"
+import { SeededRng } from "./rng"
+
+/** Minimal PRNG surface FakeLink needs — lets sim.ts pass its LCG, tests pass mulberry32. */
+export interface Rng {
+  next(): number
+  int(n: number): number
+}
 
 /** Per-tick perturbation probabilities, all in [0, 1]. `maxDelay` is the
  *  upper bound (in ticks) on the random arrival delay assigned at send time. */
@@ -21,12 +27,12 @@ interface Inflight {
 /**
  * In-memory `ShadowLink` for the DST simulator (DESIGN.md §DST simulator).
  *
- * `send()` always enqueues. Nothing is delivered until `tick()` / `drain()`.
- * `tick(n)` makes n delivery attempts: each advances the logical clock by 1,
- * picks one eligible op (readyAt ≤ clock), and subjects it to the adversary —
- * drop, dup, or reorder. `partition()` makes tick/drain into no-ops until
- * `heal()`. `drain()` flushes everything still in flight without perturbation,
- * for end-of-run convergence checks.
+ * `send()` enqueues onto the peer's inflight (or this link's, if unpaired).
+ * Nothing is delivered until `tick()` / `drain()`. `tick(n)` makes n delivery
+ * attempts: each advances the logical clock by 1, picks one eligible op
+ * (readyAt ≤ clock), and subjects it to the adversary — drop, dup, or reorder.
+ * `partition()` makes tick/drain into no-ops until `heal()`. `drain()` flushes
+ * everything still in flight without perturbation, for end-of-run convergence.
  */
 export class FakeLink implements ShadowLink {
   readonly peerId: string
@@ -38,14 +44,15 @@ export class FakeLink implements ShadowLink {
 
   private clock = 0
   private handler: ((op: ShadowOp) => void) | undefined
-  private readonly rng: SeededRng
+  private readonly rng: Rng
   private readonly adversary: Adversary
   private closed = false
+  private peer?: FakeLink
 
   constructor(opts: {
     peerId: string
     role: ShadowRole
-    rng: SeededRng
+    rng: Rng
     trust?: "full" | "propose"
     adversary?: Partial<Adversary>
   }) {
@@ -56,10 +63,26 @@ export class FakeLink implements ShadowLink {
     this.adversary = { ...NO_ADVERSARY, ...opts.adversary }
   }
 
-  send(op: ShadowOp): void {
+  /** Build a wired S↔A pair. Both links share `rng` so a seed determines the
+   *  full perturbation schedule across both directions. */
+  static pair(opts: { rng?: Rng; adversary?: Partial<Adversary> } = {}): { sLink: FakeLink; aLink: FakeLink } {
+    const rng = opts.rng ?? new SeededRng(0)
+    const sLink = new FakeLink({ peerId: "A", role: "shadow", rng, adversary: opts.adversary })
+    const aLink = new FakeLink({ peerId: "S", role: "authority", rng, adversary: opts.adversary })
+    sLink.peer = aLink
+    aLink.peer = sLink
+    return { sLink, aLink }
+  }
+
+  /** Enqueue an op for delivery to *this* side's handler. Called by the peer's send(). */
+  private enqueue(op: ShadowOp): void {
     if (this.closed) return
     const delay = this.adversary.maxDelay > 0 ? this.rng.int(this.adversary.maxDelay + 1) : 0
     this.inflight.push({ op, readyAt: this.clock + delay })
+  }
+
+  send(op: ShadowOp): void {
+    ;(this.peer ?? this).enqueue(op)
   }
 
   on(handler: (op: ShadowOp) => void): void {
@@ -128,5 +151,10 @@ export class FakeLink implements ShadowLink {
       delivered++
     }
     return delivered
+  }
+
+  /** Alias for `drain()` — sim.ts calls this name on each side of a pair. */
+  drainSide(): number {
+    return this.drain()
   }
 }
