@@ -2,6 +2,9 @@ import { expect, test, spyOn } from "bun:test"
 import Parser from "tree-sitter"
 import { BufferModel } from "../../src/kernel/buffer"
 import { treeSitterFontLock } from "../../src/modes/tree-sitter"
+import { registerTreeSitterGrammars } from "../../plugins/tree-sitter-grammars"
+
+registerTreeSitterGrammars()
 
 // t-c64dd1aa: treeSitterFontLock called parser.parse(buffer.text) with no oldTree, so
 // every cache-missing render did a full parse (10-30ms on a 5k-line TS file). The

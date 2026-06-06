@@ -11,6 +11,11 @@ import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { install as installStephenConfig } from "./fixtures/stephen-config"
 import { defaultTheme } from "../src/themes"
 import { pageScrollLines, visibleStyledText, visibleText } from "../src/ui/opentui"
+import { registerTreeSitterGrammars } from "../plugins/tree-sitter-grammars"
+
+// Tree-sitter grammars are an opt-in plugin; register them for the font-lock
+// assertions in this file (idempotent, synchronous).
+registerTreeSitterGrammars()
 
 test("buffer insert/delete/undo", () => {
   const b = new BufferModel({ name: "x", text: "abc" })
@@ -195,7 +200,7 @@ test("default commands support buffer listing, switching, newline, and regions",
   installDefaultModes()
   const editor = new Editor()
   installDefaultCommands(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   editor.scratch("notes", "hello world", "text")
 
   await editor.run("switch-to-buffer", ["*scratch*"])
@@ -328,7 +333,7 @@ test("find-file prompt defaults to dired buffer directory", async () => {
   installDefaultModes()
   const editor = new Editor()
   installDefaultCommands(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   const dired = await editor.openDirectory("/tmp")
   expect(dired.directory()).toBe("/tmp")
 
@@ -457,7 +462,7 @@ test("python mode supports indentation, defun navigation, font-lock, and TAB com
   installDefaultModes()
   const editor = new Editor()
   installDefaultCommands(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   const buffer = editor.scratch("example.py", "def outer():\nprint('hi')\n    return ran", "python")
 
   buffer.point = buffer.text.indexOf("print")
@@ -482,8 +487,10 @@ test("python mode supports indentation, defun navigation, font-lock, and TAB com
 
 test("tree-sitter font-lock highlights javascript, html, and java modes", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
+  const { install: installTreeSitterGrammars } = await import("../plugins/tree-sitter-grammars")
   installDefaultModes()
   const editor = new Editor()
+  await installTreeSitterGrammars(editor)
 
   const js = editor.scratch("app.js", "function greet() { return 'hi' }\n", "javascript")
   const jsSpans = editor.fontLock(js)
@@ -508,7 +515,7 @@ test("dired opens directories, follows entries, refreshes, and exposes dired key
   installDefaultModes()
   const editor = new Editor()
   installDefaultCommands(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   await Bun.write("/tmp/jemacs-dired-file.txt", "hello")
 
   const buffer = await editor.openDirectory("/tmp")
@@ -769,7 +776,7 @@ test("exchange-point-and-mark with prefix jumps without activating the region", 
 test("text-scale-adjust increases buffer scale and binds s-= in Stephen config", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
   const buffer = editor.currentBuffer
 
   expect(editor.keymap.get("s-=")).toBe("text-scale-adjust")
@@ -797,7 +804,7 @@ test("Stephen config installs and rust font-lock works", async () => {
   installDefaultModes()
   const editor = new Editor()
   installDefaultCommands(editor)
-  installStephenConfig(editor)
+  await installStephenConfig(editor)
 
   const spans = editor.fontLock(editor.scratch("main.rs", "fn main() { return }\n", "rust"))
   expect(spans.some(span => span.face === "keyword")).toBe(true)

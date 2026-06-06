@@ -7,7 +7,7 @@ import { install as installPersist } from "../../plugins/persist"
 
 /** Stephen-like fixture plus projectile package (C-c p). */
 export async function install(editor: Editor): Promise<void> {
-  installStephenFixture(editor)
+  await installStephenFixture(editor)
   installCompile(editor)
   installNextError(editor)
   installPersist(editor)

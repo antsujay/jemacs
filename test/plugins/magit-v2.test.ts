@@ -68,7 +68,7 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(status?.keymap?.get("z p")).toBe("magit-stash-pop")
   expect(status?.keymap?.get("k")).toBe("magit-discard")
   expect(status?.keymap?.get("x")).toBe("magit-reset")
-  expect(status?.keymap?.get("tab")).toBe("magit-toggle-fold")
+  expect(status?.keymap?.get("tab")).toBe("magit-section-toggle")
 
   expect(getMode("magit-commit")?.keymap?.get("C-c C-k")).toBe("magit-commit-abort")
 
