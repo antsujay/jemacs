@@ -5,7 +5,7 @@ import type { BufferModel } from "../src/kernel/buffer"
 import type { TextSpan } from "../src/modes/mode"
 import { defvar } from "../src/runtime/custom"
 import { isPrintable } from "../src/kernel/keymap"
-import { scrollDownCommand, scrollUpCommand } from "../src/display/scroll"
+import { scrollDownCommand, scrollUpCommand, selectedWindowBodyBudget } from "../src/display/scroll"
 import { pythonBeginningOfDefun, pythonEndOfDefun } from "../src/modes/python"
 import { spawnProcess } from "../src/platform/runtime"
 import { readKey } from "./misc"
@@ -17,8 +17,16 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.command("backward-char", ({ buffer, prefixArgument }) => buffer.move(-(prefixArgument ?? 1)), "Move point backward one character.")
   editor.command("next-line", ({ buffer, prefixArgument }) => buffer.moveLine(prefixArgument ?? 1), "Move point down one line.")
   editor.command("previous-line", ({ buffer, prefixArgument }) => buffer.moveLine(-(prefixArgument ?? 1)), "Move point up one line.")
-  editor.command("move-beginning-of-line", ({ buffer }) => buffer.moveToLineStart(), "Move point to the beginning of the line.")
-  editor.command("move-end-of-line", ({ buffer }) => buffer.moveToLineEnd(), "Move point to the end of the line.")
+  editor.command("move-beginning-of-line", ({ buffer, prefixArgument }) => {
+    const arg = prefixArgument ?? 1
+    if (arg !== 1) buffer.moveLine(arg - 1)
+    buffer.moveToLineStart()
+  }, "Move point to the beginning of the line.")
+  editor.command("move-end-of-line", ({ buffer, prefixArgument }) => {
+    const arg = prefixArgument ?? 1
+    if (arg !== 1) buffer.moveLine(arg - 1)
+    buffer.moveToLineEnd()
+  }, "Move point to the end of the line.")
 
   editor.command("forward-word", ({ buffer, prefixArgument }) => {
     const n = prefixArgument ?? 1
@@ -31,13 +39,28 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
   }, "Move point backward one word.")
 
-  editor.command("beginning-of-buffer", ({ buffer }) => {
-    if (buffer.point !== 0) { buffer.mark = buffer.point; buffer.markActive = false }
-    buffer.moveToBufferStart()
+  editor.command("beginning-of-buffer", ({ buffer, prefixArgument }) => {
+    if (prefixArgument == null && !buffer.markActive) {
+      buffer.mark = buffer.point
+      buffer.markActive = false
+    }
+    if (prefixArgument != null) {
+      buffer.point = forwardLineFrom(buffer.text, tenthFractionPosition(buffer.text, prefixArgument, false))
+    } else {
+      buffer.moveToBufferStart()
+    }
   }, "Set mark (without activating) and move point to the beginning of the buffer.")
-  editor.command("end-of-buffer", ({ buffer }) => {
-    if (buffer.point !== buffer.text.length) { buffer.mark = buffer.point; buffer.markActive = false }
-    buffer.moveToBufferEnd()
+  editor.command("end-of-buffer", ({ buffer, editor, prefixArgument }) => {
+    if (prefixArgument == null && !buffer.markActive) {
+      buffer.mark = buffer.point
+      buffer.markActive = false
+    }
+    if (prefixArgument != null) {
+      buffer.point = forwardLineFrom(buffer.text, tenthFractionPosition(buffer.text, prefixArgument, true))
+    } else {
+      buffer.moveToBufferEnd()
+      recenterEndOfBuffer(editor)
+    }
   }, "Set mark (without activating) and move point to the end of the buffer.")
 
   editor.command("goto-line", async ({ buffer, editor, args }) => {
@@ -359,6 +382,10 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.key("M-b", "backward-word")
   editor.key("M-<", "beginning-of-buffer")
   editor.key("M->", "end-of-buffer")
+  for (const key of ["home", "kp-home", "C-home", "begin"]) editor.key(key, "beginning-of-buffer")
+  for (const key of ["end", "kp-end", "C-end"]) editor.key(key, "end-of-buffer")
+  for (const key of ["prior", "kp-prior", "pageup"]) editor.key(key, "scroll-down-command")
+  for (const key of ["next", "kp-next", "pagedown"]) editor.key(key, "scroll-up-command")
   editor.key("M-g g", "goto-line")
   editor.key("C-v", "scroll-up-command")
   editor.key("M-v", "scroll-down-command")
@@ -398,6 +425,32 @@ export function install(editor: Editor, ctx?: PluginContext): void {
 
   editor.key("C-c r", "replace-string")
   editor.key("M-%", "query-replace")
+}
+
+/** Emacs `simple.el`: N/10 of the way from the beginning or end of the buffer. */
+function tenthFractionPosition(text: string, tenth: number, fromEnd: boolean): number {
+  const size = text.length
+  return fromEnd
+    ? Math.max(0, size - Math.floor((size * tenth) / 10))
+    : Math.min(size, Math.floor((size * tenth) / 10))
+}
+
+/** Emacs `forward-line` after a fractional buffer jump — start of the next line. */
+function forwardLineFrom(text: string, pos: number): number {
+  if (pos >= text.length) return text.length
+  const nl = text.indexOf("\n", pos)
+  return nl === -1 ? text.length : nl + 1
+}
+
+/** Emacs `end-of-buffer` recenter: put point three lines above the window bottom. */
+function recenterEndOfBuffer(editor: Editor): void {
+  const leaf = editor.selectedWindowLeaf()
+  if (!leaf) return
+  const cursorLine = editor.currentBuffer.lineCol().line - 1
+  const bodyBudget = selectedWindowBodyBudget(editor)
+  const fromBottom = 3
+  const start = Math.max(0, cursorLine - (bodyBudget - fromBottom - 1))
+  editor.setSelectedWindowStartLine(start)
 }
 
 function repeat(prefixArgument: number | null, fwd: () => void, bwd?: () => void): void {

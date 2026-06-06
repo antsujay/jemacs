@@ -100,6 +100,11 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("C-l", "recenter-top-bottom")
   editor.key("M-<", "beginning-of-buffer")
   editor.key("M->", "end-of-buffer")
+  // GNU bindings.el + macOS ns-win.el: Home/End jump to buffer extremes; Page Up/Down scroll.
+  for (const key of ["home", "kp-home", "C-home", "begin"]) editor.key(key, "beginning-of-buffer")
+  for (const key of ["end", "kp-end", "C-end"]) editor.key(key, "end-of-buffer")
+  for (const key of ["prior", "kp-prior", "pageup"]) editor.key(key, "scroll-down-command")
+  for (const key of ["next", "kp-next", "pagedown"]) editor.key(key, "scroll-up-command")
   editor.key("M-%", "query-replace")
   editor.key("C-x C-w", "write-file")
   editor.key("C-x C-v", "find-alternate-file")

@@ -29,3 +29,39 @@ test("beginning-of-buffer and end-of-buffer move point", async () => {
   await editor.run("beginning-of-buffer")
   expect(editor.currentBuffer.point).toBe(0)
 })
+
+test("simple.el buffer motion keys are bound", () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+
+  expect(editor.keymap.get("end")).toBe("end-of-buffer")
+  expect(editor.keymap.get("C-end")).toBe("end-of-buffer")
+  expect(editor.keymap.get("kp-end")).toBe("end-of-buffer")
+  expect(editor.keymap.get("home")).toBe("beginning-of-buffer")
+  expect(editor.keymap.get("C-home")).toBe("beginning-of-buffer")
+  expect(editor.keymap.get("prior")).toBe("scroll-down-command")
+  expect(editor.keymap.get("next")).toBe("scroll-up-command")
+})
+
+test("move-end-of-line with prefix moves then goes to line end", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("aaa\nbbb\nccc", false)
+  editor.currentBuffer.point = 0
+  editor.prefixArg.addDigit(3)
+
+  await editor.run("move-end-of-line")
+  expect(editor.currentBuffer.point).toBe(editor.currentBuffer.text.length)
+})
+
+test("end-of-buffer with numeric prefix uses fractional position then forward-line", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const text = "0123456789\nabcdefghij"
+  editor.currentBuffer.setText(text, false)
+  editor.currentBuffer.point = 0
+  editor.prefixArg.addDigit(5)
+
+  await editor.run("end-of-buffer")
+  expect(editor.currentBuffer.point).toBe(text.length)
+})
