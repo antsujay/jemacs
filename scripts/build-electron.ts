@@ -1,8 +1,21 @@
-import { cp, mkdir } from "node:fs/promises"
+import type { BunPlugin } from "bun"
+import { cp, mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 
 const root = path.join(import.meta.dirname, "..")
 const out = path.join(root, "dist/electron")
+const ptyStub = path.join(root, "plugins/term/pty-stub.ts")
+
+/** term/pty.ts uses bun:ffi; swap in a Node-safe stub for the Electron main bundle. */
+const electronPtyStubPlugin: BunPlugin = {
+  name: "electron-pty-stub",
+  setup(build) {
+    build.onLoad({ filter: /plugins\/term\/pty\.ts$/ }, async () => ({
+      contents: await readFile(ptyStub, "utf8"),
+      loader: "ts",
+    }))
+  },
+}
 
 /** Native / path-sensitive deps must not be bundled into Electron main (font-lock breaks silently). */
 const ELECTRON_MAIN_EXTERNALS = [
@@ -43,6 +56,7 @@ const main = await Bun.build({
   target: "node",
   format: "esm",
   external: ELECTRON_MAIN_EXTERNALS,
+  plugins: [electronPtyStubPlugin],
 })
 if (!main.success) throw new Error(main.logs.join("\n"))
 
@@ -57,6 +71,8 @@ if (!preview.success) throw new Error(preview.logs.join("\n"))
 await cp(path.join(root, "src/electron/renderer.html"), path.join(out, "renderer.html"))
 await cp(path.join(root, "src/electron/renderer.css"), path.join(out, "renderer.css"))
 await cp(path.join(root, "src/electron/gui-preview.html"), path.join(out, "gui-preview.html"))
+await cp(path.join(root, "src/electron/bootstrap.mjs"), path.join(out, "bootstrap.mjs"))
+await cp(path.join(root, "src/electron/ts-loader-hook.mjs"), path.join(out, "ts-loader-hook.mjs"))
 await cp(path.join(root, "src/electron/fixtures"), path.join(out, "fixtures"), { recursive: true })
 
 console.log("Built Electron assets in dist/electron and dist/main-electron.js")

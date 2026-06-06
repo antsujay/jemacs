@@ -32,4 +32,36 @@ When porting or replicating a GNU Emacs interactive function:
 - Workspace packages: `packages/jemacs-core`, `host-opentui`, `host-electron` (re-exports; app still runs from repo root).
 
 ## Verification
-* When verifying non-Electron features, verify that the feature works by starting the OpenTUI version in a tmux instance
+
+### Jemacs TUI (tmux)
+
+When verifying non-Electron features, exercise the real OpenTUI host in tmux — unit tests build `KeyEventLike` by hand and miss terminal key-encoding bugs.
+
+```bash
+export JEMACS_TMUX_SESSION=jt
+scripts/tui-drive.sh start [file]          # sets JEMACS_INIT_PATH to test/fixtures/empty-config.ts
+scripts/tui-drive.sh keys Tab Enter
+scripts/tui-drive.sh cap                   # eyeball screen
+scripts/tui-drive.sh stop
+```
+
+`tui-drive.sh` uses `scripts/bun-cmd.sh` (`bun` or `npx bun`). Startup waits up to 12s for the first frame.
+
+### Emacs parity (tmux)
+
+When porting GNU/Stephen Emacs behavior (major modes, hooks, keymaps), compare against **Stephen's Emacs** in tmux — not batch `emacs --batch` (markdown-mode hooks such as inline images fail there).
+
+```bash
+export JEMACS_PARITY_EMACS=1
+scripts/emacs-drive.sh start examples/docs/guide.md
+scripts/emacs-drive.sh keys Tab
+scripts/emacs-drive.sh cap
+scripts/emacs-drive.sh stop
+
+# Automated parity suite (jemacs + emacs, same keys, compare buffer/echo):
+npx bun test test/tui/markdown-parity.test.ts
+```
+
+Set `JEMACS_SKIP_TUI=1` or run in CI to skip layer-3 tests. Set `JEMACS_PARITY_EMACS=1` locally to enable Emacs-side parity checks.
+
+Parity harness: `test/harness/tui.ts`, `test/harness/emacs.ts`, `test/harness/parity.ts`, `test/harness/screen.ts`.

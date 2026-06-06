@@ -12,19 +12,22 @@
 # Keys use tmux key syntax: C-x M-x Escape Enter Space Tab BSpace Up/Down etc.
 # Literal text: pass as one arg ("hello world" → typed verbatim).
 set -euo pipefail
+DIR=$(dirname "$0")
+BUN=$("$DIR/bun-cmd.sh")
 S=${JEMACS_TMUX_SESSION:-jemacs}
 
 case "${1:-}" in
   start)
     tmux kill-session -t "$S" 2>/dev/null || true
     shift
+    EMPTY_CFG="$DIR/../test/fixtures/empty-config.ts"
     tmux new-session -d -s "$S" -x 120 -y 35 \
-      "cd $(dirname "$0")/.. && exec bun run src/main.ts $*"
-    for _ in $(seq 40); do
-      tmux capture-pane -t "$S" -p 2>/dev/null | grep -q 'Jemacs OpenTUI' && exit 0
+      "export TERM=\${TERM:-screen-256color}; export JEMACS_INIT_PATH='$EMPTY_CFG'; cd $DIR/.. && exec $BUN run src/main.ts $*"
+    for _ in $(seq 120); do
+      tmux capture-pane -t "$S" -p 2>/dev/null | grep -qE 'Jemacs OpenTUI|markdown|gfm|line [0-9]+, col' && exit 0
       sleep 0.1
     done
-    echo "jemacs did not draw within 4s" >&2; exit 1 ;;
+    echo "jemacs did not draw within 12s" >&2; exit 1 ;;
   keys)
     shift
     for k in "$@"; do

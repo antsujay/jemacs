@@ -5,7 +5,19 @@ import { defineMode, getMode } from "../../src/modes/mode"
 import { Keymap, normalizeSequence, type KeyEventLike } from "../../src/kernel/keymap"
 import { addAdvice } from "../../src/runtime/advice"
 import { addHook } from "../../src/kernel/hooks"
-import { spawnPty, type Pty } from "../term/pty"
+import type { Pty } from "../term/pty"
+
+type PtyModule = typeof import("../term/pty")
+let ptyModule: PtyModule | null = null
+
+async function loadPtyModule(): Promise<PtyModule> {
+  if (!ptyModule) {
+    ptyModule = typeof Bun !== "undefined"
+      ? await import("../term/pty")
+      : await import("../term/pty-stub")
+  }
+  return ptyModule
+}
 import { Terminal as XTerm, type IBuffer, type IBufferCell } from "@xterm/headless"
 
 /** Emacs term-raw-map: every key resolves to term-send-raw; C-c is the only
@@ -230,6 +242,7 @@ export function install(editor: Editor): void {
     const buffer = editor.scratch(`*term*<${shell}>`, "")
     buffer.mode = "term"
     const rows = 30, cols = 100
+    const { spawnPty } = await loadPtyModule()
     const pty = spawnPty([shell, "-i"], { cwd, rows, cols })
     const session: TermSession = { pty, xt: makeXTerm(rows, cols), rows, cols }
     attachSession(buffer, session)

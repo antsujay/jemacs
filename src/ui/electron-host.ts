@@ -137,6 +137,8 @@ export function guiContentAreaLines(host: ElectronHost): number {
 }
 
 function electronDistDir(): string {
-  // Bundled main lives at `dist/main-electron.js`; renderer assets at `dist/electron/`.
-  return path.join(import.meta.dirname, "electron")
+  const home = process.env.JEMACS_HOME
+  if (home) return path.join(home, "dist/electron")
+  // Fallback when JEMACS_HOME is unset (tests / direct electron dist/main-electron.js).
+  return path.join(import.meta.dirname, "..", "..", "dist", "electron")
 }

@@ -190,13 +190,18 @@ export function getBufferFaceRemap(buffer: BufferModel, face: string): FaceStyle
 }
 
 export function resolveFace(face: FaceName, theme: Theme, buffer?: BufferModel): FaceStyle | undefined {
-  const resolved = resolveFaceFromTheme(face, theme, new Set())
+  const resolved = resolveFaceFromTheme(face, theme, new Set(), buffer)
   const remap = buffer ? getBufferFaceRemap(buffer, face) : undefined
   if (!remap) return resolved
   return applyFaceRemap(resolved, remap)
 }
 
-function resolveFaceFromTheme(face: FaceName, theme: Theme, visited: Set<FaceName>): FaceStyle | undefined {
+function resolveFaceFromTheme(
+  face: FaceName,
+  theme: Theme,
+  visited: Set<FaceName>,
+  buffer?: BufferModel,
+): FaceStyle | undefined {
   if (visited.has(face)) return theme.faces.default
   visited.add(face)
   const spec = theme.faces[face]
@@ -205,15 +210,28 @@ function resolveFaceFromTheme(face: FaceName, theme: Theme, visited: Set<FaceNam
   let base: FaceStyle | undefined
   if (spec?.inherit?.length) {
     for (const parent of spec.inherit) {
-      base = mergeFaceStyles(base, resolveFaceFromTheme(parent, theme, visited))
+      base = mergeFaceStyles(base, resolveFaceFromTheme(parent, theme, visited, buffer))
     }
   } else if (face !== "default") {
-    base = inheritFontFrom(theme.faces.default)
+    base = inheritFontFrom(resolvedDefaultFace(theme, buffer, visited))
   }
 
   base = mergeFaceStyles(base, registry)
   base = mergeFaceStyles(base, spec ? omitInherit(spec) : undefined)
   return base
+}
+
+/** Theme default plus buffer-local `default` face-remap (used when inheriting font metrics). */
+function resolvedDefaultFace(
+  theme: Theme,
+  buffer: BufferModel | undefined,
+  visited: Set<FaceName>,
+): FaceStyle | undefined {
+  const fromTheme = resolveFaceFromTheme("default", theme, visited, buffer)
+  if (!buffer) return fromTheme
+  const remap = getBufferFaceRemap(buffer, "default")
+  if (!remap) return fromTheme
+  return applyFaceRemap(fromTheme, remap)
 }
 
 function inheritFontFrom(style?: FaceStyle): FaceStyle | undefined {

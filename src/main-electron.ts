@@ -10,7 +10,6 @@ import { installDefaultConfig, installDefaultHooks, installUserConfig, loadCusto
 import { installBuiltinPlugins } from "../plugins/builtin"
 import { loadStartupConfig, parseStartupArgs } from "./config/startup"
 import { installDefaultModes } from "./modes/default-modes"
-import { installMarkdownMode } from "./modes/markdown"
 import { installLspMode } from "./lsp/install"
 import { installXref } from "./xref/install"
 import { runJemacsCore } from "./run-core"
@@ -67,7 +66,6 @@ async function runGuiSmokeTest(editor: Editor, host: ElectronHost): Promise<void
 async function main(): Promise<void> {
   installDefaultModes()
   const editor = new Editor()
-  installMarkdownMode(editor)
   const argv = process.argv
   const args = parseStartupArgs(argv)
   const evaluator = installDefaultConfig(editor)

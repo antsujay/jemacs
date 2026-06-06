@@ -14,10 +14,25 @@ test("emacsLspNpmBinary matches lsp-mode install layout", () => {
   }
 })
 
-test("findServerBinary prefers Emacs cache when not on PATH", () => {
+test("findServerBinary prefers project node_modules over Emacs cache", () => {
+  const workspaceBin = join(process.cwd(), "node_modules", ".bin", "typescript-language-server")
+  if (!existsSync(workspaceBin)) return
   const fromEmacs = emacsLspNpmBinary("typescript-language-server")
   if (!fromEmacs) return
-  const workspaceBin = join(process.cwd(), "node_modules", ".bin", "typescript-language-server")
-  if (existsSync(workspaceBin)) return
-  expect(findServerBinary("typescript-language-server", "/tmp")).toBe(fromEmacs)
+  expect(findServerBinary("typescript-language-server", join(process.cwd(), "src/main.ts"))).toBe(workspaceBin)
+})
+
+test("findServerBinary prefers JEMACS_HOME over Emacs cache for unrelated files", () => {
+  const fromEmacs = emacsLspNpmBinary("typescript-language-server")
+  if (!fromEmacs) return
+  const homeBin = join(process.cwd(), "node_modules", ".bin", "typescript-language-server")
+  if (!existsSync(homeBin)) return
+  const previous = process.env.JEMACS_HOME
+  process.env.JEMACS_HOME = process.cwd()
+  try {
+    expect(findServerBinary("typescript-language-server", "/tmp/no-project/file.ts")).toBe(homeBin)
+  } finally {
+    if (previous === undefined) delete process.env.JEMACS_HOME
+    else process.env.JEMACS_HOME = previous
+  }
 })

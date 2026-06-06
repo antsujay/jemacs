@@ -461,7 +461,6 @@ function scrollScreen(editor: Editor, forward: boolean, screens: number): void {
   let offset = 0
   for (let i = 0; i < targetLine; i++) offset += lines[i]!.length + 1
   buffer.point = Math.max(0, Math.min(buffer.text.length, offset + Math.min(col - 1, lines[targetLine]!.length)))
-  buffer.deactivateMark()
 }
 
 /** Unicode-aware word motion so non-ASCII letters and combining marks are
