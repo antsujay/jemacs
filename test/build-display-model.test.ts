@@ -100,6 +100,25 @@ test("buildDisplayModel applies mode displayFilter: folds body, remaps point and
   expect(body.indexOf("█")).toBe("* H".length)
 })
 
+test("buildDisplayModel renders markdown emphasis as italic", () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  installMarkdown(editor)
+  const buffer = editor.scratch("md-italic", "plain *italic* text\n", "markdown")
+  buffer.point = 0
+
+  const model = buildDisplayModel(editor, {
+    lastMessage: "",
+    viewport: { rows: 24, cols: 80 },
+    hostCapabilities: { unit: "pixels", mouse: true, clipboard: true, osc52: false, perFaceFonts: true },
+  })
+  const leaf = model.windows.kind === "leaf" ? model.windows.pane : null
+  expect(leaf).not.toBeNull()
+  const italic = leaf!.body.chunks.find(chunk => chunk.text.includes("italic") && chunk.italic)
+  expect(italic).toBeDefined()
+})
+
 test("buildDisplayModel centers markdown body at markdown-fill-column", () => {
   installDefaultModes()
   const editor = new Editor()

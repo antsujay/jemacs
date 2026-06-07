@@ -6,6 +6,7 @@ import { defcustom, getCustom } from "../../src/runtime/custom"
 import { defface, faceRemapAddRelative } from "../../src/runtime/faces"
 import { defineMode, enterMode, getMode, modeFeature, type FaceName, type TextSpan } from "../../src/modes/mode"
 import { registeredTreeSitterLanguages, treeSitterFontLock } from "../../src/modes/tree-sitter"
+import { registerTreeSitterGrammars } from "../tree-sitter-grammars"
 
 const TAB_WIDTH = 4
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+/
@@ -1140,9 +1141,12 @@ function installMarkdownCommands(editor: Editor): void {
 }
 
 export function install(editor: Editor): void {
+  registerTreeSitterGrammars()
   installMarkdownCommands(editor)
 
   for (const [name] of MARKDOWN_HEADER_FACES) defface(name, {}, "Markdown ATX/setext header face.")
+  defface("markdown-emphasis", { italic: true }, "Markdown italic emphasis.")
+  defface("markdown-strong", { bold: true }, "Markdown bold emphasis.")
   const keymap = new Keymap("markdown-map")
   bindMarkdownModeMap(keymap)
 

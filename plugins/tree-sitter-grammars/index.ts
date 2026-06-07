@@ -140,10 +140,10 @@ function highlightInlineRegion(
   const walkInline = (inlineNode: SyntaxNode): void => {
     switch (inlineNode.type) {
       case "strong_emphasis":
-        pushSpan(spans, inlineNode, "builtin")
+        pushSpan(spans, inlineNode, "markdown-strong" as FaceName)
         break
       case "emphasis":
-        pushSpan(spans, inlineNode, "constant")
+        pushSpan(spans, inlineNode, "markdown-emphasis" as FaceName)
         break
       case "code_span":
         pushSpan(spans, inlineNode, "string")

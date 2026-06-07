@@ -6,10 +6,18 @@ import {
   DOM_FRAME_ROW_PX,
   effectiveFontSizePx,
 } from "./dom-frame"
+import { wrapRowsForContent } from "./display-wrap"
 
 const DOM_FRAME_BODY_FONT_PX_FALLBACK = 13
 import type { Theme } from "./theme"
 import { styleToChunk } from "./themed-text"
+
+export type LineWrapOptions = {
+  wrapCols?: number
+  gutterPrefixLen?: number
+  /** Display-layer line lengths (may differ from buffer when markup is hidden). */
+  displayLineLengths?: readonly number[]
+}
 
 function bodyDefaultFontPx(theme: Theme, buffer?: BufferModel): number {
   const defaultStyle = resolveFace("default", theme, buffer)
@@ -42,6 +50,7 @@ export function computeLineVisualRows(
   theme: Theme,
   buffer?: BufferModel,
   textScale = 1,
+  wrap?: LineWrapOptions,
 ): number[] {
   const lines = text.split("\n")
   if (!lines.length) return []
@@ -49,11 +58,17 @@ export function computeLineVisualRows(
   const rowPx = DOM_FRAME_ROW_PX * textScale
   const rows: number[] = []
   let offset = 0
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
     const lineStart = offset
     const lineEnd = offset + line.length
     const maxPx = lineMaxFontPx(lineStart, lineEnd, spans, theme, buffer, textScale, defaultPx)
-    rows.push((maxPx * DOM_FRAME_LINE_HEIGHT_RATIO) / rowPx)
+    let cost = (maxPx * DOM_FRAME_LINE_HEIGHT_RATIO) / rowPx
+    if (wrap?.wrapCols != null) {
+      const lineLen = wrap.displayLineLengths?.[i] ?? line.length
+      cost *= wrapRowsForContent(lineLen, wrap.wrapCols, wrap.gutterPrefixLen ?? 0)
+    }
+    rows.push(cost)
     offset = lineEnd + 1
   }
   return rows

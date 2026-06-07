@@ -17,6 +17,7 @@ import { applyTheme } from "./theme"
 import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-text"
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
 import { setEditorDisplayContext } from "./scroll"
+import { paneWrapLayout } from "./display-wrap"
 import { computeLineVisualRows, visibleLineCountForBudget } from "./visual-line-height"
 
 /** Plugin-contributed modeline segments (Emacs `mode-line-misc-info`). Each fn
@@ -174,12 +175,24 @@ function buildLeafPane(
   const { line, col } = pointLineCol(buffer.text, point)
 
   const spans = [...editor.fontLock(buffer)]
+  const showLineNumbers = buffer.kind !== "minibuffer" && editor.showLineNumbers(buffer)
+  let startLine = findWindowLeaf(editor.windowLayout, leaf.id)?.startLine ?? leaf.startLine
+  const filt = modeFeature(buffer.mode, "displayFilter")?.(buffer)
+  const dText = filt?.text ?? buffer.text
+  const displayLineLengths = dText.split("\n").map(line => line.length)
+  const wrapLayout = paneWrapLayout(buffer, availableCols, showLineNumbers, startLine, maxLines)
   const useVisualWeights = hostCapabilities?.perFaceFonts === true
   const visualRows = useVisualWeights
-    ? computeLineVisualRows(buffer.text, spans, editor.theme, buffer, textScaleFactor(buffer))
+    ? computeLineVisualRows(buffer.text, spans, editor.theme, buffer, textScaleFactor(buffer), {
+      wrapCols: wrapLayout.wrapCols,
+      gutterPrefixLen: wrapLayout.gutterPrefixLen,
+      displayLineLengths,
+    })
     : undefined
-  if (selected) editor.syncSelectedWindowViewport(maxLines, visualRows)
-  const startLine = findWindowLeaf(editor.windowLayout, leaf.id)?.startLine ?? leaf.startLine
+  if (selected) {
+    editor.syncSelectedWindowViewport(maxLines, visualRows)
+    startLine = findWindowLeaf(editor.windowLayout, leaf.id)?.startLine ?? startLine
+  }
   const lineCount = buffer.text.split("\n").length
   const displayLines = visualRows
     ? visibleLineCountForBudget(startLine, maxLines, lineCount, visualRows)
@@ -189,12 +202,8 @@ function buildLeafPane(
     if (match) spans.push(match)
     spans.push(...isearchLazyHighlightSpans(buffer, editor.isearch))
   }
-  const showLineNumbers = buffer.kind !== "minibuffer" && editor.showLineNumbers(buffer)
   const mark = selected && buffer.markActive ? buffer.mark : null
   const syncSpans = bufferHighlightSpans(point, mark, spans)
-  // Selective-display (org folding etc.): mode may project buffer text/offsets onto a shorter body.
-  const filt = modeFeature(buffer.mode, "displayFilter")?.(buffer)
-  const dText = filt?.text ?? buffer.text
   const dPoint = filt ? filt.map(point) : point
   const dMark = filt && mark != null ? filt.map(mark) : mark
   const dSpans = filt ? spans.map(s => ({ ...s, start: filt.map(s.start), end: filt.map(s.end) })) : spans
@@ -203,16 +212,20 @@ function buildLeafPane(
   // text into the next line's gutter (t-16be1a86). Pre-wrap here so every
   // continuation row carries the gutter's left padding.
   const keepWrappedTop = startLine === 0
+  const { wrapCols, gutterPrefixLen: gutter } = paneWrapLayout(
+    buffer,
+    availableCols,
+    showLineNumbers,
+    startLine,
+    displayLines,
+  )
   const visualFill = visualFillSettings(buffer)
   const contentWidth = availableCols != null
     ? Math.max(1, availableCols - clickState.gutterPrefixLen)
     : undefined
-  const columnWidth = visualFill && contentWidth != null
-    ? Math.min(visualFill.fillColumn, contentWidth)
+  const columnWidth = visualFill && contentWidth != null && wrapCols != null
+    ? wrapCols - clickState.gutterPrefixLen
     : undefined
-  const wrapCols = columnWidth != null
-    ? clickState.gutterPrefixLen + columnWidth
-    : availableCols
   let body = wrapBodyRows(
     visibleStyledTextFromStart(dText, dPoint, startLine, {
       mark: dMark,
@@ -224,8 +237,8 @@ function buildLeafPane(
       showCursor: selected,
     }),
     wrapCols,
-    clickState.gutterPrefixLen,
-    displayLines,
+    gutter,
+    maxLines,
     keepWrappedTop,
   )
   if (visualFill?.center && columnWidth != null && contentWidth != null && columnWidth < contentWidth) {

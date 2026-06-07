@@ -12,6 +12,7 @@ import {
   windowBodyLines,
   type ViewportSize,
 } from "./viewport"
+import { displayTextForBuffer, paneWrapLayout } from "./display-wrap"
 import { computeLineVisualRows, visibleLineCountForBudget } from "./visual-line-height"
 
 defcustom("next-screen-context-lines", "number", 2,
@@ -155,8 +156,19 @@ function proportionalBudget(total: number, firstRatio: number, min: number): num
 
 function visualRowsForBuffer(editor: Editor, buffer: BufferModel): number[] | undefined {
   if (!editor.lastHostCapabilities?.perFaceFonts) return undefined
+  const viewport = editor.lastViewport ?? { rows: defaultTerminalRows() }
+  const bodyBudget = selectedWindowBodyBudget(editor)
+  const leaf = editor.selectedWindowLeaf()
+  const startLine = leaf?.startLine ?? 0
+  const showLineNumbers = editor.showLineNumbers(buffer)
+  const wrapLayout = paneWrapLayout(buffer, viewport.cols, showLineNumbers, startLine, bodyBudget)
+  const dText = displayTextForBuffer(buffer)
   const spans = [...editor.fontLock(buffer)]
-  return computeLineVisualRows(buffer.text, spans, editor.theme, buffer, textScaleFactor(buffer))
+  return computeLineVisualRows(buffer.text, spans, editor.theme, buffer, textScaleFactor(buffer), {
+    wrapCols: wrapLayout.wrapCols,
+    gutterPrefixLen: wrapLayout.gutterPrefixLen,
+    displayLineLengths: dText.split("\n").map(line => line.length),
+  })
 }
 
 function visibleLinesAtStart(

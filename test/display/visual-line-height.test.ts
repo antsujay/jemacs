@@ -3,6 +3,7 @@ import { BufferModel } from "../../src/kernel/buffer"
 import { faceRemapAddRelative } from "../../src/runtime/faces"
 import { defineTheme } from "../../src/display/theme"
 import { DOM_FRAME_LINE_HEIGHT_RATIO, DOM_FRAME_ROW_PX } from "../../src/display/dom-frame"
+import { wrapRowsForContent } from "../../src/display/display-wrap"
 import {
   computeLineVisualRows,
   syncViewportStartLine,
@@ -43,4 +44,21 @@ test("syncViewportStartLine scrolls earlier when cursor line is visually tall", 
 test("visibleLineCountForBudget fits fewer logical lines when headings are tall", () => {
   const rows = [3, 1, 1, 1, 1, 1]
   expect(visibleLineCountForBudget(0, 5, rows.length, rows)).toBe(3)
+})
+
+test("computeLineVisualRows multiplies cost when a line hard-wraps", () => {
+  const text = "short\n" + "X".repeat(200) + "\n"
+  const theme = defineTheme("wrap-test", { default: { height: 200 } })
+  const bodyCost = (20 * DOM_FRAME_LINE_HEIGHT_RATIO) / DOM_FRAME_ROW_PX
+  const rows = computeLineVisualRows(text, [], theme, undefined, 1, {
+    wrapCols: 80,
+    gutterPrefixLen: 0,
+  })
+  expect(rows[0]).toBeCloseTo(bodyCost, 5)
+  expect(rows[1]!).toBeGreaterThan(bodyCost * 2)
+})
+
+test("wrapRowsForContent counts continuation rows", () => {
+  expect(wrapRowsForContent(10, 80, 0)).toBe(1)
+  expect(wrapRowsForContent(200, 80, 0)).toBe(3)
 })

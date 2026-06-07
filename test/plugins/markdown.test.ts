@@ -36,8 +36,17 @@ test("tree-sitter font-lock highlights markdown structure", () => {
   const text = "# Title\n\n**bold** and `code`\n\n> quote\n"
   const spans = treeSitterFontLock("markdown", new BufferModel({ name: "t.md", text, mode: "markdown" }))
   expect(spans.some(span => span.face === "type")).toBe(true)
-  expect(spans.some(span => span.face === "builtin")).toBe(true)
+  expect(spans.some(span => String(span.face) === "markdown-strong")).toBe(true)
   expect(spans.some(span => span.face === "comment")).toBe(true)
+})
+
+test("markdown emphasis uses italic face", () => {
+  const editor = makeEditor()
+  install(editor)
+  const text = "plain *italic* text\n"
+  const buffer = new BufferModel({ name: "t.md", text, mode: "markdown" })
+  const spans = editor.fontLock(buffer)
+  expect(spans.some(span => String(span.face) === "markdown-emphasis")).toBe(true)
 })
 
 test("markdown font-lock applies proportional header faces", () => {

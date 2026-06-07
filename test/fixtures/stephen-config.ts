@@ -9,6 +9,7 @@ import { install as installVertico } from "../../plugins/vertico"
 import { install as installTiling } from "../../plugins/tiling"
 import { install as installWindow } from "../../plugins/window"
 import { install as installTreeSitterGrammars } from "../../plugins/tree-sitter-grammars"
+import "../../plugins/markdown"
 
 /** Test fixture mirroring Stephen's personal config (see jemacs-stephen-config). */
 export async function install(editor: Editor): Promise<void> {
