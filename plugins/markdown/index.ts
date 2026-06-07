@@ -42,6 +42,7 @@ defcustom("markdown-display-remote-images", "boolean", true, "Allow remote image
 defcustom("markdown-hide-markup", "boolean", false, "Hide markup delimiters in the display layer (WYSIWYG-style editing).")
 defcustom("markdown-hide-urls", "boolean", false, "Compose link URLs to a single glyph when markup hiding is active.")
 defcustom("markdown-hide-markup-in-view-modes", "boolean", true, "Enable hidden markup in markdown-view-mode and gfm-view-mode.")
+defcustom("word-wrap", "boolean", false, "Wrap display lines at word boundaries when soft wrapping.")
 
 const MARKDOWN_HIDE_MARKUP = "markdown-hide-markup"
 const MARKDOWN_HIDE_URLS = "markdown-hide-urls"
@@ -775,7 +776,7 @@ function applyMarkdownFaceRemap(buffer: BufferModel): void {
   buffer.locals.set(MARKDOWN_FILL_COLUMN, getCustom<number>("markdown-fill-column") ?? 100)
   buffer.locals.set(MARKDOWN_VISUAL_FILL, true)
   buffer.locals.set("markdown-visual-fill-column-center-text", getCustom<boolean>("markdown-visual-fill-column-center-text") ?? true)
-  buffer.locals.set("word-wrap", true)
+  buffer.locals.set("word-wrap", getCustom<boolean>("word-wrap") ?? true)
   buffer.locals.set("adaptive-wrap-prefix-mode", true)
 }
 

@@ -140,3 +140,24 @@ test("buildDisplayModel centers markdown body at markdown-fill-column", () => {
   for (const row of rows) expect(row.startsWith(margin)).toBe(true)
   expect(rows[0]!.slice(20).length).toBeLessThanOrEqual(40)
 })
+
+test("buildDisplayModel word-wraps markdown at word boundaries", () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  installMarkdown(editor)
+  const buffer = editor.scratch("md-word-wrap", "alpha beta gamma delta\n", "markdown")
+  buffer.locals.set("markdown-visual-fill-column-mode", true)
+  buffer.locals.set("markdown-fill-column", 12)
+  buffer.locals.set("markdown-visual-fill-column-center-text", false)
+  buffer.locals.set("word-wrap", true)
+  buffer.point = buffer.text.length
+
+  const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24, cols: 80 } })
+  const leaf = model.windows.kind === "leaf" ? model.windows.pane : null
+  expect(leaf).not.toBeNull()
+  const rows = themedTextPlain(leaf!.body).split("\n")
+  expect(rows).toContain("alpha beta ")
+  expect(rows).toContain("gamma delta")
+  expect(rows).not.toContain("alpha beta g")
+})

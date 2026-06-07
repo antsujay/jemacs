@@ -15,7 +15,10 @@ import { styleToChunk } from "./themed-text"
 export type LineWrapOptions = {
   wrapCols?: number
   gutterPrefixLen?: number
-  /** Display-layer line lengths (may differ from buffer when markup is hidden). */
+  wordWrap?: boolean
+  /** Display-layer lines (may differ from buffer when markup is hidden). */
+  displayLines?: readonly string[]
+  /** Display-layer line lengths (legacy fallback when text is unavailable). */
   displayLineLengths?: readonly number[]
 }
 
@@ -65,8 +68,9 @@ export function computeLineVisualRows(
     const maxPx = lineMaxFontPx(lineStart, lineEnd, spans, theme, buffer, textScale, defaultPx)
     let cost = (maxPx * DOM_FRAME_LINE_HEIGHT_RATIO) / rowPx
     if (wrap?.wrapCols != null) {
-      const lineLen = wrap.displayLineLengths?.[i] ?? line.length
-      cost *= wrapRowsForContent(lineLen, wrap.wrapCols, wrap.gutterPrefixLen ?? 0)
+      const displayLine = wrap.displayLines?.[i]
+      const lineForWrap = displayLine ?? wrap.displayLineLengths?.[i] ?? line.length
+      cost *= wrapRowsForContent(lineForWrap, wrap.wrapCols, wrap.gutterPrefixLen ?? 0, wrap.wordWrap)
     }
     rows.push(cost)
     offset = lineEnd + 1

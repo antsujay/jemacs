@@ -17,7 +17,7 @@ import { applyTheme } from "./theme"
 import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-text"
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
 import { setEditorDisplayContext } from "./scroll"
-import { paneWrapLayout } from "./display-wrap"
+import { paneWrapLayout, wrapBodyRows } from "./display-wrap"
 import { computeLineVisualRows, visibleLineCountForBudget } from "./visual-line-height"
 
 /** Plugin-contributed modeline segments (Emacs `mode-line-misc-info`). Each fn
@@ -179,14 +179,15 @@ function buildLeafPane(
   let startLine = findWindowLeaf(editor.windowLayout, leaf.id)?.startLine ?? leaf.startLine
   const filt = modeFeature(buffer.mode, "displayFilter")?.(buffer)
   const dText = filt?.text ?? buffer.text
-  const displayLineLengths = dText.split("\n").map(line => line.length)
+  const displayLinesForWrap = dText.split("\n")
   const wrapLayout = paneWrapLayout(buffer, availableCols, showLineNumbers, startLine, maxLines)
   const useVisualWeights = hostCapabilities?.perFaceFonts === true
   const visualRows = useVisualWeights
     ? computeLineVisualRows(buffer.text, spans, editor.theme, buffer, textScaleFactor(buffer), {
       wrapCols: wrapLayout.wrapCols,
       gutterPrefixLen: wrapLayout.gutterPrefixLen,
-      displayLineLengths,
+      wordWrap: wrapLayout.wordWrap,
+      displayLines: displayLinesForWrap,
     })
     : undefined
   if (selected) {
@@ -212,7 +213,7 @@ function buildLeafPane(
   // text into the next line's gutter (t-16be1a86). Pre-wrap here so every
   // continuation row carries the gutter's left padding.
   const keepWrappedTop = startLine === 0
-  const { wrapCols, gutterPrefixLen: gutter } = paneWrapLayout(
+  const { wrapCols, gutterPrefixLen: gutter, wordWrap } = paneWrapLayout(
     buffer,
     availableCols,
     showLineNumbers,
@@ -240,6 +241,7 @@ function buildLeafPane(
     gutter,
     maxLines,
     keepWrappedTop,
+    wordWrap,
   )
   if (visualFill?.center && columnWidth != null && contentWidth != null && columnWidth < contentWidth) {
     const leftMargin = Math.floor((contentWidth - columnWidth) / 2)
@@ -311,12 +313,6 @@ function visualFillSettings(buffer: BufferModel): { fillColumn: number; center: 
 const MARKDOWN_FILL_COLUMN = "markdown-fill-column"
 const MARKDOWN_VISUAL_FILL_CENTER = "markdown-visual-fill-column-center-text"
 
-function themedChunkStyleEqual(a: ThemedChunk, b: ThemedChunk): boolean {
-  return a.fg === b.fg && a.bg === b.bg && a.bold === b.bold && a.italic === b.italic
-    && a.underline === b.underline && a.family === b.family && a.height === b.height
-    && a.heightScale === b.heightScale
-}
-
 /** Prefix every body row (including wrapped continuations) with `leftPad`. */
 function padBodyLines(body: ThemedText, leftPad: string): ThemedText {
   if (!leftPad) return body
@@ -343,37 +339,10 @@ function padBodyLines(body: ThemedText, leftPad: string): ThemedText {
   return { chunks: out }
 }
 
-/** Hard-wrap themed body rows at `cols`, left-padding continuation rows by
- *  `padLen` so they align under the buffer text, not the line-number gutter.
- *  Output is capped at `maxRows`; when wrapping would exceed that, leading
- *  rows are dropped so the cursor (always in the last logical line of the
- *  input window) stays on screen. */
-function wrapBodyRows(body: ThemedText, cols: number | undefined, padLen: number, maxRows?: number, keepTop = false): ThemedText {
-  if (cols == null || cols <= padLen + 1) return body
-  const pad = " ".repeat(padLen)
-  // Build as row-chunk-lists so we can trim from the top without re-splitting.
-  const rows: ThemedChunk[][] = [[]]
-  let col = 0
-  for (const chunk of body.chunks) {
-    let run = ""
-    const cur = () => rows[rows.length - 1]!
-    const flush = () => { if (run) { cur().push({ ...chunk, text: run }); run = "" } }
-    for (const ch of chunk.text) {
-      if (ch === "\n") { flush(); rows.push([]); col = 0; continue }
-      if (col >= cols) { flush(); rows.push([{ text: pad }]); col = padLen }
-      run += ch; col++
-    }
-    flush()
-  }
-  const kept = maxRows != null && rows.length > maxRows
-    ? keepTop ? rows.slice(0, maxRows) : rows.slice(rows.length - maxRows)
-    : rows
-  const out: ThemedChunk[] = []
-  for (let i = 0; i < kept.length; i++) {
-    if (i > 0) out.push({ text: "\n" })
-    out.push(...kept[i]!)
-  }
-  return { chunks: out }
+function themedChunkStyleEqual(a: ThemedChunk, b: ThemedChunk): boolean {
+  return a.fg === b.fg && a.bg === b.bg && a.bold === b.bold && a.italic === b.italic
+    && a.underline === b.underline && a.family === b.family && a.height === b.height
+    && a.heightScale === b.heightScale
 }
 
 /** First diagnostic message whose range covers point in the selected buffer, else "". */

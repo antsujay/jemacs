@@ -62,3 +62,8 @@ test("wrapRowsForContent counts continuation rows", () => {
   expect(wrapRowsForContent(10, 80, 0)).toBe(1)
   expect(wrapRowsForContent(200, 80, 0)).toBe(3)
 })
+
+test("wrapRowsForContent honors word-wrap boundaries", () => {
+  expect(wrapRowsForContent("alpha beta gamma delta", 12, 0, true)).toBe(2)
+  expect(wrapRowsForContent("alpha beta gamma delta", 12, 0, false)).toBe(2)
+})

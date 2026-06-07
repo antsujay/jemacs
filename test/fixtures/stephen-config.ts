@@ -19,6 +19,7 @@ export async function install(editor: Editor): Promise<void> {
   setCustom("markdown-fontify-code-blocks-natively", true)
   setCustom("markdown-fill-column", 100)
   setCustom("markdown-visual-fill-column-center-text", true)
+  setCustom("word-wrap", true)
 
   installGruvboxDarkHardTheme(editor)
   enableBuiltinTheme(gruvboxDarkHardTheme.name)
