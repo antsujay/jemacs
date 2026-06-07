@@ -1,28 +1,10 @@
 # Jemacs OpenTUI
 
-A self-editable Emacs-like editor where JavaScript replaces Emacs Lisp and **pluggable frontends** render the UI: **OpenTUI** (terminal) and **Electron** (GUI). See [PLAN.md](PLAN.md) for architecture and roadmap.
+A self-editable Emacs-like editor where JavaScript replaces Emacs Lisp and **pluggable frontends** render the UI: **OpenTUI** (terminal) and **Electron** (GUI).
 
-This is intentionally a starter repo, not a mature editor. The kernel is written so that buffers, commands, keymaps, modes, and the evaluator are ordinary JavaScript/TypeScript objects that can be inspected and modified from inside the editor.
+This is a work-in-progress and doesn't have a major release yet. Lots of rough edges and have generally implemented the feature set that I need for work instead of all of Emacs's functionality.
 
-## Runtime and libraries checked
-
-- `@opentui/core` is the only runtime dependency. OpenTUI's current docs describe it as a native Zig terminal UI core with TypeScript bindings and a component/renderable architecture.
-- OpenTUI's getting-started docs currently say the TypeScript/JavaScript package is Bun-exclusive, with Node and Deno support in progress, so this repo is Bun-first.
-- The OpenTUI docs show `createCliRenderer`, `Box`, `Text`, and `renderer.keyInput.on("keypress", ...)` as the core APIs used here.
-- `@types/bun` is included only for TypeScript checking of Bun globals.
-- `typescript` is included only for `bun x tsc --noEmit`.
-
-## Install
-
-Use **Bun** (required to run the editor):
-
-```bash
-bun install
-```
-
-`npm install` also works (`.npmrc` sets `legacy-peer-deps` for tree-sitter peer versions) but you still need Bun for `bun run dev`.
-
-If OpenTUI's native package build complains, install Zig. The upstream repo notes that Zig is required to build the packages when native code is involved.
+We've implemented some default plugins in `plugins/`. You can find additional ones in https://github.com/stephenjayakar/jemacs-packages/.
 
 ## Run
 
@@ -32,8 +14,6 @@ If OpenTUI's native package build complains, install Zig. The upstream repo note
 bun run dev
 # or open a file
 bun run src/main.ts README.md
-# or self-edit the editor
-bun run dev:self
 ```
 
 **GUI (Electron):**
