@@ -27,6 +27,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     return editor.switchToBuffer(values[(i + delta + values.length) % values.length]!.id)
   }
 
+  const resolveBufferName = (editor: Editor, name: string) =>
+    editor.buffers.get(name)
+      ?? [...editor.buffers.values()].find(b => b.name === name || editor.bufferDisplayName(b) === name)
+
   editor.command("delete-window", ({ editor }) => editor.deleteWindow(), "Delete the selected window.")
 
   editor.command("delete-other-windows", ({ editor }) => {
@@ -82,8 +86,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       history: "buffer",
     })
     if (!name) return
-    const target = editor.buffers.get(name)
-      ?? [...editor.buffers.values()].find(b => b.name === name || editor.bufferDisplayName(b) === name)
+    const target = resolveBufferName(editor, name)
     const shown = editor.displayBufferInOtherWindow(target?.id ?? name)
     editor.message(`Switched to ${editor.bufferDisplayName(shown)} in other window`)
   }, "Switch to a buffer in another window.")
@@ -107,13 +110,24 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       initialValue: editor.bufferDisplayName(editor.currentBuffer),
     })
     if (!name) return
-    const target = editor.buffers.get(name)
-      ?? [...editor.buffers.values()].find(b => b.name === name || editor.bufferDisplayName(b) === name)
+    const target = resolveBufferName(editor, name)
     const shown = editor.displayBufferInOtherWindow(target?.id ?? name, { select: false })
     editor.message(`Displayed ${editor.bufferDisplayName(shown)} in other window`)
   }
   editor.command("display-buffer", displayBuffer, "Display a buffer in another window without selecting it.")
   editor.command("display-buffer-other-window", displayBuffer, "Compatibility alias for display-buffer.")
+
+  editor.command("pop-to-buffer", async ({ editor, args }) => {
+    const name = args[0] ?? await editor.completingRead("Pop to buffer: ", {
+      collection: [...editor.buffers.values()].map(b => editor.bufferDisplayName(b)),
+      history: "buffer",
+      initialValue: editor.bufferDisplayName(editor.currentBuffer),
+    })
+    if (!name) return
+    const target = resolveBufferName(editor, name)
+    const shown = editor.displayBufferInOtherWindow(target?.id ?? name)
+    editor.message(`Popped to ${editor.bufferDisplayName(shown)}`)
+  }, "Display a buffer and select its window.")
 
   editor.command("toggle-window-dedicated", ({ editor }) => {
     const leaf = editor.selectedWindowLeaf()

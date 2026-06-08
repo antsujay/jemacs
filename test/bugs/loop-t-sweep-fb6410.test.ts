@@ -57,6 +57,7 @@ test("display-buffer: initialValue and message use display name without selectin
   const { editor, a, b } = twoSameName()
   editor.switchToBuffer(a.id)
   expect(editor.commands.get("display-buffer-other-window")).toBeDefined()
+  expect(editor.commands.get("pop-to-buffer")?.description).toContain("select")
   let initial: string | undefined
   editor.completingRead = (_p, opts) => {
     initial = (opts as { initialValue?: string }).initialValue
@@ -71,6 +72,22 @@ test("display-buffer: initialValue and message use display name without selectin
   expect(editor.currentBuffer.id).toBe(a.id)
   expect(listWindowLeaves(editor.windowLayout).some(leaf => leaf.bufferId === b.id)).toBe(true)
   expect(msg).toContain(editor.bufferDisplayName(b))
+})
+
+test("pop-to-buffer resolves display names, displays the buffer, and selects its window", async () => {
+  const { editor, a, b } = twoSameName()
+  editor.switchToBuffer(a.id)
+  let initial: string | undefined
+  editor.completingRead = (_p, opts) => {
+    initial = (opts as { initialValue?: string }).initialValue
+    return Promise.resolve(editor.bufferDisplayName(b))
+  }
+  await editor.run("pop-to-buffer")
+
+  expect(initial).toBe(editor.bufferDisplayName(a))
+  expect(editor.currentBuffer.id).toBe(b.id)
+  expect(listWindowLeaves(editor.windowLayout).some(leaf =>
+    leaf.id === editor.selectedWindowId && leaf.bufferId === b.id)).toBe(true)
 })
 
 test("revert-buffer message uses the uniquified display name", async () => {
