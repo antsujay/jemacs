@@ -32,7 +32,7 @@ export function installDiredMode(): void {
   keymap.bind("u", "dired-unmark")
   keymap.bind("S-u", "dired-unmark-all-marks")
   keymap.bind("t", "dired-toggle-marks")
-  keymap.bind("% .", "dired-mark-all")
+  keymap.bind("* %", "dired-mark-files-regexp")
   keymap.bind("% m", "dired-mark-files-regexp")
   keymap.bind("% d", "dired-flag-files-regexp")
   keymap.bind("d", "dired-flag-file-deletion")

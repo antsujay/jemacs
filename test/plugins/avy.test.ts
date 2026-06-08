@@ -151,7 +151,8 @@ describe("avy-goto-char", () => {
 
   test("jumping to a match in another window selects that window", async () => {
     const { editor, fire } = setup("zap")
-    editor.splitWindowRight() // selects the new (second) leaf
+    editor.splitWindowRight()
+    await editor.run("other-window")
     const [first, second] = avyCollect(editor, "z").map(h => h.windowId)
     expect(editor.selectedWindowId).toBe(second)
     fire("C-;"); await tick()

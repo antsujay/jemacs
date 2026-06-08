@@ -279,7 +279,7 @@ export class Editor {
 
   ensureOtherWindowSelected(): void {
     if (listWindowLeaves(this.windowLayout).length === 1) {
-      this.splitWindowBelow()
+      this.selectWindow(this.splitSelectedWindow("vertical"))
       return
     }
     const otherId = nextEligibleWindowId(
@@ -289,7 +289,7 @@ export class Editor {
       leaf => leaf.id !== this.selectedWindowId && !leaf.dedicated,
     )
     if (otherId) this.selectWindow(otherId)
-    else this.splitWindowBelow()
+    else this.selectWindow(this.splitSelectedWindow("vertical"))
   }
 
   currentWindowConfiguration(): Extract<RegisterContents, { kind: "window-configuration" }> {
@@ -753,11 +753,11 @@ export class Editor {
   }
 
   /** @deprecated Compat shim — call `mutateWindowLayout` with `splitWindowLeaf`, or `run("split-window-below")`. */
-  splitWindowBelow(): void { this.splitSelectedWindow("vertical") }
+  splitWindowBelow(): void { void this.splitSelectedWindow("vertical") }
   /** @deprecated Compat shim — call `mutateWindowLayout` with `splitWindowLeaf`, or `run("split-window-right")`. */
-  splitWindowRight(): void { this.splitSelectedWindow("horizontal") }
+  splitWindowRight(): void { void this.splitSelectedWindow("horizontal") }
 
-  private splitSelectedWindow(orientation: "vertical" | "horizontal"): void {
+  private splitSelectedWindow(orientation: "vertical" | "horizontal"): string {
     const buffer = this.currentBuffer
     const startLine = this.lineAtPoint(buffer.point)
     let newId = this.selectedWindowId
@@ -766,8 +766,8 @@ export class Editor {
       newId = r.newWindowId
       return setWindowLeafStartLine(r.layout, newId, startLine)
     })
-    this.selectedWindowId = newId
     void this.changed(`split-window-${orientation === "vertical" ? "below" : "right"}`)
+    return newId
   }
 
   /** @deprecated Compat shim — call `mutateWindowLayout` with `deleteOtherWindowLeaves`, or `run("delete-other-windows")`. */

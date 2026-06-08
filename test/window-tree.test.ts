@@ -17,14 +17,13 @@ test("split→split→delete-middle preserves the outer siblings", async () => {
   const editor = installEditor()
   // A → split-below → vsplit(A, B) → split-below → vsplit(A, vsplit(B, C))
   await editor.run("split-window-below")
+  await editor.run("other-window")
   await editor.run("split-window-below")
   const before = leafIds(editor.windowLayout)
   expect(before).toHaveLength(3)
   const [a, b, c] = before as [string, string, string]
 
-  // Selection is on C (the newest leaf); step back one to land on B.
-  expect(editor.selectedWindowId).toBe(c)
-  await editor.run("previous-window-any-frame")
+  // Selection stays on B after splitting it, matching GNU split-window-below.
   expect(editor.selectedWindowId).toBe(b)
 
   await editor.run("delete-window")
@@ -48,8 +47,11 @@ test("delete-other-windows from a deep leaf collapses to that leaf", async () =>
   const editor = installEditor()
   // Build vsplit(A, hsplit(B, vsplit(C, D))); selection ends on D, three splits deep.
   await editor.run("split-window-below")
+  await editor.run("other-window")
   await editor.run("split-window-right")
+  await editor.run("other-window")
   await editor.run("split-window-below")
+  await editor.run("other-window")
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(4)
 
   const deepId = editor.selectedWindowId
@@ -94,7 +96,6 @@ test("window-configuration-to-register round-trips through repeated layout chang
   // Second round: mutate the restored tree, then restore again. The register
   // snapshot must not have been aliased to the live layout in either direction.
   await editor.run("split-window-right")
-  await editor.run("other-window")
   await editor.run("delete-window")
   expect(leafIds(editor.windowLayout)).not.toEqual(savedIds)
 

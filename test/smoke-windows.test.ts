@@ -14,14 +14,14 @@ test("smoke: split and other-window update display model", async () => {
   const leaves = listWindowLeaves(editor.windowLayout)
   expect(leaves).toHaveLength(2)
   const afterSplit = editor.selectedWindowId
-  expect(afterSplit).toBe(leaves[1]!.id)
+  expect(afterSplit).toBe(leaves[0]!.id)
 
   await editor.run("other-window")
-  expect(editor.selectedWindowId).toBe(leaves[0]!.id)
+  expect(editor.selectedWindowId).toBe(leaves[1]!.id)
   expect(editor.selectedWindowId).not.toBe(afterSplit)
 
   const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 30, cols: 80 } })
   expect(model.windows.kind).toBe("split")
-  expect(findPaneInModel(model.windows, leaves[0]!.id)?.selected).toBe(true)
-  expect(findPaneInModel(model.windows, leaves[1]!.id)?.selected).toBe(false)
+  expect(findPaneInModel(model.windows, leaves[0]!.id)?.selected).toBe(false)
+  expect(findPaneInModel(model.windows, leaves[1]!.id)?.selected).toBe(true)
 })

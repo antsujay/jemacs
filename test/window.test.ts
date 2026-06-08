@@ -14,15 +14,17 @@ function installEditor(): Editor {
   return editor
 }
 
-test("split-window-below stacks vertically and selects the new window", async () => {
+test("split-window-below stacks vertically and keeps the original window selected", async () => {
   const editor = installEditor()
+  const start = editor.selectedWindowId
   await editor.run("split-window-below")
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
   expect(editor.windowLayout.kind).toBe("split")
   if (editor.windowLayout.kind === "split") {
     expect(editor.windowLayout.direction).toBe("vertical")
   }
-  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[1]!.id)
+  expect(editor.selectedWindowId).toBe(start)
+  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[0]!.id)
 })
 
 test("split-window-right places panes side by side", async () => {
@@ -46,9 +48,9 @@ test("other-window cycles through leaves in tree order", async () => {
   const editor = installEditor()
   await editor.run("split-window-below")
   const leaves = listWindowLeaves(editor.windowLayout)
-  expect(editor.selectedWindowId).toBe(leaves[1]!.id)
-  await editor.run("other-window")
   expect(editor.selectedWindowId).toBe(leaves[0]!.id)
+  await editor.run("other-window")
+  expect(editor.selectedWindowId).toBe(leaves[1]!.id)
 })
 
 test("delete-other-windows keeps only the selected pane", async () => {
@@ -83,6 +85,7 @@ test("split windows preserve independent points into the same buffer", async () 
 test("split below then split right builds a vertical branch with a horizontal sub-split", async () => {
   const editor = installEditor()
   await editor.run("split-window-below")
+  await editor.run("other-window")
   await editor.run("split-window-right")
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(3)
   const layout = editor.windowLayout
@@ -112,6 +115,7 @@ test("window-configuration-to-register restores layout and selection", async () 
   await editor.run("split-window-right")
   await editor.run("other-window")
   scratch.point = 0
+  const savedSelection = editor.selectedWindowId
   await editor.run("window-configuration-to-register", ["w"])
   await editor.run("split-window-below")
   await editor.run("delete-other-windows")
@@ -119,7 +123,7 @@ test("window-configuration-to-register restores layout and selection", async () 
 
   await editor.run("jump-to-register", ["w"])
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
-  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[0]!.id)
+  expect(editor.selectedWindowId).toBe(savedSelection)
   expect(scratch.point).toBe(0)
 })
 
@@ -147,10 +151,11 @@ test("dedicated windows are skipped when displaying another buffer", async () =>
   await editor.run("split-window-below")
   await editor.run("other-window")
   await editor.run("toggle-window-dedicated")
+  const dedicatedId = editor.selectedWindowId
   await editor.run("other-window")
   editor.displayBufferInOtherWindow("*Help*")
   expect(editor.currentBuffer.name).toBe("*Help*")
-  const dedicatedLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.dedicated)!
+  const dedicatedLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.id === dedicatedId)!
   expect(dedicatedLeaf.bufferId).not.toBe(editor.currentBuffer.id)
 })
 

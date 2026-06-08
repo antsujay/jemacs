@@ -135,7 +135,8 @@ test("dired keymap binds mark, copy, delete, and regexp commands", async () => {
   expect(keymap?.get("g")).toBe("revert-buffer")
   expect(keymap?.get("x")).toBe("dired-do-flagged-delete")
   expect(keymap?.get("% m")).toBe("dired-mark-files-regexp")
-  expect(keymap?.get("% .")).toBe("dired-mark-all")
+  expect(keymap?.get("* %")).toBe("dired-mark-files-regexp")
+  expect(keymap?.get("% .")).toBeUndefined()
   expect(keymap?.get("+")).toBe("dired-create-directory")
 })
 

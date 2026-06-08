@@ -7,11 +7,8 @@ import { createLeafWindow, listWindowLeaves, nextWindowId, splitWindowLeaf } fro
 // so other-window should step to the right leaf.
 //
 // Verified in window.ts: splitWindowLeaf keeps the original id on `first` and
-// the new id on `second`; listWindowLeaves walks first→second (L→R/T→B). Both
-// invariants hold — the root cause is editor.ts splitWindowRight/Below doing
-// `this.selectedWindowId = result.newWindowId`, which jumps selection to the
-// new (right) leaf. Flip this to `test()` once that assignment is dropped.
-test.failing("split-window-right keeps selection left; other-window goes right", async () => {
+// the new id on `second`; listWindowLeaves walks first→second (L→R/T→B).
+test("split-window-right keeps selection left; other-window goes right", async () => {
   await script()
     .run("split-window-right")
     .expect.that(ed => {
