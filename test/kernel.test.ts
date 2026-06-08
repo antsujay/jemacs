@@ -352,7 +352,7 @@ test("incremental search moves point as the query grows", async () => {
   expect(editor.isearch?.direction).toBe(1)
 
   await editor.handleKey({ name: "f", sequence: "f" })
-  expect(editor.currentBuffer.point).toBe(0)
+  expect(editor.currentBuffer.point).toBe(1)
   const afterF = visibleStyledText(editor.currentBuffer.text, editor.currentBuffer.point, {
     spans: [{ start: 0, end: 1, face: "isearch" }],
     theme: editor.theme,
@@ -360,10 +360,10 @@ test("incremental search moves point as the query grows", async () => {
   expect(afterF.chunks.some(chunk => chunk.bg != null)).toBe(true)
 
   await editor.handleKey({ name: "o", sequence: "o" })
-  expect(editor.currentBuffer.point).toBe(0)
+  expect(editor.currentBuffer.point).toBe(2)
 
   await editor.run("isearch-forward")
-  expect(editor.currentBuffer.point).toBe(8)
+  expect(editor.currentBuffer.point).toBe(10)
 
   await editor.run("keyboard-quit")
   expect(editor.isearch).toBeNull()

@@ -95,11 +95,11 @@ describe("isearch-forward-regexp / isearch-backward-regexp", () => {
     await editor.run("isearch-forward-regexp")
     expect(editor.isearch?.regexp).toBe(true)
     await type(editor, "[0-9]+")
-    expect(buf.point).toBe(5)
+    expect(buf.point).toBe(6)
     await editor.run("isearch-forward-regexp")
-    expect(buf.point).toBe(8)
+    expect(buf.point).toBe(10)
     await editor.run("isearch-forward-regexp")
-    expect(buf.point).toBe(12)
+    expect(buf.point).toBe(15)
   })
 
   test("regexp match span covers the actual match length", async () => {
@@ -124,13 +124,13 @@ describe("isearch-forward-regexp / isearch-backward-regexp", () => {
     const { editor, buf } = await setup("two THREE four")
     await editor.run("isearch-forward-regexp")
     await type(editor, "t\\w+")
-    expect(buf.point).toBe(0)
+    expect(buf.point).toBe(3)
     editor.endIsearch()
 
     buf.point = 0
     await editor.run("isearch-forward-regexp")
     await type(editor, "T\\w+")
-    expect(buf.point).toBe(4)
+    expect(buf.point).toBe(9)
     editor.endIsearch()
   })
 
@@ -147,13 +147,13 @@ describe("isearch-forward-regexp / isearch-backward-regexp", () => {
     const { editor, buf } = await setup("axb a.b")
     await editor.run("isearch-forward-regexp")
     await type(editor, "a.b")
-    expect(buf.point).toBe(0)
+    expect(buf.point).toBe(3)
     editor.endIsearch()
 
     buf.point = 0
     await editor.run("isearch-forward")
     expect(editor.isearch?.regexp).toBe(false)
     await type(editor, "a.b")
-    expect(buf.point).toBe(4)
+    expect(buf.point).toBe(7)
   })
 })

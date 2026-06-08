@@ -6,6 +6,7 @@ export type IsearchState = {
   direction: 1 | -1
   startPoint: number
   regexp?: boolean
+  match?: IsearchMatch
 }
 
 export type IsearchMatch = { start: number; end: number }
@@ -80,23 +81,32 @@ function literalLastIndex(text: string, needle: string, before: number, caseFold
 }
 
 export function findForward(text: string, needle: string, from: number, regexp = regexpMode): number | null {
-  if (!needle) return null
-  const caseFold = isearchNoUpperCaseP(needle, regexp)
-  if (regexp) return findRegexpForward(text, needle, from, caseFold)?.start ?? null
-  const idx = literalIndex(text, needle, from, caseFold)
-  return idx >= 0 ? idx : null
+  return findMatchForward(text, needle, from, regexp)?.start ?? null
 }
 
 export function findBackward(text: string, needle: string, before: number, regexp = regexpMode): number | null {
+  return findMatchBackward(text, needle, before, regexp)?.start ?? null
+}
+
+export function findMatchForward(text: string, needle: string, from: number, regexp = regexpMode): IsearchMatch | null {
   if (!needle) return null
   const caseFold = isearchNoUpperCaseP(needle, regexp)
-  if (regexp) return findRegexpBackward(text, needle, before, caseFold)?.start ?? null
+  if (regexp) return findRegexpForward(text, needle, from, caseFold)
+  const idx = literalIndex(text, needle, from, caseFold)
+  return idx >= 0 ? { start: idx, end: idx + needle.length } : null
+}
+
+export function findMatchBackward(text: string, needle: string, before: number, regexp = regexpMode): IsearchMatch | null {
+  if (!needle) return null
+  const caseFold = isearchNoUpperCaseP(needle, regexp)
+  if (regexp) return findRegexpBackward(text, needle, before, caseFold)
   const idx = literalLastIndex(text, needle, before, caseFold)
-  return idx >= 0 ? idx : null
+  return idx >= 0 ? { start: idx, end: idx + needle.length } : null
 }
 
 export function isearchMatchSpan(buffer: BufferModel, state: IsearchState): IsearchSpan | null {
   if (!state.string || buffer.id !== state.bufferId) return null
+  if (state.match) return { ...state.match, face: "isearch" }
   const start = buffer.point
   const caseFold = isearchNoUpperCaseP(state.string, state.regexp ?? false)
   if (state.regexp) {
@@ -140,7 +150,7 @@ export function isearchLazyHighlightSpans(
     }
     if (!m) break
     const start = lo + m.start
-    if (start !== buffer.point) spans.push({ start, end: lo + m.end, face: "lazyHighlight" })
+    if (start !== (state.match?.start ?? buffer.point)) spans.push({ start, end: lo + m.end, face: "lazyHighlight" })
     from = Math.max(m.end, m.start + 1)
   }
   return spans

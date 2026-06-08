@@ -17,7 +17,7 @@ import type { TerminalData } from "../display/protocol"
 import type { ViewportSize } from "../display/viewport"
 import { composeTheme } from "../runtime/faces"
 import { fileCompletionCandidates } from "./completion"
-import { findBackward, findForward, isearchPrompt, type IsearchState } from "./isearch"
+import { findMatchBackward, findMatchForward, isearchPrompt, type IsearchMatch, type IsearchState } from "./isearch"
 import {
   cloneWindowNode,
   createLeafWindow,
@@ -908,15 +908,14 @@ export class Editor {
     }
     const buffer = this.buffers.get(state.bufferId)
     if (!buffer) return
-    const from = state.direction === 1 ? buffer.point + 1 : buffer.point - 1
     const match = state.direction === 1
-      ? findForward(buffer.text, state.string, from)
-      : findBackward(buffer.text, state.string, from)
+      ? findMatchForward(buffer.text, state.string, buffer.point, state.regexp ?? false)
+      : findMatchBackward(buffer.text, state.string, buffer.point, state.regexp ?? false)
     if (match == null) {
       this.message(`Search failed: ${state.string}`)
       return
     }
-    buffer.point = match
+    this.applyIsearchMatch(buffer, state, match)
     this.message(isearchPrompt(state))
     void this.changed("isearch-repeat")
   }
@@ -945,22 +944,28 @@ export class Editor {
     state.string = string
     if (!string) {
       buffer.point = state.startPoint
+      state.match = undefined
       this.message(isearchPrompt(state))
       void this.changed("isearch-input")
       return
     }
-    const from = state.direction === 1 ? state.startPoint : state.startPoint
     const match = state.direction === 1
-      ? findForward(buffer.text, string, from, state.regexp ?? false)
-      : findBackward(buffer.text, string, from, state.regexp ?? false)
+      ? findMatchForward(buffer.text, string, state.startPoint, state.regexp ?? false)
+      : findMatchBackward(buffer.text, string, state.startPoint, state.regexp ?? false)
     if (match == null) {
+      state.match = undefined
       this.message(`Failing I-search: ${string}`)
       void this.changed("isearch-fail")
       return
     }
-    buffer.point = match
+    this.applyIsearchMatch(buffer, state, match)
     this.message(isearchPrompt(state))
     void this.changed("isearch-input")
+  }
+
+  applyIsearchMatch(buffer: BufferModel, state: IsearchState, match: IsearchMatch): void {
+    state.match = match
+    buffer.point = state.direction === 1 ? match.end : match.start
   }
 
   async minibufferInsert(s: string): Promise<void> {

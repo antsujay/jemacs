@@ -93,7 +93,7 @@ describe("t-92e15670 + t-87311a94: search ring and C-w yank", () => {
     expect(editor.isearch?.string).toBe("")
     editor.isearchRepeat()
     expect(editor.isearch?.string).toBe("foo")
-    expect(buf.point).toBe(0) // first match at start
+    expect(buf.point).toBe(3)
   })
 
   test("C-w during isearch yanks the word after the current match", async () => {

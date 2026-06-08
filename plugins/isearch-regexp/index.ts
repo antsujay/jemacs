@@ -1,8 +1,8 @@
 import type { Editor } from "../../src/kernel/editor"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 import {
-  findRegexpBackward,
-  findRegexpForward,
+  findMatchBackward,
+  findMatchForward,
   isearchNoUpperCaseP,
   isearchPrompt,
   setIsearchRegexp,
@@ -25,20 +25,14 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (!state?.string) return
     const buffer = editor.buffers.get(state.bufferId)
     if (!buffer) return
-    const caseFold = isearchNoUpperCaseP(state.string, true)
-    let next: ReturnType<typeof findRegexpForward>
-    if (direction === 1) {
-      const here = findRegexpForward(buffer.text, state.string, buffer.point, caseFold)
-      const from = here && here.start === buffer.point ? Math.max(here.end, buffer.point + 1) : buffer.point + 1
-      next = findRegexpForward(buffer.text, state.string, from, caseFold)
-    } else {
-      next = findRegexpBackward(buffer.text, state.string, buffer.point, caseFold)
-    }
+    const next = direction === 1
+      ? findMatchForward(buffer.text, state.string, buffer.point, true)
+      : findMatchBackward(buffer.text, state.string, buffer.point, true)
     if (!next) {
       editor.message(`Failing ${isearchPrompt(state)}`)
       return
     }
-    buffer.point = next.start
+    editor.applyIsearchMatch(buffer, state, next)
     editor.message(isearchPrompt(state))
   }
 
