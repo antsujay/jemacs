@@ -265,6 +265,49 @@ test("forward-char and backward-char honor negative prefixes at boundaries", asy
   expect(messages.at(-1)).toBe("End of buffer")
 })
 
+test("forward-word and backward-word return false when reaching buffer edge", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("one two", false)
+  buffer.point = 4
+
+  expect(await editor.run("forward-word")).toBe(true)
+  expect(buffer.point).toBe(7)
+
+  buffer.point = 4
+  editor.prefixArg.addDigit(3)
+  expect(await editor.run("forward-word")).toBe(false)
+  expect(buffer.point).toBe(7)
+
+  buffer.point = 4
+  expect(await editor.run("backward-word")).toBe(true)
+  expect(buffer.point).toBe(0)
+
+  buffer.point = 4
+  editor.prefixArg.addDigit(3)
+  expect(await editor.run("backward-word")).toBe(false)
+  expect(buffer.point).toBe(0)
+})
+
+test("forward-word and backward-word preserve negative-prefix return semantics", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("one two", false)
+  buffer.point = 4
+
+  editor.prefixArg.toggleNegative()
+  expect(await editor.run("forward-word")).toBe(true)
+  expect(buffer.point).toBe(0)
+
+  buffer.point = 4
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  expect(await editor.run("backward-word")).toBe(false)
+  expect(buffer.point).toBe(7)
+})
+
 test("set-fill-column is the C-x f command and updates fill-column", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)

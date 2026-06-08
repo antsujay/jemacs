@@ -46,12 +46,18 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.command("forward-word", ({ buffer, prefixArgument }) => {
     const n = prefixArgument ?? 1
     const dir = n < 0 ? -1 : 1
-    for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
+    for (let i = 0; i < Math.abs(n); i++) {
+      if (!moveByWord(buffer, dir)) return false
+    }
+    return true
   }, "Move point forward one word.")
   editor.command("backward-word", ({ buffer, prefixArgument }) => {
     const n = prefixArgument ?? 1
     const dir = n < 0 ? 1 : -1
-    for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
+    for (let i = 0; i < Math.abs(n); i++) {
+      if (!moveByWord(buffer, dir)) return false
+    }
+    return true
   }, "Move point backward one word.")
 
   editor.command("beginning-of-buffer", ({ buffer, prefixArgument }) => {
@@ -855,16 +861,28 @@ function yankRectangle(buffer: BufferModel, rectangle: string): void {
 /** Unicode-aware word motion so non-ASCII letters and combining marks are
  *  word constituents (e.g. NFD `café`). Defers to `buffer.moveWord` when a
  *  mode (e.g. subword-mode) has overridden the word regexps. */
-function moveByWord(buffer: CommandContext["buffer"], dir: 1 | -1): void {
+function moveByWord(buffer: CommandContext["buffer"], dir: 1 | -1): boolean {
   if (buffer.locals.has("word-forward-regexp") || buffer.locals.has("word-backward-regexp")) {
+    const before = buffer.point
     buffer.moveWord(dir)
-    return
+    return buffer.point !== before
   }
   if (dir > 0) {
     const m = /[\p{L}\p{M}\p{N}_]+/u.exec(buffer.text.slice(buffer.point))
-    buffer.point = m ? buffer.point + m.index + m[0].length : buffer.text.length
+    if (!m) {
+      buffer.point = buffer.text.length
+      return false
+    }
+    buffer.point = buffer.point + m.index + m[0].length
+    return true
   } else {
     const matches = [...buffer.text.slice(0, buffer.point).matchAll(/[\p{L}\p{M}\p{N}_]+/gu)]
-    buffer.point = matches.at(-1)?.index ?? 0
+    const match = matches.at(-1)
+    if (!match) {
+      buffer.point = 0
+      return false
+    }
+    buffer.point = match.index
+    return true
   }
 }
