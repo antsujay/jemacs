@@ -156,6 +156,53 @@ test("append-to-register and prepend-to-register reject non-text registers", asy
   expect(editor.registers.get("p")).toEqual({ kind: "point", point: 0 })
 })
 
+test("view-register displays supported register contents in the Emacs output buffer", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "abc")
+  editor.registers.set("t", { kind: "text", text: "hello" })
+  editor.registers.set("r", { kind: "rectangle", lines: ["ab", "cd"] })
+  editor.registers.set("p", { kind: "point", point: 2, bufferId: buf.id })
+
+  await editor.run("view-register", ["t"])
+  expect(editor.currentBuffer.name).toBe("*Output*")
+  expect(editor.currentBuffer.text).toContain('Register t contains "hello"')
+
+  await editor.run("view-register", ["r"])
+  expect(editor.currentBuffer.text).toContain("Register r contains the rectangle:")
+  expect(editor.currentBuffer.text).toContain("    ab")
+  expect(editor.currentBuffer.text).toContain("    cd")
+
+  await editor.run("view-register", ["p"])
+  expect(editor.currentBuffer.text).toContain("Register p contains a buffer position:")
+  expect(editor.currentBuffer.text).toContain("buffer *t*, position 2")
+})
+
+test("view-register reports empty registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  let msg = ""
+  editor.events.on("message", ({ text }) => { msg = text })
+
+  await editor.run("view-register", ["z"])
+
+  expect(msg).toContain("Register z is empty")
+})
+
+test("list-registers displays sorted nonempty register descriptions", async () => {
+  const editor = makeEditor()
+  install(editor)
+  editor.registers.set("z", { kind: "text", text: "last" })
+  editor.registers.set("a", { kind: "rectangle", lines: ["first"] })
+
+  await editor.run("list-registers")
+
+  expect(editor.currentBuffer.name).toBe("*Output*")
+  expect(editor.currentBuffer.text).toContain("Register a contains a rectangle starting with first")
+  expect(editor.currentBuffer.text).toContain('Register z contains "last"')
+  expect(editor.currentBuffer.text.indexOf("Register a")).toBeLessThan(editor.currentBuffer.text.indexOf("Register z"))
+})
+
 test("RegisterContents accepts rectangle kind and insert-register handles it", async () => {
   const editor = makeEditor()
   install(editor)

@@ -1,10 +1,26 @@
 import type { Editor } from "../../src/kernel/editor"
 import type { CommandContext } from "../../src/kernel/command"
+import type { RegisterContents } from "../../src/kernel/register"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 
 function regionBounds(buffer: { mark: number | null; point: number }): [number, number] | null {
   if (buffer.mark == null) return null
   return [buffer.mark, buffer.point].sort((a, b) => a - b) as [number, number]
+}
+
+function registerDescription(editor: Editor, register: string, value: RegisterContents, verbose = false): string {
+  const prefix = `Register ${register} contains `
+  if (value.kind === "text") return `${prefix}${JSON.stringify(value.text)}`
+  if (value.kind === "rectangle") {
+    if (verbose) return `${prefix}the rectangle:\n${value.lines.map(line => `    ${line}`).join("\n")}`
+    return `${prefix}a rectangle starting with ${value.lines[0] ?? ""}`
+  }
+  if (value.kind === "point") {
+    const buffer = value.bufferId ? editor.buffers.get(value.bufferId) : null
+    const name = buffer?.name ?? "unknown buffer"
+    return `${prefix}a buffer position:\n    buffer ${name}, position ${value.point}`
+  }
+  return `${prefix}a window configuration.`
 }
 
 export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
@@ -41,6 +57,24 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     "Append region of text to register; with prefix arg, delete the region after appending.")
   editor.command("prepend-to-register", async ctx => appendPrepend("prepend", ctx),
     "Prepend region of text to register; with prefix arg, delete the region after prepending.")
+
+  editor.command("view-register", async ({ editor, args }) => {
+    const register = args[0] ?? await editor.prompt("View register: ", "", "register")
+    if (!register) return
+    const value = editor.registers.get(register)
+    if (!value) {
+      editor.message(`Register ${register} is empty`)
+      return
+    }
+    editor.scratch("*Output*", registerDescription(editor, register, value, true), "text")
+  }, "Display the description of the contents of REGISTER.")
+
+  editor.command("list-registers", ({ editor }) => {
+    const lines = [...editor.registers.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([register, value]) => registerDescription(editor, register, value, false))
+    editor.scratch("*Output*", lines.join("\n\n"), "text")
+  }, "Display the list of nonempty registers with brief descriptions of contents.")
 
   editor.command("insert-register", async ({ buffer, editor, args, prefixArgument }) => {
     const register = args[0] ?? await editor.prompt("Insert register: ", "", "register")
