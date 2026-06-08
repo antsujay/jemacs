@@ -153,6 +153,8 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   const recordYank = (buffer: BufferModel, text: string) => {
     lastYankStart = buffer.point - text.length
     lastYankEnd = buffer.point
+    buffer.mark = lastYankStart
+    buffer.markActive = false
     yankRingIndex = 0
   }
 
@@ -163,10 +165,14 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     if (lastYankStart != null && lastYankEnd != null) {
       buffer.replaceRange(lastYankStart, lastYankEnd, text)
       lastYankEnd = lastYankStart + text.length
+      buffer.mark = lastYankStart
+      buffer.markActive = false
     } else {
       buffer.insert(text)
       lastYankStart = buffer.point - text.length
       lastYankEnd = buffer.point
+      buffer.mark = lastYankStart
+      buffer.markActive = false
     }
   }
 
@@ -279,6 +285,7 @@ export function install(editor: Editor, ctx?: PluginContext): void {
       return
     }
     pushKill(buffer.selectedText())
+    buffer.markActive = false
     editor.message("Copied region")
   }, "Copy the text between point and mark to the kill ring.")
 

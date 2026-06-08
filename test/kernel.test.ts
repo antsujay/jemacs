@@ -258,6 +258,31 @@ test("kill-region and kill-ring-save require a mark like Emacs", async () => {
   expect(message).toContain("The mark is not set now")
 })
 
+test("kill-ring-save deactivates mark and yank marks inserted text like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 5
+
+  await editor.run("kill-ring-save")
+  expect(buffer.text).toBe("hello world")
+  expect(buffer.mark).toBe(0)
+  expect(buffer.markActive).toBe(false)
+
+  buffer.point = buffer.text.length
+  await editor.run("yank")
+  expect(buffer.text).toBe("hello worldhello")
+  expect(buffer.mark).toBe("hello world".length)
+  expect(buffer.markActive).toBe(false)
+
+  await editor.run("exchange-point-and-mark")
+  expect(buffer.markActive).toBe(true)
+  expect(buffer.selectedText()).toBe("hello")
+})
+
 test("help keybindings keep C-h as a prefix", () => {
   const editor = new Editor()
   installDefaultCommands(editor)
