@@ -242,9 +242,14 @@ export function install(editor: Editor, ctx?: PluginContext): void {
 
   editor.command("newline", ({ buffer }) => buffer.insert("\n"), "Insert a newline at point.")
 
-  editor.command("open-line", ({ buffer }) => {
-    buffer.insert("\n")
-    buffer.move(-1)
+  editor.command("open-line", ({ buffer, editor, prefixArgument }) => {
+    const count = prefixArgument ?? 1
+    if (count < 0) {
+      editor.message("Repetition argument has to be non-negative")
+      return
+    }
+    buffer.insert("\n".repeat(count))
+    buffer.move(-count)
   }, "Insert a newline after point without moving point.")
 
   editor.command("transpose-chars", ({ buffer }) => {

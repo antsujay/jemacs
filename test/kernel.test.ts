@@ -311,6 +311,35 @@ test("default commands support buffer listing, switching, newline, and regions",
   expect(editor.currentBuffer.text.startsWith("\n world")).toBe(true)
 })
 
+test("open-line honors positive prefix arguments and preserves point", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("abc", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("open-line")
+
+  expect(editor.currentBuffer.text).toBe("a\n\n\nbc")
+  expect(editor.currentBuffer.point).toBe(1)
+})
+
+test("open-line rejects negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  let echoed = ""
+  editor.events.on("message", ({ text }) => { echoed = text })
+  editor.currentBuffer.setText("abc", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("open-line")
+
+  expect(editor.currentBuffer.text).toBe("abc")
+  expect(editor.currentBuffer.point).toBe(1)
+  expect(echoed).toBe("Repetition argument has to be non-negative")
+})
+
 test("kill-region and kill-ring-save require a mark like Emacs", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
