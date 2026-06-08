@@ -262,9 +262,10 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     editor.message("Quoted insert — type a character")
   }, "Read the next input event and insert it literally.")
 
-  editor.command("delete-char", ({ buffer, prefixArgument }) => {
+  editor.command("delete-char", ({ buffer, editor, prefixArgument }) => {
     if (buffer.deleteActiveRegion()) return
-    repeat(prefixArgument, () => buffer.deleteForward(), () => buffer.deleteBackward())
+    const error = deleteChars(buffer, prefixArgument ?? 1)
+    if (error) editor.message(error)
   }, "Delete the character after point (or the active region).")
 
   editor.command("delete-backward-char", async ({ buffer, editor, prefixArgument }) => {
@@ -279,7 +280,8 @@ export function install(editor: Editor, ctx?: PluginContext): void {
       return
     }
     if (buffer.deleteActiveRegion()) return
-    repeat(prefixArgument, () => buffer.deleteBackward(), () => buffer.deleteForward())
+    const error = deleteChars(buffer, -(prefixArgument ?? 1))
+    if (error) editor.message(error)
   }, "Delete the character before point (or the active region).")
 
   editor.command("newline-and-indent", ({ editor, buffer }) => {
@@ -661,6 +663,18 @@ function repeat(prefixArgument: number | null, fwd: () => void, bwd?: () => void
   const n = prefixArgument ?? 1
   const fn = n < 0 ? (bwd ?? fwd) : fwd
   for (let i = 0; i < Math.abs(n); i++) fn()
+}
+
+function deleteChars(buffer: BufferModel, count: number): string | null {
+  if (count === 0) return null
+  if (count > 0) {
+    if (buffer.point + count > buffer.text.length) return "End of buffer"
+    buffer.deleteRange(buffer.point, buffer.point + count)
+    return null
+  }
+  if (buffer.point + count < 0) return "Beginning of buffer"
+  buffer.deleteRange(buffer.point + count, buffer.point)
+  return null
 }
 
 function transposeChars(buffer: BufferModel, prefixArgument: number | null): string | null {

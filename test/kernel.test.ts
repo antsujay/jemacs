@@ -1017,6 +1017,39 @@ test("delete-char deletes the active region like Emacs", async () => {
   expect(buffer.markActive).toBe(false)
 })
 
+test("delete-char and delete-backward-char report Emacs boundary errors", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+
+  buffer.setText("abc", false)
+  buffer.point = buffer.text.length
+  await editor.run("delete-char")
+  expect(buffer.text).toBe("abc")
+  expect(messages.at(-1)).toBe("End of buffer")
+
+  buffer.point = 0
+  await editor.run("delete-backward-char")
+  expect(buffer.text).toBe("abc")
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+})
+
+test("delete-char zero prefix is a no-op like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("abc", false)
+  buffer.point = 1
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("delete-char")
+
+  expect(buffer.text).toBe("abc")
+  expect(buffer.point).toBe(1)
+})
+
 test("exchange-point-and-mark swaps point and mark; motion preserves markActive", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
