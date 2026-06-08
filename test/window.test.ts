@@ -14,6 +14,14 @@ function installEditor(): Editor {
   return editor
 }
 
+async function createThreeTabs(editor: Editor): Promise<void> {
+  editor.scratch("a", "a", "text")
+  await editor.run("tab-bar-new-tab")
+  editor.scratch("b", "b", "text")
+  await editor.run("tab-bar-new-tab")
+  editor.scratch("c", "c", "text")
+}
+
 test("split-window-below stacks vertically and keeps the original window selected", async () => {
   const editor = installEditor()
   const start = editor.selectedWindowId
@@ -265,6 +273,54 @@ test("previous-buffer honors positive and negative numeric prefixes", async () =
 
   editor.prefixArg.toggleNegative()
   await editor.run("previous-buffer")
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-switch-to-next-tab honors positive numeric prefix and wraps", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 0
+  editor.switchToBuffer(editor.tabs[0]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-switch-to-next-tab")
+  expect(editor.selectedTab).toBe(2)
+  expect(editor.currentBuffer.name).toBe("c")
+
+  editor.selectedTab = 0
+  editor.switchToBuffer(editor.tabs[0]!.bufferId)
+  editor.prefixArg.addDigit(4)
+  await editor.run("tab-bar-switch-to-next-tab")
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-switch-to-next-tab with zero prefix keeps the selected tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("tab-bar-switch-to-next-tab")
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-switch-to-prev-tab honors positive and negative numeric prefixes", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 2
+  editor.switchToBuffer(editor.tabs[2]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-switch-to-prev-tab")
+  expect(editor.selectedTab).toBe(0)
+  expect(editor.currentBuffer.name).toBe("a")
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("tab-bar-switch-to-prev-tab")
+  expect(editor.selectedTab).toBe(1)
   expect(editor.currentBuffer.name).toBe("b")
 })
 

@@ -17,7 +17,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
 
   const switchTab = (editor: Editor, delta: number) => {
     if (!editor.tabs.length) return
-    editor.selectedTab = (editor.selectedTab + delta + editor.tabs.length) % editor.tabs.length
+    editor.selectedTab = ((editor.selectedTab + delta) % editor.tabs.length + editor.tabs.length) % editor.tabs.length
     editor.switchToBuffer(editor.tabs[editor.selectedTab]!.bufferId)
   }
 
@@ -161,8 +161,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.switchToBuffer(editor.tabs[editor.selectedTab]!.bufferId)
   }, "Close the current tab.")
 
-  editor.command("tab-bar-switch-to-next-tab", ({ editor }) => switchTab(editor, 1), "Switch to the next tab.")
-  editor.command("tab-bar-switch-to-prev-tab", ({ editor }) => switchTab(editor, -1), "Switch to the previous tab.")
+  editor.command("tab-bar-switch-to-next-tab", ({ editor, prefixArgument }) => switchTab(editor, prefixArgument ?? 1), "Switch to the next tab.")
+  editor.command("tab-bar-switch-to-prev-tab", ({ editor, prefixArgument }) => switchTab(editor, -(prefixArgument ?? 1)), "Switch to the previous tab.")
 
   editor.command("next-buffer", ({ editor, prefixArgument }) => {
     const b = cycleBuffer(editor, prefixArgument ?? 1)
