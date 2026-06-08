@@ -30,6 +30,8 @@ test("copy-to-register and insert-register use Emacs key bindings", async () => 
   expect(editor.keymaps.lookup("C-x r x")).toMatchObject({ status: "matched", command: "copy-to-register" })
   expect(editor.keymaps.lookup("C-x r i")).toMatchObject({ status: "matched", command: "insert-register" })
   expect(editor.keymaps.lookup("C-x r g")).toMatchObject({ status: "matched", command: "insert-register" })
+  expect(editor.keymaps.lookup("C-x r n")).toMatchObject({ status: "matched", command: "number-to-register" })
+  expect(editor.keymaps.lookup("C-x r +")).toMatchObject({ status: "matched", command: "increment-register" })
 
   const buf = editor.scratch("*t*", "abc")
   editor.registers.set("q", { kind: "text", text: "XYZ" })
@@ -97,6 +99,55 @@ test("insert-register with prefix leaves point before inserted text and mark aft
   expect(buf.point).toBe(1)
   expect(buf.mark).toBe(4)
   expect(buf.markActive).toBe(false)
+})
+
+test("number-to-register stores prefix or number at point", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "count -42 done")
+  buf.point = buf.text.indexOf("-42")
+
+  await editor.run("number-to-register", ["n"])
+  expect(editor.registers.get("n")).toEqual({ kind: "number", value: -42 })
+  expect(buf.point).toBe(buf.text.indexOf(" done"))
+
+  editor.prefixArg.universalArgument()
+  editor.prefixArg.addDigit(7)
+  await editor.run("number-to-register", ["p"])
+  expect(editor.registers.get("p")).toEqual({ kind: "number", value: 7 })
+})
+
+test("increment-register updates numeric registers and appends text otherwise", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "abc")
+  editor.registers.set("n", { kind: "number", value: 10 })
+
+  await editor.run("increment-register", ["n"])
+  expect(editor.registers.get("n")).toEqual({ kind: "number", value: 11 })
+
+  editor.prefixArg.universalArgument()
+  editor.prefixArg.addDigit(5)
+  await editor.run("increment-register", ["n"])
+  expect(editor.registers.get("n")).toEqual({ kind: "number", value: 16 })
+
+  buf.mark = 0
+  buf.point = 2
+  await editor.run("increment-register", ["t"])
+  expect(editor.registers.get("t")).toEqual({ kind: "text", text: "ab" })
+})
+
+test("insert-register and view-register handle numeric registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "")
+  editor.registers.set("n", { kind: "number", value: 123 })
+
+  await editor.run("insert-register", ["n"])
+  expect(buf.text).toBe("123")
+
+  await editor.run("view-register", ["n"])
+  expect(editor.currentBuffer.text).toContain("Register n contains 123")
 })
 
 test("append-to-register and prepend-to-register compose text registers", async () => {

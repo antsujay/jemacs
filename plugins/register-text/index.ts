@@ -8,9 +8,16 @@ function regionBounds(buffer: { mark: number | null; point: number }): [number, 
   return [buffer.mark, buffer.point].sort((a, b) => a - b) as [number, number]
 }
 
+function numberAtPoint(buffer: { text: string; point: number }): { value: number; end: number } | null {
+  const match = /^[+-]?\d+/.exec(buffer.text.slice(buffer.point))
+  if (!match) return null
+  return { value: Number(match[0]), end: buffer.point + match[0].length }
+}
+
 function registerDescription(editor: Editor, register: string, value: RegisterContents, verbose = false): string {
   const prefix = `Register ${register} contains `
   if (value.kind === "text") return `${prefix}${JSON.stringify(value.text)}`
+  if (value.kind === "number") return `${prefix}${value.value}`
   if (value.kind === "rectangle") {
     if (verbose) return `${prefix}the rectangle:\n${value.lines.map(line => `    ${line}`).join("\n")}`
     return `${prefix}a rectangle starting with ${value.lines[0] ?? ""}`
@@ -58,6 +65,45 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.command("prepend-to-register", async ctx => appendPrepend("prepend", ctx),
     "Prepend region of text to register; with prefix arg, delete the region after prepending.")
 
+  editor.command("number-to-register", async ({ buffer, editor, args, prefixArgument }) => {
+    const register = args[0] ?? await editor.prompt("Number to register: ", "", "register")
+    if (!register) return
+    let value: number
+    if (args[1] != null) {
+      value = Number(args[1])
+      if (!Number.isFinite(value)) {
+        editor.message(`Invalid number: ${args[1]}`)
+        return
+      }
+    } else if (prefixArgument != null) {
+      value = prefixArgument
+    } else {
+      const found = numberAtPoint(buffer)
+      if (!found) {
+        editor.message("No number at point")
+        return
+      }
+      value = found.value
+      buffer.point = found.end
+    }
+    editor.registers.set(register, { kind: "number", value })
+    editor.message(`Stored ${value} in register ${register}`)
+  }, "Store NUMBER in REGISTER.")
+
+  editor.command("increment-register", async ctx => {
+    const { editor, args, prefixArgument } = ctx
+    const register = args[0] ?? await editor.prompt("Increment register: ", "", "register")
+    if (!register) return
+    const value = editor.registers.get(register)
+    if (value?.kind === "number") {
+      const amount = prefixArgument ?? 1
+      value.value += amount
+      editor.message(`Register ${register} now contains ${value.value}`)
+      return
+    }
+    await appendPrepend("append", { ...ctx, args: [register], prefixArgument })
+  }, "Augment contents of REGISTER using PREFIX.")
+
   editor.command("view-register", async ({ editor, args }) => {
     const register = args[0] ?? await editor.prompt("View register: ", "", "register")
     if (!register) return
@@ -81,7 +127,9 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (!register) return
     const value = editor.registers.get(register)
     if (!value) { editor.message(`Register ${register} is empty`); return }
-    const text = value.kind === "text" ? value.text : value.kind === "rectangle" ? value.lines.join("\n") : null
+    const text = value.kind === "text" ? value.text
+      : value.kind === "number" ? String(value.value)
+        : value.kind === "rectangle" ? value.lines.join("\n") : null
     if (text != null) {
       const start = buffer.point
       buffer.insert(text)
@@ -103,4 +151,6 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-x r x", "copy-to-register")
   editor.key("C-x r i", "insert-register")
   editor.key("C-x r g", "insert-register")
+  editor.key("C-x r n", "number-to-register")
+  editor.key("C-x r +", "increment-register")
 }
