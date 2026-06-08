@@ -109,6 +109,12 @@ function paragraphPosition(text: string, from: number, n: number): number {
 
 function markParagraph(buffer: BufferModel, n: number): void {
   const count = n || 1
+  if (buffer.markActive && buffer.mark != null && buffer.mark !== buffer.point) {
+    const direction = buffer.point <= buffer.mark ? 1 : -1
+    buffer.mark = paragraphPosition(buffer.text, buffer.mark, direction * count)
+    buffer.markActive = true
+    return
+  }
   if (count > 0) {
     const start = paragraphPosition(buffer.text, buffer.point, -1)
     buffer.point = start

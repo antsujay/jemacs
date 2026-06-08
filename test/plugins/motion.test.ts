@@ -116,6 +116,27 @@ describe("forward-paragraph / backward-paragraph", () => {
     expect(buffer.markActive).toBe(true)
     expect(buffer.selectedText()).toBe("\nbbb\n")
   })
+
+  test("repeating mark-paragraph extends an active region forward like Emacs", async () => {
+    const { editor, buffer } = setup("aaa\n\nbbb\n\nccc\n\nddd", 6)
+    await editor.run("mark-paragraph")
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(4)
+    expect(buffer.mark).toBe(14)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("\nbbb\n\nccc\n")
+  })
+
+  test("mark-paragraph extends backward when point is after the active mark", async () => {
+    const { editor, buffer } = setup("aaa\n\nbbb\n\nccc\n\nddd", 6)
+    editor.prefixArg.toggleNegative()
+    await editor.run("mark-paragraph")
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(9)
+    expect(buffer.mark).toBe(0)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("aaa\n\nbbb\n")
+  })
 })
 
 describe("transpose-words", () => {
