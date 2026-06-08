@@ -19,8 +19,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     markParagraph(buffer, prefixArgument ?? 1)
   }, "Put point at beginning of this paragraph, mark at end.")
 
-  editor.command("transpose-words", ({ buffer, editor }) => {
-    if (!transposeWords(buffer)) editor.message("Don't have two things to transpose")
+  editor.command("transpose-words", ({ buffer, editor, prefixArgument }) => {
+    const result = transposeWords(buffer, prefixArgument ?? 1)
+    if (result === "no-mark") editor.message("No mark set in this buffer")
+    else if (result === "no-two") editor.message("Don't have two things to transpose")
   }, "Interchange words around point, leaving point at end of them.")
 
   editor.command("transpose-lines", ({ buffer, editor, prefixArgument }) => {
@@ -119,35 +121,92 @@ function markParagraph(buffer: BufferModel, n: number): void {
   buffer.markActive = true
 }
 
-function forwardWordEnd(text: string, p: number): number {
-  const m = /[^A-Za-z0-9_]*[A-Za-z0-9_]+/.exec(text.slice(p))
-  return m ? p + m[0].length : text.length
-}
+type TransposeWordsResult = "ok" | "no-mark" | "no-two"
 
-function backwardWordStart(text: string, p: number): number {
-  let last: RegExpExecArray | null = null
-  const re = /[A-Za-z0-9_]+/g
-  const head = text.slice(0, p)
-  for (let m = re.exec(head); m; m = re.exec(head)) last = m
-  return last ? last.index : 0
-}
+type WordRecord = { start: number; end: number; text: string }
 
-function wordAround(text: string, p: number, dir: 1 | -1): [number, number] {
-  if (dir < 0) {
-    const a = backwardWordStart(text, p)
-    const b = forwardWordEnd(text, a)
-    return [a, b]
+function transposeWords(buffer: BufferModel, arg: number): TransposeWordsResult {
+  if (arg === 0) return transposeWordsAtPointAndMark(buffer)
+  const words = wordRecords(buffer.text)
+  const moveIndex = wordIndexBeforeOrAround(words, buffer.point)
+  if (moveIndex == null) return "no-two"
+  const moving = words[moveIndex]!
+  const targetIndex = moveIndex + arg
+  if (targetIndex < 0 || targetIndex >= words.length) return "no-two"
+  if (arg > 0) {
+    const next = words[moveIndex + 1]
+    if (!next) return "no-two"
+    const target = words[targetIndex]!
+    const before = buffer.text.slice(0, moving.start)
+    const body = buffer.text.slice(next.start, target.end)
+    const separator = buffer.text.slice(moving.end, next.start)
+    const after = buffer.text.slice(target.end)
+    buffer.setText(before + body + separator + moving.text + after, true)
+    buffer.point = before.length + body.length + separator.length + moving.text.length
+    return "ok"
   }
-  const b = forwardWordEnd(text, p)
-  const a = backwardWordStart(text, b)
-  return [a, b]
+
+  const target = words[targetIndex]!
+  const next = words[moveIndex + 1]
+  const separatorEnd = next?.start ?? moving.end
+  const before = buffer.text.slice(0, target.start)
+  const body = buffer.text.slice(target.start, moving.start)
+  const separator = buffer.text.slice(moving.end, separatorEnd)
+  const after = buffer.text.slice(separatorEnd)
+  buffer.setText(before + moving.text + separator + body + after, true)
+  buffer.point = before.length + moving.text.length
+  return "ok"
 }
 
-function transposeWords(buffer: BufferModel): boolean {
-  const text = buffer.text
-  const [s1, e1] = wordAround(text, buffer.point, -1)
-  const [s2, e2] = wordAround(text, e1, 1)
-  return transposeRanges(buffer, s1, e1, s2, e2)
+function transposeWordsAtPointAndMark(buffer: BufferModel): TransposeWordsResult {
+  if (buffer.mark == null) return "no-mark"
+  const words = wordRecords(buffer.text)
+  const pointIndex = wordIndexAtOrAfter(words, buffer.point)
+  const markIndex = wordIndexAtOrAfter(words, buffer.mark)
+  if (pointIndex == null || markIndex == null || pointIndex === markIndex) return "no-two"
+  let firstIndex = pointIndex
+  let secondIndex = markIndex
+  if (firstIndex > secondIndex) [firstIndex, secondIndex] = [secondIndex, firstIndex]
+  const first = words[firstIndex]!
+  const second = words[secondIndex]!
+  const rebuilt = buffer.text.slice(0, first.start) + second.text + buffer.text.slice(first.end, second.start) + first.text + buffer.text.slice(second.end)
+  const pointWord = pointIndex < markIndex
+    ? { start: second.start + second.text.length - first.text.length }
+    : { start: first.start }
+  const markWord = pointIndex < markIndex
+    ? { start: first.start }
+    : { start: second.start + second.text.length - first.text.length }
+  buffer.setText(rebuilt, true)
+  buffer.point = pointWord.start
+  buffer.mark = markWord.start
+  return "ok"
+}
+
+function wordRecords(text: string): WordRecord[] {
+  const records: WordRecord[] = []
+  const re = /[A-Za-z0-9_]+/g
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    records.push({ start: m.index, end: m.index + m[0].length, text: m[0] })
+  }
+  return records
+}
+
+function wordIndexBeforeOrAround(words: WordRecord[], point: number): number | null {
+  if (words.length === 0) return null
+  let found: number | null = null
+  for (let i = 0; i < words.length; i++) {
+    if (words[i]!.start < point) found = i
+    else break
+  }
+  return found ?? 0
+}
+
+function wordIndexAtOrAfter(words: WordRecord[], point: number): number | null {
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!
+    if (word.end > point || word.start >= point) return i
+  }
+  return null
 }
 
 type TransposeLinesResult = "ok" | "no-mark" | "no-two"

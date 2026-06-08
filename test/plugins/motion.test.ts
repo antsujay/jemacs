@@ -145,6 +145,60 @@ describe("transpose-words", () => {
     await editor.run("transpose-words")
     expect(buffer.text).toBe("solo")
   })
+
+  test("positive prefix drags the previous word forward past that many words", async () => {
+    const { editor, buffer } = setup("one two three four", 4)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("two three one four")
+    expect(buffer.point).toBe(13)
+  })
+
+  test("positive prefix preserves punctuation separators like Emacs", async () => {
+    const { editor, buffer } = setup("one two, three four", 4)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("two, three one four")
+    expect(buffer.point).toBe(14)
+  })
+
+  test("negative prefix drags the previous word backward past that many words", async () => {
+    const { editor, buffer } = setup("one two three four", 14)
+    editor.prefixArg.toggleNegative()
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("three one two four")
+    expect(buffer.point).toBe(5)
+  })
+
+  test("negative prefix with too few preceding words is a no-op", async () => {
+    const { editor, buffer } = setup("one two three four", 4)
+    editor.prefixArg.toggleNegative()
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("one two three four")
+  })
+
+  test("zero prefix swaps words around point and mark", async () => {
+    const { editor, buffer } = setup("one two three four", 4)
+    buffer.mark = 14
+    buffer.markActive = true
+    editor.prefixArg.addDigit(0)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("one four three two")
+    expect(buffer.point).toBe(15)
+    expect(buffer.mark).toBe(4)
+  })
+
+  test("zero prefix swaps unequal-length words and preserves point/mark destinations", async () => {
+    const { editor, buffer } = setup("one two three four", 0)
+    buffer.mark = 8
+    buffer.markActive = true
+    editor.prefixArg.addDigit(0)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("three two one four")
+    expect(buffer.point).toBe(10)
+    expect(buffer.mark).toBe(0)
+  })
 })
 
 describe("transpose-lines", () => {
