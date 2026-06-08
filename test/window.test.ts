@@ -3,10 +3,12 @@ import { Editor } from "../src/kernel/editor"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import {
   createLeafWindow,
+  findWindowLeaf,
   listWindowLeaves,
   splitWindowLeaf,
   type WindowNode,
 } from "../src/kernel/window"
+import { pageScrollLines } from "../src/display/viewport"
 
 function installEditor(): Editor {
   const editor = new Editor()
@@ -207,6 +209,51 @@ test("scroll-other-window scrolls the next window without selecting it", async (
   const otherLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.id === otherId)!
   expect(otherLeaf.startLine).toBeGreaterThan(0)
   expect(editor.selectedWindowId).toBe(selectedId)
+})
+
+test("recenter-top-bottom with numeric prefix moves point to that row", async () => {
+  const editor = installEditor()
+  editor.lastViewport = { rows: 20 }
+  const lines = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n")
+  const buffer = editor.scratch("recenter.txt", lines, "text")
+  buffer.point = buffer.text.indexOf("line 40")
+
+  editor.prefixArg.addDigit(5)
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(34)
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39)
+})
+
+test("recenter-top-bottom with negative prefix counts up from the bottom", async () => {
+  const editor = installEditor()
+  editor.lastViewport = { rows: 20 }
+  const page = pageScrollLines(20)
+  const lines = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n")
+  const buffer = editor.scratch("recenter.txt", lines, "text")
+  buffer.point = buffer.text.indexOf("line 40")
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39 - (page - 1))
+})
+
+test("recenter-top-bottom without prefix keeps cycling center top bottom", async () => {
+  const editor = installEditor()
+  editor.lastViewport = { rows: 20 }
+  const page = pageScrollLines(20)
+  const lines = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n")
+  const buffer = editor.scratch("recenter.txt", lines, "text")
+  buffer.point = buffer.text.indexOf("line 40")
+
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39 - Math.floor(page / 2))
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39)
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39 - page + 1)
 })
 
 test("dedicated windows are skipped when displaying another buffer", async () => {

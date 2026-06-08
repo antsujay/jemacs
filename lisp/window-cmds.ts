@@ -48,10 +48,16 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.command("next-window-any-frame", ({ editor }) => otherWindow(editor, 1), "Select the next window.")
   editor.command("previous-window-any-frame", previousWindow, "Select the previous window.")
 
-  editor.command("recenter-top-bottom", ({ editor }) => {
+  editor.command("recenter-top-bottom", ({ editor, prefixArgument }) => {
     if (!editor.selectedWindowLeaf()) return
-    const page = pageScrollLines()
+    const page = pageScrollLines(editor.lastViewport?.rows)
     const lineIdx = editor.currentBuffer.lineCol().line - 1
+    if (prefixArgument != null) {
+      const targetRow = prefixArgument >= 0 ? prefixArgument : Math.max(0, page + prefixArgument)
+      editor.setSelectedWindowStartLine(Math.max(0, lineIdx - targetRow))
+      editor.message("Recenter")
+      return
+    }
     const cycle = recenterCycle.get(editor) ?? 0
     const start = cycle === 0 ? Math.max(0, lineIdx - Math.floor(page / 2))
       : cycle === 1 ? lineIdx
