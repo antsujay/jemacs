@@ -282,6 +282,7 @@ test("clipboard kill commands use Emacs names and region semantics", async () =>
 
   expect(editor.commands.get("clipboard-kill-ring-save")).toBeDefined()
   expect(editor.commands.get("clipboard-kill-region")).toBeDefined()
+  expect(editor.commands.get("clipboard-yank")).toBeDefined()
 
   buffer.mark = 0
   buffer.markActive = true
@@ -295,16 +296,22 @@ test("clipboard kill commands use Emacs names and region semantics", async () =>
   await editor.run("yank")
   expect(buffer.text).toBe("hello worldhello")
 
+  buffer.point = buffer.text.length
+  await editor.run("clipboard-yank")
+  expect(buffer.text.endsWith("hellohello")).toBe(true)
+  expect(buffer.mark).toBe(buffer.text.length - 5)
+  expect(buffer.markActive).toBe(false)
+
   buffer.mark = 0
   buffer.markActive = true
   buffer.point = 5
   await editor.run("clipboard-kill-region")
-  expect(buffer.text).toBe(" worldhello")
+  expect(buffer.text).toBe(" worldhellohello")
   expect(buffer.mark).toBeNull()
 
   buffer.point = 0
   await editor.run("yank")
-  expect(buffer.text).toBe("hello worldhello")
+  expect(buffer.text).toBe("hello worldhellohello")
 })
 
 test("kill-ring-save deactivates mark and yank marks inserted text like Emacs", async () => {

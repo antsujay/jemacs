@@ -194,6 +194,36 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     }
   }
 
+  const readFromClipboard = async (): Promise<string | null> => {
+    try {
+      const pbpaste = spawnProcess({ cmd: ["pbpaste"], stdout: "pipe" })
+      const stream = pbpaste.stdout
+      if (!stream) return null
+      const reader = stream.getReader()
+      const chunks: Uint8Array[] = []
+      let length = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) {
+          chunks.push(value)
+          length += value.length
+        }
+      }
+      const code = await pbpaste.exited
+      if (code !== 0) return null
+      const bytes = new Uint8Array(length)
+      let offset = 0
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.length
+      }
+      return new TextDecoder().decode(bytes)
+    } catch {
+      return null
+    }
+  }
+
   editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument }) => {
     const key = editor.lastKeyEvent
     const ch = args[0] ?? key?.sequence
@@ -330,6 +360,13 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     buffer.insert(text)
     recordYank(buffer, text)
   }, "Insert the last killed text at point.")
+
+  editor.command("clipboard-yank", async ({ buffer }) => {
+    const text = await readFromClipboard() || killRing[yankRingIndex]
+    if (!text) return
+    buffer.insert(text)
+    recordYank(buffer, text)
+  }, "Insert the clipboard contents, or the last stretch of killed text.")
 
   editor.command("yank-pop", ({ buffer, editor }) => {
     yankPop(buffer)
