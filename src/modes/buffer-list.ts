@@ -16,11 +16,11 @@ export function installBufferListMode(): void {
   defineMode({ name: "buffer-list", parent: "text", keymap })
 }
 
-export function showBufferList(editor: Editor): BufferModel {
+export function showBufferList(editor: Editor, options: { filesOnly?: boolean } = {}): BufferModel {
   const existing = [...editor.buffers.values()].find(b => b.name === BUFFER_LIST_NAME)
   const buffer = existing ?? new BufferModel({ name: BUFFER_LIST_NAME, kind: "scratch", mode: "buffer-list" })
   if (!existing) editor.addBuffer(buffer)
-  renderBufferList(editor, buffer)
+  renderBufferList(editor, buffer, options)
   buffer.readOnly = true
   editor.enterMode(buffer, "buffer-list")
   editor.switchToBuffer(buffer.id)
@@ -28,10 +28,11 @@ export function showBufferList(editor: Editor): BufferModel {
   return buffer
 }
 
-export function renderBufferList(editor: Editor, buffer: BufferModel): void {
+export function renderBufferList(editor: Editor, buffer: BufferModel, options: { filesOnly?: boolean } = {}): void {
   const ids: string[] = []
   const lines = [...editor.buffers.values()]
     .filter(b => b.kind !== "minibuffer")
+    .filter(b => !options.filesOnly || b.path)
     .map(b => {
       ids.push(b.id)
       const current = b.id === editor.currentBufferId ? "." : " "

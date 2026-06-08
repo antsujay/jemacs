@@ -311,6 +311,22 @@ test("default commands support buffer listing, switching, newline, and regions",
   expect(editor.currentBuffer.text.startsWith("\n world")).toBe(true)
 })
 
+test("list-buffers with prefix lists only file-visiting buffers", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.addBuffer(new BufferModel({ name: "file.txt", path: "/tmp/file.txt", text: "file" }))
+  editor.scratch("notes", "scratch", "text")
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("list-buffers")
+  expect(editor.currentBuffer.name).toBe("*Buffer List*")
+  expect(editor.currentBuffer.text).toContain("file.txt")
+  expect(editor.currentBuffer.text).not.toContain("notes")
+  expect(editor.currentBuffer.text).not.toContain("*scratch*")
+})
+
 test("open-line honors positive prefix arguments and preserves point", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)

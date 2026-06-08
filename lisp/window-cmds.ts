@@ -206,8 +206,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Switched to ${editor.bufferDisplayName(buffer)}`)
   }, "Prompt for a buffer name and switch to it.")
 
-  editor.command("list-buffers", ({ editor }) => {
-    showBufferList(editor)
+  editor.command("list-buffers", ({ editor, prefixArgument }) => {
+    showBufferList(editor, { filesOnly: prefixArgument != null })
   }, "Display the buffer list.")
 
   editor.command("buffer-list-select", ({ buffer, editor }) => {
