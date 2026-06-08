@@ -13,8 +13,23 @@ import { readKey } from "./misc"
 const KILL_COMMANDS = new Set(["kill-line", "kill-word", "backward-kill-word", "kill-region", "clipboard-kill-region"])
 
 export function install(editor: Editor, ctx?: PluginContext): void {
-  editor.command("forward-char", ({ buffer, prefixArgument }) => buffer.move(prefixArgument ?? 1), "Move point forward one character.")
-  editor.command("backward-char", ({ buffer, prefixArgument }) => buffer.move(-(prefixArgument ?? 1)), "Move point backward one character.")
+  const moveChar = (buffer: BufferModel, editor: Editor, delta: number) => {
+    const target = buffer.point + delta
+    if (target < 0) {
+      buffer.point = 0
+      editor.message("Beginning of buffer")
+      return
+    }
+    if (target > buffer.text.length) {
+      buffer.point = buffer.text.length
+      editor.message("End of buffer")
+      return
+    }
+    buffer.point = target
+  }
+
+  editor.command("forward-char", ({ buffer, editor, prefixArgument }) => moveChar(buffer, editor, prefixArgument ?? 1), "Move point forward one character.")
+  editor.command("backward-char", ({ buffer, editor, prefixArgument }) => moveChar(buffer, editor, -(prefixArgument ?? 1)), "Move point backward one character.")
   editor.command("next-line", ({ buffer, prefixArgument }) => buffer.moveLine(prefixArgument ?? 1), "Move point down one line.")
   editor.command("previous-line", ({ buffer, prefixArgument }) => buffer.moveLine(-(prefixArgument ?? 1)), "Move point up one line.")
   editor.command("move-beginning-of-line", ({ buffer, prefixArgument }) => {

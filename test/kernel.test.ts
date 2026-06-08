@@ -221,6 +221,50 @@ test("default emacs keybindings are registered and runnable", async () => {
   expect(editor.keymaps.feed({ name: "x" })).toMatchObject({ status: "matched", command: "execute-extended-command" })
 })
 
+test("forward-char and backward-char report Emacs boundary errors", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("ab", false)
+  buffer.point = 1
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("forward-char")
+  expect(buffer.point).toBe(2)
+  expect(messages.at(-1)).toBe("End of buffer")
+
+  buffer.point = 1
+  editor.prefixArg.addDigit(3)
+  await editor.run("backward-char")
+  expect(buffer.point).toBe(0)
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+})
+
+test("forward-char and backward-char honor negative prefixes at boundaries", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("ab", false)
+  buffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  await editor.run("forward-char")
+  expect(buffer.point).toBe(0)
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+
+  buffer.point = 1
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  await editor.run("backward-char")
+  expect(buffer.point).toBe(2)
+  expect(messages.at(-1)).toBe("End of buffer")
+})
+
 test("set-fill-column is the C-x f command and updates fill-column", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
