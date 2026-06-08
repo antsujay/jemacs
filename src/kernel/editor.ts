@@ -759,7 +759,7 @@ export class Editor {
 
   private splitSelectedWindow(orientation: "vertical" | "horizontal"): string {
     const buffer = this.currentBuffer
-    const startLine = this.lineAtPoint(buffer.point)
+    const startLine = this.selectedWindowLeaf()?.startLine ?? 0
     let newId = this.selectedWindowId
     this.mutateWindowLayout(layout => {
       const r = splitWindowLeaf(layout, this.selectedWindowId, orientation, buffer.id, buffer.point)

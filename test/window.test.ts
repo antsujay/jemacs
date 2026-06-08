@@ -36,6 +36,24 @@ test("split-window-right places panes side by side", async () => {
   }
 })
 
+test("split windows clone the selected window viewport", async () => {
+  const editor = installEditor()
+  const buffer = editor.currentBuffer
+  buffer.setText(Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n"), false)
+  buffer.point = buffer.text.indexOf("line 10")
+  editor.setSelectedWindowStartLine(4)
+
+  await editor.run("split-window-below")
+  let leaves = listWindowLeaves(editor.windowLayout)
+  expect(leaves.map(leaf => leaf.startLine)).toEqual([4, 4])
+
+  await editor.run("other-window")
+  editor.setSelectedWindowStartLine(7)
+  await editor.run("split-window-right")
+  leaves = listWindowLeaves(editor.windowLayout)
+  expect(leaves.map(leaf => leaf.startLine)).toEqual([4, 7, 7])
+})
+
 test("previous-window-any-frame cycles windows in reverse tree order", async () => {
   const editor = installEditor()
   await editor.run("split-window-below")
