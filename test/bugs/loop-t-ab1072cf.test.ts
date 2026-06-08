@@ -99,6 +99,63 @@ test("insert-register with prefix leaves point before inserted text and mark aft
   expect(buf.markActive).toBe(false)
 })
 
+test("append-to-register and prepend-to-register compose text registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "aa bb cc")
+
+  buf.mark = 0
+  buf.point = 2
+  await editor.run("append-to-register", ["r"])
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: "aa" })
+
+  buf.mark = 3
+  buf.point = 5
+  await editor.run("append-to-register", ["r"])
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: "aabb" })
+
+  buf.mark = 6
+  buf.point = 8
+  await editor.run("prepend-to-register", ["r"])
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: "ccaabb" })
+})
+
+test("append-to-register with prefix deletes the appended region", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "hello world")
+  editor.registers.set("r", { kind: "text", text: ">" })
+  buf.mark = 0
+  buf.point = 5
+  editor.prefixArg.universalArgument()
+
+  await editor.run("append-to-register", ["r"])
+
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: ">hello" })
+  expect(buf.text).toBe(" world")
+  expect(buf.point).toBe(0)
+})
+
+test("append-to-register and prepend-to-register reject non-text registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  let msg = ""
+  editor.events.on("message", ({ text }) => { msg = text })
+  const buf = editor.scratch("*t*", "abc")
+  buf.mark = 0
+  buf.point = 1
+  editor.registers.set("p", { kind: "point", point: 0 })
+
+  await editor.run("append-to-register", ["p"])
+  expect(msg).toContain("does not contain text")
+  expect(editor.registers.get("p")).toEqual({ kind: "point", point: 0 })
+
+  msg = ""
+  await editor.run("prepend-to-register", ["p"])
+  expect(msg).toContain("does not contain text")
+  expect(editor.registers.get("p")).toEqual({ kind: "point", point: 0 })
+})
+
 test("RegisterContents accepts rectangle kind and insert-register handles it", async () => {
   const editor = makeEditor()
   install(editor)
