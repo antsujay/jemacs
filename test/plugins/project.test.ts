@@ -77,7 +77,7 @@ test("projectDirectories lists tracked project directories relative to root", as
 
 test("install registers commands and C-x p bindings", () => {
   const editor = ed()
-  for (const cmd of ["project-current", "project-root", "project-find-file", "project-find-regexp", "project-find-dir", "project-switch-project", "project-dired", "project-compile"]) {
+  for (const cmd of ["project-current", "project-root", "project-find-file", "project-find-regexp", "project-find-dir", "project-switch-project", "project-dired", "project-vc-dir", "project-compile", "vc-dir"]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
   expect(editor.commands.get("project-current")?.interactive).toBeUndefined()
@@ -87,8 +87,10 @@ test("install registers commands and C-x p bindings", () => {
   expect(editor.keymap.get("C-x p g")).toBe("project-find-regexp")
   expect(editor.keymap.get("C-x p d")).toBe("project-find-dir")
   expect(editor.keymap.get("C-x p p")).toBe("project-switch-project")
+  expect(editor.keymap.get("C-x p v")).toBe("project-vc-dir")
   expect(editor.keymap.get("C-x p S-d")).toBe("project-dired")
   expect(editor.keymap.get("C-x p c")).toBe("project-compile")
+  expect(editor.keymap.get("C-x v d")).toBe("vc-dir")
 })
 
 test("rememberProject dedupes and moves to front; readProjectList round-trips", async () => {
@@ -232,7 +234,7 @@ test("project-switch-project picks a project then dispatches project-switch-comm
   expect(prompts[0]!.collection).toEqual([other, resolve(repo)])
   expect(prompts[1]).toEqual({
     prompt: "Run project command: ",
-    collection: ["Find file (project-find-file)", "Find regexp (project-find-regexp)", "Find directory (project-find-dir)"],
+    collection: ["Find file (project-find-file)", "Find regexp (project-find-regexp)", "Find directory (project-find-dir)", "VC-Dir (project-vc-dir)"],
   })
   expect(prompts[2]!.prompt).toContain("Find file in project")
   expect(editor.currentBuffer.path).toBe(resolve(repo, "README.md"))
@@ -265,6 +267,32 @@ test("project-switch-project can dispatch project-find-regexp for the selected r
   expect(editor.currentBuffer.name).toBe("*grep*")
   expect(editor.currentBuffer.locals.get("default-directory")).toBe(resolve(repo))
   expect(editor.currentBuffer.text).toContain("README.md")
+})
+
+test("vc-dir delegates to magit-status when it is available", async () => {
+  const editor = ed()
+  let seen: string | undefined
+  editor.command("magit-status", ({ args }) => {
+    seen = args[0]
+  })
+
+  await editor.run("vc-dir", [repo])
+
+  expect(seen).toBe(repo)
+})
+
+test("project-vc-dir runs VC status at the current project root", async () => {
+  const editor = ed()
+  await editor.openFile(join(repo, "src", "a.ts"))
+  let seen: string | undefined
+  editor.command("magit-status", ({ args }) => {
+    seen = args[0]
+  })
+
+  await editor.run("project-vc-dir")
+
+  expect(seen).toBe(resolve(repo))
+  expect((await readProjectList())[0]).toBe(resolve(repo))
 })
 
 test("project-switch-project honors customized project-switch-commands", async () => {

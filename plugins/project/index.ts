@@ -168,6 +168,15 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     })
   }, "Find all matches for REGEXP in the current project's roots.")
 
+  editor.command("vc-dir", async ({ editor, buffer, args }) => {
+    const dir = args[0] ?? buffer.directory() ?? process.cwd()
+    if (editor.commands.get("magit-status")) {
+      await editor.run("magit-status", [dir])
+      return
+    }
+    await editor.run("dired", [dir])
+  }, "Show the VC status for interesting files in and below DIR.")
+
   editor.command("project-switch-project", async ({ editor }) => {
     const roots = await readProjectList()
     if (!roots.length) {
@@ -204,6 +213,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     await editor.run("dired", [root])
   }, "Start Dired in the current project's root.")
 
+  editor.command("project-vc-dir", async ({ editor, args }) => {
+    const root = await requireCurrentProject(editor, args[0])
+    if (!root) return
+    await rememberProject(root)
+    await editor.run("vc-dir", [root])
+  }, "Run VC-Dir in the current project's root.")
+
   editor.command("project-compile", async ({ editor, args }) => {
     const root = await requireCurrentProject(editor)
     if (!root) return
@@ -217,6 +233,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-x p g", "project-find-regexp")
   editor.key("C-x C-z", "project-find-file")
   editor.key("C-x p p", "project-switch-project")
+  editor.key("C-x p v", "project-vc-dir")
   editor.key("C-x p S-d", "project-dired")
   editor.key("C-x p c", "project-compile")
+  editor.key("C-x v d", "vc-dir")
 }
