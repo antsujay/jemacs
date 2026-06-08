@@ -240,7 +240,18 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     else buffer.insert(text)
   }, "Insert the character you type.")
 
-  editor.command("newline", ({ buffer }) => buffer.insert("\n"), "Insert a newline at point.")
+  editor.command("newline", ({ buffer, editor, prefixArgument }) => {
+    const count = prefixArgument ?? 1
+    if (count < 0) {
+      editor.message("Repetition argument has to be non-negative")
+      return
+    }
+    if (count === 0) {
+      buffer.moveToLineStart()
+      return
+    }
+    buffer.insert("\n".repeat(count))
+  }, "Insert a newline at point.")
 
   editor.command("open-line", ({ buffer, editor, prefixArgument }) => {
     const count = prefixArgument ?? 1

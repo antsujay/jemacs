@@ -327,6 +327,45 @@ test("list-buffers with prefix lists only file-visiting buffers", async () => {
   expect(editor.currentBuffer.text).not.toContain("*scratch*")
 })
 
+test("newline honors numeric prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("newline")
+  expect(editor.currentBuffer.text).toBe("a\n\n\nb")
+  expect(editor.currentBuffer.point).toBe(4)
+})
+
+test("newline with zero prefix moves to line start without inserting", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("  ab", false)
+  editor.currentBuffer.point = 3
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("newline")
+  expect(editor.currentBuffer.text).toBe("  ab")
+  expect(editor.currentBuffer.point).toBe(0)
+})
+
+test("newline rejects negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("newline")
+  expect(editor.currentBuffer.text).toBe("ab")
+  expect(editor.currentBuffer.point).toBe(1)
+  expect(messages.at(-1)).toBe("Repetition argument has to be non-negative")
+})
+
 test("open-line honors positive prefix arguments and preserves point", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
