@@ -174,4 +174,47 @@ describe("transpose-lines", () => {
     expect(buffer.text).toBe("longer\nx\nz\n")
     expect(buffer.point).toBe(9)
   })
+
+  test("positive prefix moves previous line forward past that many lines", async () => {
+    const { editor, buffer } = setup("1\n2\n3\n4\n", 4)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("1\n3\n4\n2\n")
+    expect(buffer.point).toBe(8)
+  })
+
+  test("positive prefix past end creates intervening blank lines like Emacs", async () => {
+    const { editor, buffer } = setup("one\ntwo", 5)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("two\n\none\n")
+    expect(buffer.point).toBe(9)
+  })
+
+  test("negative prefix moves previous line backward when enough lines exist", async () => {
+    const { editor, buffer } = setup("1\n2\n3\n4\n", 6)
+    editor.prefixArg.toggleNegative()
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("3\n1\n2\n4\n")
+    expect(buffer.point).toBe(2)
+  })
+
+  test("negative prefix with too few preceding lines is a no-op", async () => {
+    const { editor, buffer } = setup("aaa\nbbb\nccc\n", 5)
+    editor.prefixArg.toggleNegative()
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("aaa\nbbb\nccc\n")
+  })
+
+  test("zero prefix swaps the lines containing point and mark", async () => {
+    const { editor, buffer } = setup("aaa\nbbb\nccc\nddd\n", 5)
+    buffer.mark = 12
+    buffer.markActive = true
+    editor.prefixArg.addDigit(0)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("aaa\nddd\nccc\nbbb\n")
+    expect(buffer.point).toBe(12)
+    expect(buffer.mark).toBe(4)
+  })
 })

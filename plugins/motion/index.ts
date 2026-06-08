@@ -23,8 +23,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (!transposeWords(buffer)) editor.message("Don't have two things to transpose")
   }, "Interchange words around point, leaving point at end of them.")
 
-  editor.command("transpose-lines", ({ buffer, editor }) => {
-    if (!transposeLines(buffer)) editor.message("Don't have two things to transpose")
+  editor.command("transpose-lines", ({ buffer, editor, prefixArgument }) => {
+    const result = transposeLines(buffer, prefixArgument ?? 1)
+    if (result === "no-mark") editor.message("No mark set in this buffer")
+    else if (result === "no-two") editor.message("Don't have two things to transpose")
   }, "Exchange current line and previous line, leaving point after both.")
 
   editor.key("M-m", "back-to-indentation")
@@ -148,20 +150,84 @@ function transposeWords(buffer: BufferModel): boolean {
   return transposeRanges(buffer, s1, e1, s2, e2)
 }
 
-function transposeLines(buffer: BufferModel): boolean {
-  const bol = lineStart(buffer.text, buffer.point)
-  if (bol === 0) return false
-  const prevBol = lineStart(buffer.text, bol - 1)
-  let eol = buffer.text.indexOf("\n", bol)
-  if (eol === -1) {
-    buffer.replaceRange(buffer.text.length, buffer.text.length, "\n")
-    eol = buffer.text.length - 1
-  }
-  return transposeRanges(buffer, prevBol, bol, bol, eol + 1)
+type TransposeLinesResult = "ok" | "no-mark" | "no-two"
+
+type LineRecord = { start: number; end: number; text: string }
+
+function transposeLines(buffer: BufferModel, arg: number): TransposeLinesResult {
+  if (arg === 0) return transposeLinesAtPointAndMark(buffer)
+  return transposeLinesByArg(buffer, arg)
 }
 
-function lineStart(text: string, p: number): number {
-  return p <= 0 ? 0 : text.lastIndexOf("\n", p - 1) + 1
+function transposeLinesByArg(buffer: BufferModel, arg: number): TransposeLinesResult {
+  const records = lineRecords(ensureTrailingNewline(buffer.text))
+  const current = lineRecordIndexAt(records, buffer.point)
+  const moveIndex = current - 1
+  if (moveIndex < 0) return "no-two"
+  const insertIndex = moveIndex + arg
+  if (insertIndex < 0) return "no-two"
+  const rebuilt = moveLineRecord(records, moveIndex, insertIndex)
+  if (rebuilt == null) return "no-two"
+  buffer.setText(rebuilt.text, true)
+  buffer.point = rebuilt.point
+  return "ok"
+}
+
+function transposeLinesAtPointAndMark(buffer: BufferModel): TransposeLinesResult {
+  if (buffer.mark == null) return "no-mark"
+  const records = lineRecords(ensureTrailingNewline(buffer.text))
+  const pointIndex = lineRecordIndexAt(records, buffer.point)
+  const markIndex = lineRecordIndexAt(records, buffer.mark)
+  if (pointIndex === markIndex) return "no-two"
+  const swapped = records.map(record => record.text)
+  ;[swapped[pointIndex], swapped[markIndex]] = [swapped[markIndex]!, swapped[pointIndex]!]
+  const point = lineStartFromTexts(swapped, markIndex)
+  const mark = lineStartFromTexts(swapped, pointIndex)
+  buffer.setText(swapped.join(""), true)
+  buffer.point = point
+  buffer.mark = mark
+  return "ok"
+}
+
+function ensureTrailingNewline(text: string): string {
+  return text.endsWith("\n") ? text : `${text}\n`
+}
+
+function lineRecords(text: string): LineRecord[] {
+  const records: LineRecord[] = []
+  let start = 0
+  while (start < text.length) {
+    const newline = text.indexOf("\n", start)
+    const end = newline === -1 ? text.length : newline + 1
+    records.push({ start, end, text: text.slice(start, end) })
+    start = end
+  }
+  return records
+}
+
+function lineRecordIndexAt(records: LineRecord[], point: number): number {
+  if (records.length === 0) return 0
+  const clamped = clamp(point, 0, records.at(-1)!.end)
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]!
+    if (clamped < record.end || i === records.length - 1) return i
+  }
+  return records.length - 1
+}
+
+function moveLineRecord(records: LineRecord[], moveIndex: number, insertIndex: number): { text: string; point: number } | null {
+  const texts = records.map(record => record.text)
+  const [moving] = texts.splice(moveIndex, 1)
+  if (moving == null) return null
+  while (insertIndex > texts.length) texts.push("\n")
+  texts.splice(insertIndex, 0, moving)
+  return { text: texts.join(""), point: lineStartFromTexts(texts, insertIndex) + moving.length }
+}
+
+function lineStartFromTexts(texts: string[], index: number): number {
+  let start = 0
+  for (let i = 0; i < index; i++) start += texts[i]!.length
+  return start
 }
 
 function transposeRanges(buffer: BufferModel, s1: number, e1: number, s2: number, e2: number): boolean {
@@ -176,4 +242,8 @@ function transposeRanges(buffer: BufferModel, s1: number, e1: number, s2: number
   buffer.setText(rebuilt, true)
   buffer.point = b2
   return true
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n))
 }
