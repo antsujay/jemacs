@@ -95,6 +95,7 @@ test("bookmark commands use Emacs names and keys", async () => {
   expect(editor.commands.get("list-bookmarks")).toBeDefined()
   expect(editor.commands.get("bookmark-list")).toBeDefined()
   expect(editor.commands.get("bookmark-write")?.description).toContain("file")
+  expect(editor.commands.get("bookmark-rename")?.description).toContain("OLD-NAME")
 })
 
 test("bookmark-write writes bookmarks to a selected file", async () => {
@@ -113,4 +114,29 @@ test("bookmark-write writes bookmarks to a selected file", async () => {
 
   const exported = JSON.parse(await readFile(exportFile, "utf8")) as Record<string, { filename: string; position: number }>
   expect(exported["my-note"]).toMatchObject({ filename: file, position: 6 })
+})
+
+test("bookmark-rename changes a bookmark name", async () => {
+  const editor = makeEditor()
+  const file = join(dir, "note.txt")
+  const bookmarkFile = join(dir, "bookmarks.json")
+  await writeFile(file, "hello\nworld\n", "utf8")
+  await install(editor)
+  setCustom("bookmark-file", bookmarkFile)
+
+  const buffer = await editor.openFile(file)
+  buffer.point = 6
+  await editor.run("bookmark-set", ["old-note"])
+  await editor.run("bookmark-rename", ["old-note", "new-note"])
+
+  const saved = JSON.parse(await readFile(bookmarkFile, "utf8")) as Record<string, { filename: string; position: number }>
+  expect(saved["old-note"]).toBeUndefined()
+  expect(saved["new-note"]).toMatchObject({ filename: file, position: 6 })
+
+  const other = join(dir, "other.txt")
+  await writeFile(other, "x", "utf8")
+  await editor.openFile(other)
+  await editor.run("bookmark-jump", ["new-note"])
+  expect(editor.currentBuffer.path).toBe(file)
+  expect(editor.currentBuffer.point).toBe(6)
 })

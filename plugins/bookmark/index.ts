@@ -155,6 +155,41 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     await jumpToBookmark(editor, record, name)
   }, "Jump to a previously set bookmark.")
 
+  editor.command("bookmark-rename", async ({ editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const oldName = args[0]
+      ?? await editor.completingRead("Rename bookmark: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!oldName) return
+    const record = table[oldName]
+    if (!record) {
+      editor.message(`No bookmark named ${oldName}`)
+      return
+    }
+    const newName = args[1]
+      ?? await editor.completingRead(`Rename ${oldName} to: `, {
+        collection: names,
+        history: "bookmark",
+        initialValue: oldName,
+      })
+    if (!newName || newName === oldName) return
+    if (newName in table) {
+      editor.message(`Bookmark ${newName} already exists`)
+      return
+    }
+    table[newName] = record
+    delete table[oldName]
+    await bookmarkSave(table)
+    editor.message(`Renamed bookmark ${oldName} to ${newName}`)
+  }, "Change the name of OLD-NAME bookmark to NEW-NAME name.")
+
   const listBookmarks = ({ editor }: { editor: Editor }) => {
     const table = tableFor(editor)
     const names = bookmarkNames(table)
