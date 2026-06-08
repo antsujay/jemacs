@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import type { Editor } from "../../src/kernel/editor"
 import type { BufferModel } from "../../src/kernel/buffer"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
@@ -217,7 +217,38 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     editor.message(`Renamed bookmark ${oldName} to ${newName}`)
   }, "Change the name of OLD-NAME bookmark to NEW-NAME name.")
 
-  editor.command("bookmark-insert-location", async ({ buffer, editor, args }) => {
+  editor.command("bookmark-relocate", async ({ editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const name = args[0]
+      ?? await editor.completingRead("Bookmark to relocate: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!name) return
+    const record = table[name]
+    if (!record) {
+      editor.message(`No bookmark named ${name}`)
+      return
+    }
+    const newFilename = args[1]
+      ?? await editor.completingRead(`Relocate ${name} to: `, {
+        completion: "file",
+        history: "file",
+        defaultDirectory: dirname(record.filename),
+        initialValue: record.filename,
+      })
+    if (!newFilename) return
+    record.filename = resolve(newFilename)
+    await bookmarkSave(table)
+    editor.message(`Relocated bookmark ${name} to ${record.filename}`)
+  }, "Relocate BOOKMARK-NAME to another file, reading file name with minibuffer.")
+
+  const insertBookmarkLocation = async ({ buffer, editor, args }: { buffer: BufferModel; editor: Editor; args: string[] }) => {
     const table = tableFor(editor)
     const names = bookmarkNames(table)
     if (!names.length) {
@@ -236,7 +267,11 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
       return
     }
     buffer.insert(record.filename)
-  }, "Insert the name of the file associated with BOOKMARK-NAME.")
+  }
+  editor.command("bookmark-insert-location", insertBookmarkLocation,
+    "Insert the name of the file associated with BOOKMARK-NAME.")
+  editor.command("bookmark-locate", insertBookmarkLocation,
+    "Alias for bookmark-insert-location.")
 
   editor.command("bookmark-insert", async ({ buffer, editor, args }) => {
     const table = tableFor(editor)
