@@ -10,7 +10,7 @@ import { pythonBeginningOfDefun, pythonEndOfDefun } from "../src/modes/python"
 import { spawnProcess } from "../src/platform/runtime"
 import { readKey } from "./misc"
 
-const KILL_COMMANDS = new Set(["kill-line", "kill-word", "backward-kill-word", "kill-region"])
+const KILL_COMMANDS = new Set(["kill-line", "kill-word", "backward-kill-word", "kill-region", "clipboard-kill-region"])
 
 export function install(editor: Editor, ctx?: PluginContext): void {
   editor.command("forward-char", ({ buffer, prefixArgument }) => buffer.move(prefixArgument ?? 1), "Move point forward one character.")
@@ -183,6 +183,17 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     pushKill(buffer.deleteRange(start, buffer.point), lastCommandWasKill(), dir < 0)
   }
 
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      const pbcopy = spawnProcess({ cmd: ["pbcopy"], stdin: "pipe" })
+      pbcopy.stdin?.write(text)
+      pbcopy.stdin?.end()
+      return await pbcopy.exited === 0
+    } catch {
+      return false
+    }
+  }
+
   editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument }) => {
     const key = editor.lastKeyEvent
     const ch = args[0] ?? key?.sequence
@@ -289,6 +300,30 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     editor.message("Copied region")
   }, "Copy the text between point and mark to the kill ring.")
 
+  editor.command("clipboard-kill-ring-save", async ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
+      return
+    }
+    const text = buffer.selectedText()
+    pushKill(text)
+    buffer.markActive = false
+    const copied = await copyToClipboard(text)
+    editor.message(copied ? "Copied region to clipboard" : "Copied region")
+  }, "Copy the region to the kill ring and system clipboard.")
+
+  editor.command("clipboard-kill-region", async ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
+      return
+    }
+    const text = buffer.deleteRange(buffer.mark, buffer.point)
+    pushKill(text)
+    buffer.clearMark()
+    const copied = await copyToClipboard(text)
+    editor.message(copied ? "Killed region to clipboard" : "Killed region")
+  }, "Kill the region and save it to the system clipboard.")
+
   editor.command("yank", ({ buffer }) => {
     const text = killRing[yankRingIndex]
     if (!text) return
@@ -320,12 +355,9 @@ export function install(editor: Editor, ctx?: PluginContext): void {
 
   editor.command("copy-region-to-clipboard-mac", async ({ buffer, editor }) => {
     const text = buffer.selectedText() || buffer.lineBoundsAt().text
-    const pbcopy = spawnProcess({ cmd: ["pbcopy"], stdin: "pipe" })
-    pbcopy.stdin?.write(text)
-    pbcopy.stdin?.end()
-    await pbcopy.exited
+    const copied = await copyToClipboard(text)
     pushKill(text)
-    editor.message("Copied text to clipboard")
+    editor.message(copied ? "Copied text to clipboard" : "Copied text")
   }, "Copy region or current line to the macOS clipboard.")
 
   editor.command("replace-string", async ({ buffer, editor, args }) => {

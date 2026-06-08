@@ -274,6 +274,39 @@ test("kill-region and kill-ring-save require a mark like Emacs", async () => {
   expect(message).toContain("The mark is not set now")
 })
 
+test("clipboard kill commands use Emacs names and region semantics", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+
+  expect(editor.commands.get("clipboard-kill-ring-save")).toBeDefined()
+  expect(editor.commands.get("clipboard-kill-region")).toBeDefined()
+
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 5
+  await editor.run("clipboard-kill-ring-save")
+  expect(buffer.text).toBe("hello world")
+  expect(buffer.mark).toBe(0)
+  expect(buffer.markActive).toBe(false)
+
+  buffer.point = buffer.text.length
+  await editor.run("yank")
+  expect(buffer.text).toBe("hello worldhello")
+
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 5
+  await editor.run("clipboard-kill-region")
+  expect(buffer.text).toBe(" worldhello")
+  expect(buffer.mark).toBeNull()
+
+  buffer.point = 0
+  await editor.run("yank")
+  expect(buffer.text).toBe("hello worldhello")
+})
+
 test("kill-ring-save deactivates mark and yank marks inserted text like Emacs", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
