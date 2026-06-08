@@ -378,6 +378,12 @@ export class Editor {
     return this.buffers.get(this.minibuffer.bufferId) ?? this.currentBuffer
   }
 
+  otherBuffer(buffer: BufferModel = this.currentBuffer): BufferModel | null {
+    const id = this.bufferRecency.find(candidateId => candidateId !== buffer.id && this.buffers.get(candidateId)?.kind !== "minibuffer")
+    if (id) return this.buffers.get(id) ?? null
+    return [...this.buffers.values()].find(candidate => candidate.id !== buffer.id && candidate.kind !== "minibuffer") ?? null
+  }
+
   get minibufferDepthLevel(): number {
     return this.minibufferDepth
   }
