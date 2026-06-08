@@ -161,8 +161,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(dedicated ? "Window is now dedicated" : "Window is no longer dedicated")
   }, "Toggle whether the selected window is dedicated.")
 
-  editor.command("quit-window", ({ editor }) => {
+  editor.command("quit-window", ({ editor, prefixArgument }) => {
+    const bufferId = editor.currentBufferId
     editor.deleteWindow()
+    if (prefixArgument != null) {
+      editor.killBuffer(bufferId)
+      return
+    }
     if (listWindowLeaves(editor.windowLayout).length === 1) cycleBuffer(editor, 1)
   }, "Bury the current special buffer and select another buffer.")
 

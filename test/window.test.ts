@@ -198,6 +198,27 @@ test("window-configuration-to-register restores layout and selection", async () 
   expect(scratch.point).toBe(0)
 })
 
+test("quit-window without prefix does not kill the quit buffer", async () => {
+  const editor = installEditor()
+  const help = editor.scratch("*Help*", "help", "text")
+  await editor.run("split-window-below")
+
+  await editor.run("quit-window")
+  expect(editor.buffers.has(help.id)).toBe(true)
+  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(1)
+})
+
+test("quit-window with prefix kills the quit buffer", async () => {
+  const editor = installEditor()
+  const help = editor.scratch("*Help*", "help", "text")
+  await editor.run("split-window-below")
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("quit-window")
+  expect(editor.buffers.has(help.id)).toBe(false)
+  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(1)
+})
+
 test("scroll-other-window scrolls the next window without selecting it", async () => {
   const editor = installEditor()
   const buffer = editor.currentBuffer
