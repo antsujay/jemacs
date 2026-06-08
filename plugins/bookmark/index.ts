@@ -238,6 +238,40 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     buffer.insert(record.filename)
   }, "Insert the name of the file associated with BOOKMARK-NAME.")
 
+  editor.command("bookmark-insert", async ({ buffer, editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const name = args[0]
+      ?? await editor.completingRead("Insert bookmark contents: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!name) return
+    const record = table[name]
+    if (!record) {
+      editor.message(`No bookmark named ${name}`)
+      return
+    }
+    if (isRemotePath(record.filename)) {
+      editor.message(`Bookmark ${name}: remote paths (${record.filename}) are not supported yet`)
+      return
+    }
+    const text = await readFile(record.filename, "utf8").catch(() => null)
+    if (text == null) {
+      editor.message(`Cannot insert bookmark ${name}`)
+      return
+    }
+    const originalPoint = buffer.point
+    buffer.insert(text)
+    buffer.mark = buffer.point
+    buffer.markActive = false
+    buffer.point = originalPoint
+  }, "Insert the text of the file pointed to by bookmark BOOKMARK-NAME.")
+
   const listBookmarks = ({ editor }: { editor: Editor }) => {
     const table = tableFor(editor)
     const names = bookmarkNames(table)

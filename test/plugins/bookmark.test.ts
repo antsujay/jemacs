@@ -99,6 +99,7 @@ test("bookmark commands use Emacs names and keys", async () => {
   expect(editor.commands.get("bookmark-rename")?.description).toContain("OLD-NAME")
   expect(editor.commands.get("bookmark-jump-other-window")?.description).toContain("another window")
   expect(editor.commands.get("bookmark-insert-location")?.description).toContain("file associated")
+  expect(editor.commands.get("bookmark-insert")?.description).toContain("text of the file")
 })
 
 test("bookmark-write writes bookmarks to a selected file", async () => {
@@ -162,6 +163,28 @@ test("bookmark-insert-location inserts the bookmarked file name", async () => {
 
   expect(target.text).toBe(`path: ${file}`)
   expect(target.point).toBe(target.text.length)
+})
+
+test("bookmark-insert inserts file contents and leaves point before inserted text", async () => {
+  const editor = makeEditor()
+  const file = join(dir, "note.txt")
+  const bookmarkFile = join(dir, "bookmarks.json")
+  await writeFile(file, "inserted\ntext", "utf8")
+  await install(editor)
+  setCustom("bookmark-file", bookmarkFile)
+
+  const source = await editor.openFile(file)
+  source.point = 0
+  await editor.run("bookmark-set", ["my-note"])
+
+  const target = editor.scratch("target", "a--b", "text")
+  target.point = 2
+  await editor.run("bookmark-insert", ["my-note"])
+
+  expect(target.text).toBe("a-inserted\ntext-b")
+  expect(target.point).toBe(2)
+  expect(target.mark).toBe(15)
+  expect(target.markActive).toBe(false)
 })
 
 test("bookmark-jump-other-window jumps in another selected window", async () => {
