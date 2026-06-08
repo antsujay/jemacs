@@ -59,11 +59,17 @@ function isRemotePath(path: string): boolean {
   return /^\/[^:]+:/.test(path) || /^[a-z+]+:\/\//i.test(path)
 }
 
-async function jumpToBookmark(editor: Editor, record: BookmarkRecord, name: string): Promise<void> {
+async function jumpToBookmark(
+  editor: Editor,
+  record: BookmarkRecord,
+  name: string,
+  options: { otherWindow?: boolean } = {},
+): Promise<void> {
   if (isRemotePath(record.filename)) {
     editor.message(`Bookmark ${name}: remote paths (${record.filename}) are not supported yet`)
     return
   }
+  if (options.otherWindow) editor.ensureOtherWindowSelected()
   const buffer = await editor.openFile(record.filename)
   const pos = Math.min(Math.max(0, record.position), buffer.text.length)
   buffer.point = pos
@@ -154,6 +160,27 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     }
     await jumpToBookmark(editor, record, name)
   }, "Jump to a previously set bookmark.")
+
+  editor.command("bookmark-jump-other-window", async ({ editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const name = args[0]
+      ?? await editor.completingRead("Jump to bookmark: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!name) return
+    const record = table[name]
+    if (!record) {
+      editor.message(`No bookmark named ${name}`)
+      return
+    }
+    await jumpToBookmark(editor, record, name, { otherWindow: true })
+  }, "Jump to BOOKMARK in another window.")
 
   editor.command("bookmark-rename", async ({ editor, args }) => {
     const table = tableFor(editor)

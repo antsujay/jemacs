@@ -4,6 +4,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { makeEditor } from "./helper"
 import { clearHooks } from "../../src/kernel/hooks"
+import { listWindowLeaves } from "../../src/kernel/window"
 import { setCustom } from "../../src/runtime/custom"
 import { parseEmacsBookmarkFile } from "../../plugins/bookmark/emacs-import"
 import { bookmarkImportFromEmacs, install } from "../../plugins/bookmark/index"
@@ -96,6 +97,7 @@ test("bookmark commands use Emacs names and keys", async () => {
   expect(editor.commands.get("bookmark-list")).toBeDefined()
   expect(editor.commands.get("bookmark-write")?.description).toContain("file")
   expect(editor.commands.get("bookmark-rename")?.description).toContain("OLD-NAME")
+  expect(editor.commands.get("bookmark-jump-other-window")?.description).toContain("another window")
 })
 
 test("bookmark-write writes bookmarks to a selected file", async () => {
@@ -137,6 +139,33 @@ test("bookmark-rename changes a bookmark name", async () => {
   await writeFile(other, "x", "utf8")
   await editor.openFile(other)
   await editor.run("bookmark-jump", ["new-note"])
+  expect(editor.currentBuffer.path).toBe(file)
+  expect(editor.currentBuffer.point).toBe(6)
+})
+
+test("bookmark-jump-other-window jumps in another selected window", async () => {
+  const editor = makeEditor()
+  const file = join(dir, "note.txt")
+  const otherFile = join(dir, "other.txt")
+  const bookmarkFile = join(dir, "bookmarks.json")
+  await writeFile(file, "hello\nworld\n", "utf8")
+  await writeFile(otherFile, "stay here\n", "utf8")
+  await install(editor)
+  setCustom("bookmark-file", bookmarkFile)
+
+  const buffer = await editor.openFile(file)
+  buffer.point = 6
+  await editor.run("bookmark-set", ["my-note"])
+
+  const otherBuffer = await editor.openFile(otherFile)
+  const originalWindow = editor.selectedWindowId
+  await editor.run("bookmark-jump-other-window", ["my-note"])
+
+  const leaves = listWindowLeaves(editor.windowLayout)
+  const originalLeaf = leaves.find(leaf => leaf.id === originalWindow)!
+  expect(leaves).toHaveLength(2)
+  expect(editor.selectedWindowId).not.toBe(originalWindow)
+  expect(originalLeaf.bufferId).toBe(otherBuffer.id)
   expect(editor.currentBuffer.path).toBe(file)
   expect(editor.currentBuffer.point).toBe(6)
 })
