@@ -554,6 +554,19 @@ test("find-file command starts minibuffer at cwd slash", async () => {
   await prompt
 })
 
+test("find-file-read-only opens a file with buffer read-only", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const file = "/tmp/jemacs-find-file-read-only.txt"
+  await Bun.write(file, "read only")
+
+  await editor.run("find-file-read-only", [file])
+
+  expect(editor.currentBuffer.path).toBe(file)
+  expect(editor.currentBuffer.text).toBe("read only")
+  expect(editor.currentBuffer.readOnly).toBe(true)
+})
+
 test("find-file minibuffer supports readline bindings like C-a", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)

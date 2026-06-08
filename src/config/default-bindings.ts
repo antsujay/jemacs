@@ -32,7 +32,7 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("C-x C-right", "next-buffer")
   editor.key("C-x C-j", "dired-jump")
   editor.key("C-x C-l", "downcase-region")
-  editor.key("C-x C-r", "revert-buffer")
+  editor.key("C-x C-r", "find-file-read-only")
   editor.key("C-x f", "set-fill-column")
   editor.key("C-x o", "other-window")
   editor.key("C-x 4 C-f", "find-file-other-window")

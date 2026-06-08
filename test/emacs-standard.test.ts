@@ -18,6 +18,7 @@ test("GNU standard keys from emacs-standard are bound", () => {
   expect(editor.keymap.get("C-x C-right")).toBe("next-buffer")
   expect(editor.keymap.get("C-x C-j")).toBe("dired-jump")
   expect(editor.keymap.get("C-x C-l")).toBe("downcase-region")
+  expect(editor.keymap.get("C-x C-r")).toBe("find-file-read-only")
   expect(editor.keymap.get("C-x C-e")).toBe("eval-last-sexp")
   expect(editor.keymap.get("M-:")).toBe("eval-expression")
   expect(editor.keymap.get("C-h f")).toBe("describe-function")

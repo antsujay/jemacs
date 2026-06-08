@@ -97,6 +97,19 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
 
   editor.command("find-file", findFile, "Open a file into a buffer.")
 
+  editor.command("find-file-read-only", async ({ editor, args }) => {
+    const input = args[0] ?? await editor.completingRead("Find file read-only: ", {
+      completion: "file",
+      history: "file",
+      initialValue: directoryInitialValue(editor.currentBuffer.directory() ?? process.cwd()),
+    })
+    if (!input) return
+    const path = substituteInFileName(input)
+    const buffer = await editor.openFile(path)
+    buffer.readOnly = true
+    editor.message(`Opened ${path} read-only`)
+  }, "Open a file into a buffer read-only.")
+
   editor.command("write-file", async ({ buffer, editor, args }) => {
     const path = args[0] ?? await editor.prompt("Write file: ", buffer.path ?? "", "write-file")
     if (!path) return
@@ -354,7 +367,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-x C-f", "find-file")
   editor.key("C-x C-w", "write-file")
   editor.key("C-x C-v", "find-alternate-file")
-  editor.key("C-x C-r", "revert-buffer")
+  editor.key("C-x C-r", "find-file-read-only")
   editor.key("C-x s", "save-some-buffers")
   editor.key("C-x C-c", "save-buffers-kill-terminal")
   editor.key("C-c C-q", "save-buffers-kill-terminal")
