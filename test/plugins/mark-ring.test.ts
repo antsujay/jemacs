@@ -118,6 +118,19 @@ test("pop-global-mark skips killed buffers", async () => {
   expect(editor.currentBuffer.point).toBe(1)
 })
 
+test("mark-whole-buffer pushes original point onto the local mark ring", async () => {
+  const editor = setup()
+  const buf = editor.scratch("a", "abcdef")
+  buf.point = 3
+
+  await editor.run("mark-whole-buffer")
+
+  expect(buf.point).toBe(0)
+  expect(buf.mark).toBe(6)
+  expect(buf.markActive).toBe(true)
+  expect(localMarkRing(buf)).toEqual([3])
+})
+
 test("C-x C-space is bound to pop-global-mark", () => {
   const editor = setup()
   expect(editor.keymap.get("C-x C-space")).toBe("pop-global-mark")

@@ -70,6 +70,16 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message("Mark set")
   }, "Set mark at point, pushing the old mark onto the mark ring; with C-u, jump to mark and pop the ring.")
 
+  editor.command("mark-whole-buffer", ({ buffer }) => {
+    const originalPoint = buffer.point
+    const ring = localMarkRing(buffer)
+    ring.unshift(originalPoint)
+    if (ring.length > MARK_RING_MAX) ring.length = MARK_RING_MAX
+    buffer.mark = buffer.text.length
+    buffer.point = 0
+    buffer.markActive = true
+  }, "Put point at beginning and mark at end of buffer.")
+
   editor.command("pop-global-mark", ({ editor }) => {
     const global = globalMarkRing(editor)
     while (global.length && !editor.buffers.has(global[0]!.bufferId)) global.shift()
