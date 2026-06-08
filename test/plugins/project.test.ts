@@ -44,6 +44,13 @@ function ed() {
   const editor = makeEditor()
   install(editor)
   setCustom("project-list-file", listFile)
+  setCustom("project-switch-commands", [
+    ["project-find-file", "Find file"],
+    ["project-find-regexp", "Find regexp"],
+    ["project-find-dir", "Find directory"],
+    ["project-vc-dir", "VC-Dir"],
+    ["project-eshell", "Eshell"],
+  ])
   return editor
 }
 
@@ -65,7 +72,7 @@ test("projectFiles lists git-tracked files relative to root", async () => {
 
 test("install registers commands and C-x p bindings", () => {
   const editor = ed()
-  for (const cmd of ["project-current", "project-root", "project-find-file", "project-switch-project", "project-compile"]) {
+  for (const cmd of ["project-current", "project-root", "project-find-file", "project-switch-project", "project-dired", "project-compile"]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
   expect(editor.commands.get("project-current")?.interactive).toBeUndefined()
@@ -73,6 +80,7 @@ test("install registers commands and C-x p bindings", () => {
   expect(editor.commands.get("project-find-file")?.interactive).toBe(true)
   expect(editor.keymap.get("C-x p f")).toBe("project-find-file")
   expect(editor.keymap.get("C-x p p")).toBe("project-switch-project")
+  expect(editor.keymap.get("C-x p D")).toBe("project-dired")
   expect(editor.keymap.get("C-x p c")).toBe("project-compile")
 })
 
@@ -168,7 +176,7 @@ test("project-find-file outside any repo just messages", async () => {
   expect(prompted).toBe(false)
 })
 
-test("project-switch-project picks from project-list-file then dispatches find-file", async () => {
+test("project-switch-project picks a project then dispatches project-switch-commands", async () => {
   const editor = ed()
   const other = join(dir, "other")
   await mkdir(other, { recursive: true })
@@ -178,14 +186,40 @@ test("project-switch-project picks from project-list-file then dispatches find-f
   editor.completingRead = (prompt, opts) => {
     prompts.push({ prompt, collection: opts.collection })
     if (prompt.startsWith("Switch to project")) return Promise.resolve(resolve(repo))
+    if (prompt.startsWith("Run project command")) return Promise.resolve("Find file (project-find-file)")
     return Promise.resolve("README.md")
   }
   await editor.run("project-switch-project")
 
   expect(prompts[0]!.collection).toEqual([other, resolve(repo)])
-  expect(prompts[1]!.prompt).toContain("Find file in project")
+  expect(prompts[1]).toEqual({
+    prompt: "Run project command: ",
+    collection: ["Find file (project-find-file)"],
+  })
+  expect(prompts[2]!.prompt).toContain("Find file in project")
   expect(editor.currentBuffer.path).toBe(resolve(repo, "README.md"))
   expect((await readProjectList())[0]).toBe(resolve(repo))
+})
+
+test("project-switch-project honors customized project-switch-commands", async () => {
+  const editor = ed()
+  setCustom("project-switch-commands", [["project-dired", "Dired only"], ["missing-command", "Missing"]])
+  await writeProjectList([resolve(repo)])
+
+  const prompts: Array<{ prompt: string; collection: string[] | undefined }> = []
+  editor.completingRead = (prompt, opts) => {
+    prompts.push({ prompt, collection: opts.collection })
+    if (prompt.startsWith("Switch to project")) return Promise.resolve(resolve(repo))
+    return Promise.resolve("Dired only (project-dired)")
+  }
+  await editor.run("project-switch-project")
+
+  expect(prompts[1]).toEqual({
+    prompt: "Run project command: ",
+    collection: ["Dired only (project-dired)"],
+  })
+  expect(editor.currentBuffer.kind).toBe("directory")
+  expect(editor.currentBuffer.path).toBe(resolve(repo))
 })
 
 test("project-switch-project with empty list messages and does not prompt", async () => {
@@ -197,6 +231,17 @@ test("project-switch-project with empty list messages and does not prompt", asyn
   await editor.run("project-switch-project")
   expect(last).toContain("No known projects")
   expect(prompted).toBe(false)
+})
+
+test("project-dired opens the current project root in Dired", async () => {
+  const editor = ed()
+  await editor.openFile(join(repo, "src", "a.ts"))
+
+  await editor.run("project-dired")
+
+  expect(editor.currentBuffer.kind).toBe("directory")
+  expect(editor.currentBuffer.path).toBe(resolve(repo))
+  expect((await readProjectList())[0]).toBe(resolve(repo))
 })
 
 test("project-compile runs the command in root and writes *compilation*", async () => {

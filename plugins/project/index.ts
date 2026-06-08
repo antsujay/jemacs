@@ -10,7 +10,16 @@ import { compilationStart, lastCompileCommand } from "../compile"
 
 export { findProjectRoot }
 
+type ProjectSwitchCommand = [command: string, label: string]
+
 const ROOT_MARKERS = [".git", "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "package.json", "go.mod", "Cargo.toml"]
+const DEFAULT_PROJECT_SWITCH_COMMANDS: ProjectSwitchCommand[] = [
+  ["project-find-file", "Find file"],
+  ["project-find-regexp", "Find regexp"],
+  ["project-find-dir", "Find directory"],
+  ["project-vc-dir", "VC-Dir"],
+  ["project-eshell", "Eshell"],
+]
 
 /** Directory-taking, null-returning adapter over `findProjectRoot` so project/magit agree with compile/lsp. */
 export async function projectRoot(dir: string): Promise<string | null> {
@@ -62,6 +71,17 @@ export async function rememberProject(root: string): Promise<void> {
   await writeProjectList(list)
 }
 
+function projectSwitchCommands(editor: Editor): ProjectSwitchCommand[] {
+  const custom = getCustom<unknown>("project-switch-commands")
+  const commands = Array.isArray(custom) ? custom : DEFAULT_PROJECT_SWITCH_COMMANDS
+  return commands.flatMap(entry => {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string") return []
+    const command = entry[0]
+    if (!editor.commands.get(command)) return []
+    return [[command, typeof entry[1] === "string" ? entry[1] : command] satisfies ProjectSwitchCommand]
+  })
+}
+
 export async function projectCurrent(editor: Editor, options: { directory?: string } = {}): Promise<string | null> {
   const start = options.directory ?? editor.currentBuffer.directory() ?? process.cwd()
   return projectRoot(start)
@@ -77,6 +97,8 @@ async function requireCurrentProject(editor: Editor, directory?: string): Promis
 export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   defcustom("project-list-file", "string", join(homedir(), ".jemacs", "projects.json"),
     "File where the list of known project roots is persisted.")
+  defcustom("project-switch-commands", "sexp", DEFAULT_PROJECT_SWITCH_COMMANDS,
+    "Commands offered by project-switch-project.")
 
   editor.commands.define("project-current", async ({ editor, args }) =>
     projectCurrent(editor, { directory: args[0] }),
@@ -117,8 +139,30 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       history: "project",
     })
     if (!root) return
-    await editor.run("project-find-file", [root])
-  }, "Switch to a known project root and find a file in it.")
+    await rememberProject(root)
+    const commands = projectSwitchCommands(editor)
+    if (!commands.length) {
+      editor.message("No project switch commands")
+      return
+    }
+    const labels = commands.map(([command, label]) => `${label} (${command})`)
+    const choice = await editor.completingRead("Run project command: ", {
+      collection: labels,
+      history: "project-command",
+    })
+    if (!choice) return
+    const i = labels.indexOf(choice)
+    const command = commands[i]?.[0]
+    if (!command) return
+    await editor.run(command, [root])
+  }, "Switch to another project by running a command from project-switch-commands.")
+
+  editor.command("project-dired", async ({ editor, args }) => {
+    const root = await requireCurrentProject(editor, args[0])
+    if (!root) return
+    await rememberProject(root)
+    await editor.run("dired", [root])
+  }, "Start Dired in the current project's root.")
 
   editor.command("project-compile", async ({ editor, args }) => {
     const root = await requireCurrentProject(editor)
@@ -131,5 +175,6 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-x p f", "project-find-file")
   editor.key("C-x C-z", "project-find-file")
   editor.key("C-x p p", "project-switch-project")
+  editor.key("C-x p D", "project-dired")
   editor.key("C-x p c", "project-compile")
 }
