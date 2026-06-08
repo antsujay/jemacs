@@ -346,6 +346,26 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     editor.message(`Deleted bookmark ${name}`)
   }, "Delete a bookmark.")
 
+  editor.command("bookmark-delete-all", async ({ editor, args, prefixArgument }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const noConfirm = prefixArgument != null || args[0] === "no-confirm"
+    if (!noConfirm) {
+      const answer = await editor.completingRead("Permanently delete all bookmarks? ", {
+        collection: ["yes", "no"],
+        initialValue: "no",
+      })
+      if (answer !== "yes") return
+    }
+    for (const key of Object.keys(table)) delete table[key]
+    await bookmarkSave(table)
+    editor.message("Deleted all bookmarks")
+  }, "Permanently delete all bookmarks.")
+
   editor.command("bookmark-save", async ({ editor }) => {
     await bookmarkSave(tableFor(editor))
     editor.message(`Wrote ${bookmarkFile()}`)

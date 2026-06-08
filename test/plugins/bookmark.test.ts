@@ -102,6 +102,7 @@ test("bookmark commands use Emacs names and keys", async () => {
   expect(editor.commands.get("bookmark-locate")?.description).toContain("bookmark-insert-location")
   expect(editor.commands.get("bookmark-insert")?.description).toContain("text of the file")
   expect(editor.commands.get("bookmark-relocate")?.description).toContain("another file")
+  expect(editor.commands.get("bookmark-delete-all")?.description).toContain("Permanently delete all bookmarks")
 })
 
 test("bookmark-write writes bookmarks to a selected file", async () => {
@@ -145,6 +146,46 @@ test("bookmark-rename changes a bookmark name", async () => {
   await editor.run("bookmark-jump", ["new-note"])
   expect(editor.currentBuffer.path).toBe(file)
   expect(editor.currentBuffer.point).toBe(6)
+})
+
+test("bookmark-delete-all deletes every bookmark after confirmation", async () => {
+  const editor = makeEditor()
+  const file = join(dir, "note.txt")
+  const bookmarkFile = join(dir, "bookmarks.json")
+  await writeFile(file, "hello\nworld\n", "utf8")
+  await install(editor)
+  setCustom("bookmark-file", bookmarkFile)
+
+  const buffer = await editor.openFile(file)
+  buffer.point = 0
+  await editor.run("bookmark-set", ["first"])
+  buffer.point = 6
+  await editor.run("bookmark-set", ["second"])
+
+  editor.completingRead = () => Promise.resolve("yes")
+  await editor.run("bookmark-delete-all")
+
+  const saved = JSON.parse(await readFile(bookmarkFile, "utf8")) as Record<string, unknown>
+  expect(saved).toEqual({})
+})
+
+test("bookmark-delete-all keeps bookmarks when confirmation is declined", async () => {
+  const editor = makeEditor()
+  const file = join(dir, "note.txt")
+  const bookmarkFile = join(dir, "bookmarks.json")
+  await writeFile(file, "hello\nworld\n", "utf8")
+  await install(editor)
+  setCustom("bookmark-file", bookmarkFile)
+
+  const buffer = await editor.openFile(file)
+  buffer.point = 6
+  await editor.run("bookmark-set", ["my-note"])
+
+  editor.completingRead = () => Promise.resolve("no")
+  await editor.run("bookmark-delete-all")
+
+  const saved = JSON.parse(await readFile(bookmarkFile, "utf8")) as Record<string, { filename: string; position: number }>
+  expect(saved["my-note"]).toMatchObject({ filename: file, position: 6 })
 })
 
 test("bookmark-relocate changes the bookmarked file and preserves position", async () => {
