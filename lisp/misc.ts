@@ -121,13 +121,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   }, "Show commands matching a pattern.")
 
   editor.command("help-command", ({ editor }) => {
-    editor.message("Help (C-h …): b bindings, c mode, k key, f function, v variable, a apropos, e messages")
+    editor.message("Help (C-h …): b bindings, c key briefly, k key, m mode, f function, v variable, a apropos, e messages")
   }, "Display help key prefix summary.")
 
   editor.command("help-for-help", ({ editor }) => {
     const lines = [
       "C-h b    describe-bindings",
-      "C-h c    describe-mode",
+      "C-h c    describe-key-briefly",
       "C-h m    describe-mode",
       "C-h k    describe-key",
       "C-h f    describe-function (RET follows source)",

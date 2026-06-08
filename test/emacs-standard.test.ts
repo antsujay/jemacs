@@ -13,7 +13,7 @@ test("GNU standard keys from emacs-standard are bound", () => {
   expect(editor.keymap.get("M-g g")).toBe("goto-line")
   expect(editor.keymap.get("C-x r SPC")).toBe("point-to-register")
   expect(editor.keymap.get("C-h f")).toBe("describe-function")
-  expect(editor.keymap.get("C-h c")).toBe("describe-mode")
+  expect(editor.keymap.get("C-h c")).toBe("describe-key-briefly")
   expect(editor.keymap.get("C-h m")).toBe("describe-mode")
 })
 

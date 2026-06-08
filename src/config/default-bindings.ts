@@ -69,7 +69,7 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("M-x", "execute-extended-command")
   editor.key("C-h e", "view-echo-area-messages")
   editor.key("C-h b", "describe-bindings")
-  editor.key("C-h c", "describe-mode")
+  editor.key("C-h c", "describe-key-briefly")
   editor.key("C-h m", "describe-mode")
   editor.key("C-h k", "describe-key")
   editor.key("C-x d", "dired")
