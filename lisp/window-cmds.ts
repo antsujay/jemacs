@@ -21,6 +21,16 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.switchToBuffer(editor.tabs[editor.selectedTab]!.bufferId)
   }
 
+  const closeTab = (editor: Editor, tabNumber: number | null) => {
+    if (editor.tabs.length <= 1) return
+    const target = tabNumber != null && tabNumber > 0 ? tabNumber - 1 : editor.selectedTab
+    if (target < 0 || target >= editor.tabs.length) return
+    editor.tabs.splice(target, 1)
+    if (target < editor.selectedTab) editor.selectedTab--
+    else if (target === editor.selectedTab) editor.selectedTab = Math.min(editor.selectedTab, editor.tabs.length - 1)
+    editor.switchToBuffer(editor.tabs[editor.selectedTab]!.bufferId)
+  }
+
   const cycleBuffer = (editor: Editor, delta: number) => {
     const values = [...editor.buffers.values()].filter(b => b.kind !== "minibuffer")
     const i = values.findIndex(b => b.id === editor.currentBufferId)
@@ -160,12 +170,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.selectedTab = editor.tabs.length - 1
   }, "Create a new tab.")
 
-  editor.command("tab-bar-close-tab", ({ editor }) => {
-    if (editor.tabs.length <= 1) return
-    editor.tabs.splice(editor.selectedTab, 1)
-    editor.selectedTab = Math.min(editor.selectedTab, editor.tabs.length - 1)
-    editor.switchToBuffer(editor.tabs[editor.selectedTab]!.bufferId)
-  }, "Close the current tab.")
+  editor.command("tab-bar-close-tab", ({ editor, prefixArgument }) => closeTab(editor, prefixArgument), "Close the current tab.")
 
   editor.command("tab-bar-switch-to-next-tab", ({ editor, prefixArgument }) => switchTab(editor, prefixArgument ?? 1), "Switch to the next tab.")
   editor.command("tab-bar-switch-to-prev-tab", ({ editor, prefixArgument }) => switchTab(editor, -(prefixArgument ?? 1)), "Switch to the previous tab.")

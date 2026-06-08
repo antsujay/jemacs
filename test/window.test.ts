@@ -371,6 +371,57 @@ test("tab-bar-switch-to-prev-tab honors positive and negative numeric prefixes",
   expect(editor.currentBuffer.name).toBe("b")
 })
 
+test("tab-bar-close-tab with numeric prefix closes that absolute tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 0
+  editor.switchToBuffer(editor.tabs[0]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-close-tab")
+  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "c"])
+  expect(editor.selectedTab).toBe(0)
+  expect(editor.currentBuffer.name).toBe("a")
+})
+
+test("tab-bar-close-tab adjusts selection when closing a preceding tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 2
+  editor.switchToBuffer(editor.tabs[2]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-close-tab")
+  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("c")
+})
+
+test("tab-bar-close-tab selects the following tab when closing the current tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  await editor.run("tab-bar-close-tab")
+  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("c")
+})
+
+test("tab-bar-close-tab ignores out-of-range numeric prefixes", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(9)
+  await editor.run("tab-bar-close-tab")
+  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "b", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
 function countDirections(node: WindowNode, direction: "horizontal" | "vertical"): number {
   if (node.kind === "leaf") return 0
   return (node.direction === direction ? 1 : 0)
