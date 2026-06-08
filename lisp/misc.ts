@@ -159,6 +159,23 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     }
   }, "Evaluate the selection, or the whole buffer if no selection is active.")
 
+  editor.command("eval-last-sexp", async ({ buffer, editor }) => {
+    const expression = expressionBeforePoint(buffer.text, buffer.point)
+    if (!expression) {
+      editor.message("No expression before point")
+      return
+    }
+    try {
+      const result = await evaluator.evalExpression(expression, buffer.path ?? buffer.name)
+      editor.message(`Eval => ${summarize(result)}`)
+      return result
+    } catch (err) {
+      const e = err as Error
+      editor.scratch("*Backtrace*", e.stack ?? String(e), "text")
+      editor.message(`Eval error: ${e.message}`)
+    }
+  }, "Evaluate expression before point; print value in the echo area.")
+
   editor.command("eval-expression", async ({ editor, args }) => {
     const expression = args.join(" ") || await editor.prompt("Eval expression: ", "", "eval-expression")
     if (!expression) return
@@ -385,7 +402,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-h a", "apropos-command")
   editor.key("C-h C-h", "help-for-help")
   editor.key("C-x l", "count-lines-page")
-  editor.key("C-x C-e", "eval-region")
+  editor.key("C-x C-e", "eval-last-sexp")
+  editor.key("M-:", "eval-expression")
   editor.key("C-c C-l", "load-plugin")
   editor.key("C-c C-r", "reload-current-file")
   editor.key("C-x (", "start-kbd-macro")
@@ -425,6 +443,43 @@ function summarize(value: unknown): string {
   if (value === null) return "null"
   if (typeof value === "object") return value.constructor?.name ?? "object"
   return String(value)
+}
+
+function expressionBeforePoint(text: string, point: number): string | null {
+  const prefix = text.slice(0, point).replace(/[\s;]+$/, "")
+  if (!prefix) return null
+  let start = 0
+  let depth = 0
+  let quote: "'" | "\"" | "`" | null = null
+  let escaped = false
+  let lineComment = false
+  let blockComment = false
+  for (let i = 0; i < prefix.length; i++) {
+    const ch = prefix[i]!
+    const next = prefix[i + 1]
+    if (lineComment) {
+      if (ch === "\n") lineComment = false
+      continue
+    }
+    if (blockComment) {
+      if (ch === "*" && next === "/") { blockComment = false; i++ }
+      continue
+    }
+    if (quote) {
+      if (escaped) { escaped = false; continue }
+      if (ch === "\\") { escaped = true; continue }
+      if (ch === quote) quote = null
+      continue
+    }
+    if (ch === "/" && next === "/") { lineComment = true; i++; continue }
+    if (ch === "/" && next === "*") { blockComment = true; i++; continue }
+    if (ch === "'" || ch === "\"" || ch === "`") { quote = ch; continue }
+    if (ch === "(" || ch === "[" || ch === "{") depth++
+    else if (ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth - 1)
+    else if (depth === 0 && (ch === ";" || ch === "\n")) start = i + 1
+  }
+  const expression = prefix.slice(start).trim()
+  return expression || null
 }
 
 function themeNameAtPoint(editor: Editor): string | null {

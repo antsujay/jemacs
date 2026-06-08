@@ -93,6 +93,34 @@ test("editor messages return their text for eval feedback", async () => {
   expect([...editor.buffers.values()].find(b => b.name === "*messages*")?.text).toContain("hello")
 })
 
+test("eval-last-sexp evaluates the expression before point", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.currentBuffer.setText("1 + 1;\nMath.max(4, 9)", false)
+  editor.currentBuffer.point = editor.currentBuffer.text.length
+
+  await editor.run("eval-last-sexp")
+
+  expect(messages.at(-1)).toBe("Eval => 9")
+})
+
+test("eval-last-sexp reports user errors like eval-region", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  let echoed = ""
+  editor.events.on("message", ({ text }) => { echoed = text })
+  editor.currentBuffer.setText("1 + 1;\n(() => { throw new Error('sexp-boom') })()", false)
+  editor.currentBuffer.point = editor.currentBuffer.text.length
+
+  await editor.run("eval-last-sexp")
+
+  expect(echoed).toBe("Eval error: sexp-boom")
+  const backtrace = [...editor.buffers.values()].find(b => b.name === "*Backtrace*")
+  expect(backtrace?.text).toContain("sexp-boom")
+})
+
 test("commands clear stale echo unless they replace it", async () => {
   const editor = new Editor()
   const messages: string[] = []
