@@ -94,4 +94,23 @@ test("bookmark commands use Emacs names and keys", async () => {
   expect(editor.keymaps.lookup("C-x r l")).toMatchObject({ status: "matched", command: "bookmark-bmenu-list" })
   expect(editor.commands.get("list-bookmarks")).toBeDefined()
   expect(editor.commands.get("bookmark-list")).toBeDefined()
+  expect(editor.commands.get("bookmark-write")?.description).toContain("file")
+})
+
+test("bookmark-write writes bookmarks to a selected file", async () => {
+  const editor = makeEditor()
+  const file = join(dir, "note.txt")
+  const bookmarkFile = join(dir, "bookmarks.json")
+  const exportFile = join(dir, "exported-bookmarks.json")
+  await writeFile(file, "hello\nworld\n", "utf8")
+  await install(editor)
+  setCustom("bookmark-file", bookmarkFile)
+
+  const buffer = await editor.openFile(file)
+  buffer.point = 6
+  await editor.run("bookmark-set", ["my-note"])
+  await editor.run("bookmark-write", [exportFile])
+
+  const exported = JSON.parse(await readFile(exportFile, "utf8")) as Record<string, { filename: string; position: number }>
+  expect(exported["my-note"]).toMatchObject({ filename: file, position: 6 })
 })

@@ -11,6 +11,7 @@ import {
   bookmarkLoad,
   bookmarkNames,
   bookmarkSave,
+  bookmarkSaveToFile,
   type BookmarkRecord,
   type BookmarkTable,
 } from "./store"
@@ -197,6 +198,17 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     await bookmarkSave(tableFor(editor))
     editor.message(`Wrote ${bookmarkFile()}`)
   }, "Save the bookmark list to bookmark-file.")
+
+  editor.command("bookmark-write", async ({ editor, args }) => {
+    const file = args[0] ?? await editor.completingRead("Write bookmarks to file: ", {
+      completion: "file",
+      history: "file",
+      initialValue: bookmarkFile(),
+    })
+    if (!file) return
+    await bookmarkSaveToFile(tableFor(editor), file)
+    editor.message(`Wrote ${file}`)
+  }, "Write bookmarks to a file.")
 
   editor.command("bookmark-load", async ({ editor }) => {
     const loaded = await bookmarkLoad()

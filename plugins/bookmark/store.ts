@@ -16,14 +16,16 @@ export function bookmarkFile(): string {
   return getCustom<string>("bookmark-file") ?? join(homedir(), ".jemacs", "bookmarks.json")
 }
 
-export async function bookmarkSave(table: BookmarkTable): Promise<void> {
-  const file = bookmarkFile()
+export async function bookmarkSaveToFile(table: BookmarkTable, file: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, JSON.stringify(table, null, 2) + "\n", "utf8")
 }
 
-export async function bookmarkLoad(): Promise<BookmarkTable> {
-  const file = bookmarkFile()
+export async function bookmarkSave(table: BookmarkTable): Promise<void> {
+  await bookmarkSaveToFile(table, bookmarkFile())
+}
+
+export async function bookmarkLoadFromFile(file: string): Promise<BookmarkTable> {
   const text = await readFile(file, "utf8").catch(() => null)
   if (!text) return {}
   try {
@@ -33,6 +35,10 @@ export async function bookmarkLoad(): Promise<BookmarkTable> {
   } catch {
     return {}
   }
+}
+
+export async function bookmarkLoad(): Promise<BookmarkTable> {
+  return bookmarkLoadFromFile(bookmarkFile())
 }
 
 export function bookmarkNames(table: BookmarkTable): string[] {
