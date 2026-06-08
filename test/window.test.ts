@@ -225,6 +225,49 @@ test("find-file-other-window selects the other window", async () => {
   expect(listWindowLeaves(editor.windowLayout).length).toBeGreaterThanOrEqual(1)
 })
 
+test("next-buffer honors positive numeric prefix and wraps", async () => {
+  const editor = installEditor()
+  editor.scratch("a", "a", "text")
+  editor.scratch("b", "b", "text")
+  editor.scratch("c", "c", "text")
+  editor.switchToBuffer("a")
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("next-buffer")
+  expect(editor.currentBuffer.name).toBe("c")
+
+  editor.switchToBuffer("a")
+  editor.prefixArg.addDigit(7)
+  await editor.run("next-buffer")
+  expect(editor.currentBuffer.name).toBe("c")
+})
+
+test("next-buffer with zero prefix keeps the selected buffer", async () => {
+  const editor = installEditor()
+  editor.scratch("a", "a", "text")
+  const start = editor.currentBuffer.id
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("next-buffer")
+  expect(editor.currentBuffer.id).toBe(start)
+})
+
+test("previous-buffer honors positive and negative numeric prefixes", async () => {
+  const editor = installEditor()
+  editor.scratch("a", "a", "text")
+  editor.scratch("b", "b", "text")
+  editor.scratch("c", "c", "text")
+  editor.switchToBuffer("c")
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("previous-buffer")
+  expect(editor.currentBuffer.name).toBe("a")
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("previous-buffer")
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
 function countDirections(node: WindowNode, direction: "horizontal" | "vertical"): number {
   if (node.kind === "leaf") return 0
   return (node.direction === direction ? 1 : 0)
