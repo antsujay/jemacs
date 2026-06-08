@@ -38,17 +38,17 @@ test("windmove-left/right across a horizontal split", async () => {
   editor.splitWindowRight()
   const left = leafId(editor, 0)
   const right = leafId(editor, 1)
-  expect(editor.selectedWindowId).toBe(right)
-
-  await editor.run("windmove-left")
   expect(editor.selectedWindowId).toBe(left)
+
   await editor.run("windmove-right")
   expect(editor.selectedWindowId).toBe(right)
+  await editor.run("windmove-left")
+  expect(editor.selectedWindowId).toBe(left)
 
   await editor.run("windmove-up")
-  expect(editor.selectedWindowId).toBe(right)
+  expect(editor.selectedWindowId).toBe(left)
   await editor.run("windmove-down")
-  expect(editor.selectedWindowId).toBe(right)
+  expect(editor.selectedWindowId).toBe(left)
 })
 
 test("windmove-up/down across a vertical split", async () => {
@@ -57,15 +57,15 @@ test("windmove-up/down across a vertical split", async () => {
   editor.splitWindowBelow()
   const top = leafId(editor, 0)
   const bottom = leafId(editor, 1)
-  expect(editor.selectedWindowId).toBe(bottom)
-
-  await editor.run("windmove-up")
   expect(editor.selectedWindowId).toBe(top)
+
   await editor.run("windmove-down")
   expect(editor.selectedWindowId).toBe(bottom)
+  await editor.run("windmove-up")
+  expect(editor.selectedWindowId).toBe(top)
 
   await editor.run("windmove-left")
-  expect(editor.selectedWindowId).toBe(bottom)
+  expect(editor.selectedWindowId).toBe(top)
 })
 
 test("windmove walks the tree geometrically in a 3-pane L-shaped layout", async () => {
@@ -77,6 +77,7 @@ test("windmove walks the tree geometrically in a 3-pane L-shaped layout", async 
   const editor = makeEditor()
   install(editor)
   editor.splitWindowRight()
+  editor.selectWindow(leafId(editor, 1))
   editor.splitWindowBelow()
   const [l, a, b] = listWindowLeaves(editor.windowLayout).map(w => w.id) as [string, string, string]
 
@@ -109,8 +110,7 @@ test("windowInDirection picks the nearer neighbor, not tree order", async () => 
   const editor = makeEditor()
   install(editor)
   editor.splitWindowRight()
-  const right = editor.selectedWindowId
-  editor.selectWindow(leafId(editor, 0))
+  const right = leafId(editor, 1)
   editor.splitWindowBelow()
   const [t, b, r] = listWindowLeaves(editor.windowLayout).map(w => w.id) as [string, string, string]
   expect(r).toBe(right)
