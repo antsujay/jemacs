@@ -606,7 +606,6 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.key("C-k", "kill-line")
   editor.key("M-d", "kill-word")
   editor.key("M-backspace", "backward-kill-word")
-  editor.key("M-h", "backward-kill-word")
   editor.key("C-w", "kill-region")
   editor.key("M-w", "kill-ring-save")
   editor.key("C-y", "yank")

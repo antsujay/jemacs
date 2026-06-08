@@ -58,7 +58,6 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("M-f", "forward-word")
   editor.key("M-b", "backward-word")
   editor.key("M-backspace", "backward-kill-word")
-  editor.key("M-h", "backward-kill-word")
   editor.key("M-d", "kill-word")
   editor.key("C-m", "newline")
   editor.key("C-j", "newline-and-indent")

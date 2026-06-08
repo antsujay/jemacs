@@ -15,6 +15,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     moveParagraph(buffer, -(prefixArgument ?? 1))
   }, "Move backward to start of paragraph.")
 
+  editor.command("mark-paragraph", ({ buffer, prefixArgument }) => {
+    markParagraph(buffer, prefixArgument ?? 1)
+  }, "Put point at beginning of this paragraph, mark at end.")
+
   editor.command("transpose-words", ({ buffer, editor }) => {
     if (!transposeWords(buffer)) editor.message("Don't have two things to transpose")
   }, "Interchange words around point, leaving point at end of them.")
@@ -26,6 +30,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("M-m", "back-to-indentation")
   editor.key("M-}", "forward-paragraph")
   editor.key("M-{", "backward-paragraph")
+  editor.key("M-h", "mark-paragraph")
   editor.key("M-t", "transpose-words")
   editor.key("C-x C-t", "transpose-lines")
 }
@@ -71,11 +76,14 @@ function paragraphBoundaries(info: LineInfo): number[] {
 }
 
 function moveParagraph(buffer: BufferModel, n: number): void {
-  if (n === 0) return
-  const text = buffer.text
+  buffer.point = paragraphPosition(buffer.text, buffer.point, n)
+}
+
+function paragraphPosition(text: string, from: number, n: number): number {
+  if (n === 0) return from
   const info = lineInfo(text)
   const bounds = paragraphBoundaries(info)
-  let point = buffer.point
+  let point = from
   if (n > 0) {
     for (let k = 0; k < n; k++) {
       const next = bounds.find(b => b > point)
@@ -92,7 +100,21 @@ function moveParagraph(buffer: BufferModel, n: number): void {
       if (point === 0) break
     }
   }
-  buffer.point = point
+  return point
+}
+
+function markParagraph(buffer: BufferModel, n: number): void {
+  const count = n || 1
+  if (count > 0) {
+    const start = paragraphPosition(buffer.text, buffer.point, -1)
+    buffer.point = start
+    buffer.mark = paragraphPosition(buffer.text, start, count)
+  } else {
+    const end = paragraphPosition(buffer.text, buffer.point, 1)
+    buffer.point = end
+    buffer.mark = paragraphPosition(buffer.text, end, count)
+  }
+  buffer.markActive = true
 }
 
 function forwardWordEnd(text: string, p: number): number {

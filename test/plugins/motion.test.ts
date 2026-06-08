@@ -18,6 +18,7 @@ describe("keybindings", () => {
     expect(editor.keymap.get("M-m")).toBe("back-to-indentation")
     expect(editor.keymap.get("M-}")).toBe("forward-paragraph")
     expect(editor.keymap.get("M-{")).toBe("backward-paragraph")
+    expect(editor.keymap.get("M-h")).toBe("mark-paragraph")
     expect(editor.keymap.get("M-t")).toBe("transpose-words")
     expect(editor.keymap.get("C-x C-t")).toBe("transpose-lines")
   })
@@ -95,6 +96,25 @@ describe("forward-paragraph / backward-paragraph", () => {
     editor.prefixArg.addDigit(2)
     await editor.run("forward-paragraph")
     expect(buffer.point).toBe(9)
+  })
+
+  test("mark-paragraph marks the containing paragraph", async () => {
+    const { editor, buffer } = setup(text, 6)
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(4)
+    expect(buffer.mark).toBe(9)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("\nbbb\n")
+  })
+
+  test("mark-paragraph with negative prefix puts point at end and mark at beginning", async () => {
+    const { editor, buffer } = setup(text, 6)
+    editor.prefixArg.toggleNegative()
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(9)
+    expect(buffer.mark).toBe(4)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("\nbbb\n")
   })
 })
 
