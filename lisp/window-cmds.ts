@@ -86,24 +86,23 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message("Recenter")
   }, "Center point vertically in the window.")
 
-  const scrollOther = (editor: Editor, delta: number): boolean => {
+  const scrollOther = (editor: Editor, lines: number): boolean => {
     if (listWindowLeaves(editor.windowLayout).length <= 1) return false
     const otherId = nextWindowId(editor.windowLayout, editor.selectedWindowId, 1)
     const leaf = findWindowLeaf(editor.windowLayout, otherId)
     if (!leaf) return false
     const buffer = editor.buffers.get(leaf.bufferId)
     const maxStart = Math.max(0, (buffer ? buffer.text.split("\n").length : 1) - 1)
-    const lines = pageScrollLines() * delta
     editor.mutateWindowLayout(layout => scrollWindowLeaf(layout, otherId, lines, maxStart), "scroll-other-window")
     return true
   }
 
   editor.command("scroll-other-window", ({ editor, prefixArgument }) => {
-    if (!scrollOther(editor, prefixArgument ?? 1)) editor.message("No other window to scroll")
+    if (!scrollOther(editor, prefixArgument ?? pageScrollLines(editor.lastViewport?.rows))) editor.message("No other window to scroll")
   }, "Scroll the next window forward without selecting it.")
 
   editor.command("scroll-other-window-down", ({ editor, prefixArgument }) => {
-    if (!scrollOther(editor, -(prefixArgument ?? 1))) editor.message("No other window to scroll")
+    if (!scrollOther(editor, -(prefixArgument ?? pageScrollLines(editor.lastViewport?.rows)))) editor.message("No other window to scroll")
   }, "Scroll the next window backward without selecting it.")
 
   editor.command("switch-to-buffer-other-window", async ({ editor, args }) => {

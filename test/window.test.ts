@@ -215,6 +215,28 @@ test("scroll-other-window scrolls the next window without selecting it", async (
   expect(editor.selectedWindowId).toBe(selectedId)
 })
 
+test("scroll-other-window numeric prefixes are line counts", async () => {
+  const editor = installEditor()
+  const buffer = editor.currentBuffer
+  buffer.setText(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n"), false)
+  await editor.run("split-window-below")
+  const otherId = editor.selectedWindowId
+  await editor.run("other-window")
+  const selectedId = editor.selectedWindowId
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("scroll-other-window")
+  let otherLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.id === otherId)!
+  expect(otherLeaf.startLine).toBe(3)
+  expect(editor.selectedWindowId).toBe(selectedId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("scroll-other-window-down")
+  otherLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.id === otherId)!
+  expect(otherLeaf.startLine).toBe(1)
+  expect(editor.selectedWindowId).toBe(selectedId)
+})
+
 test("recenter-top-bottom with numeric prefix moves point to that row", async () => {
   const editor = installEditor()
   editor.lastViewport = { rows: 20 }
