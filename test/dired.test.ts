@@ -191,6 +191,39 @@ test("dired-change-marks changes supported mark characters", async () => {
   }
 })
 
+test("dired mark commands apply numeric prefix arguments", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    buffer.point = buffer.text.indexOf("alpha.txt")
+
+    editor.prefixArg.universalArgument()
+    editor.prefixArg.addDigit(2)
+    await editor.run("dired-mark")
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^\* -.*beta\.txt/m)
+
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    editor.prefixArg.universalArgument()
+    editor.prefixArg.addDigit(2)
+    await editor.run("dired-unmark")
+    expect(buffer.text).not.toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).not.toMatch(/^\* -.*beta\.txt/m)
+
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    editor.prefixArg.universalArgument()
+    editor.prefixArg.addDigit(2)
+    await editor.run("dired-flag-file-deletion")
+    expect(buffer.text).toMatch(/^D -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("dired-number-of-marked-files reports count and total size", async () => {
   installDefaultModes()
   const editor = new Editor()

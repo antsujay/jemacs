@@ -16,6 +16,7 @@ import {
   diredDoDelete,
   diredDoFlaggedDelete,
   diredDoRename,
+  diredEntriesForPrefix,
   diredEntryAtPoint,
   diredFlagFileDeletion,
   diredMarkEntry,
@@ -231,12 +232,16 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (!buffer.path) return
     await editor.openDirectory(dirname(buffer.path))
   }, "Open the parent directory in Dired.")
-  editor.command("dired-mark", ({ buffer }) => {
-    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
-  }, "Mark the current Dired line.")
-  editor.command("dired-unmark", ({ buffer }) => {
-    diredUnmarkEntry(buffer, diredEntryAtPoint(buffer))
-  }, "Unmark the current Dired line.")
+  editor.command("dired-mark", ({ buffer, prefixArgument }) => {
+    for (const entry of diredEntriesForPrefix(buffer, prefixArgument)) {
+      diredMarkEntry(buffer, entry, "marked")
+    }
+  }, "Mark the current Dired line or the next ARG lines.")
+  editor.command("dired-unmark", ({ buffer, prefixArgument }) => {
+    for (const entry of diredEntriesForPrefix(buffer, prefixArgument)) {
+      diredUnmarkEntry(buffer, entry)
+    }
+  }, "Unmark the current Dired line or the next ARG lines.")
   const diredUnmarkAllMarks = ({ buffer, editor }: CommandContext) => {
     diredUnmarkAll(buffer)
     editor.message("Unmarked all")
@@ -281,9 +286,11 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const count = diredMarkFilesRegexp(buffer, regexp, "delete")
     editor.message(`Flagged ${count} file(s) for deletion`)
   }, "Flag files for deletion by regular expression.")
-  editor.command("dired-flag-file-deletion", ({ buffer }) => {
-    diredFlagFileDeletion(buffer, diredEntryAtPoint(buffer))
-  }, "Flag the current Dired line for deletion.")
+  editor.command("dired-flag-file-deletion", ({ buffer, prefixArgument }) => {
+    for (const entry of diredEntriesForPrefix(buffer, prefixArgument)) {
+      diredFlagFileDeletion(buffer, entry)
+    }
+  }, "Flag the current Dired line or the next ARG lines for deletion.")
   editor.command("dired-do-flagged-delete", async ({ buffer, editor }) => {
     await diredDoFlaggedDelete(editor, buffer)
   }, "Delete files flagged for deletion in Dired.")

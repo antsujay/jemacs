@@ -214,6 +214,18 @@ export function diredMarkAll(buffer: BufferModel): void {
   renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
 }
 
+export function diredEntriesForPrefix(buffer: BufferModel, prefixArgument: number | null): DiredEntry[] {
+  const entries = diredEntryLines.get(buffer) ?? []
+  const current = diredEntryAtPoint(buffer)
+  const start = current ? entries.findIndex(entry => entry === current) : -1
+  if (start < 0) return []
+  const count = Math.max(1, Math.abs(prefixArgument ?? 1))
+  const selected = prefixArgument != null && prefixArgument < 0
+    ? entries.slice(Math.max(0, start - count + 1), start + 1)
+    : entries.slice(start, start + count)
+  return selected.filter(entry => !diredSpecialEntry(entry))
+}
+
 export function diredMarkedFilesSummary(buffer: BufferModel): { count: number; totalSize: number } {
   const marks = diredMarks.get(buffer)
   let count = 0
