@@ -399,5 +399,4 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
   editor.key("C-x r m", "bookmark-set")
   editor.key("C-x r b", "bookmark-jump")
   editor.key("C-x r l", "bookmark-bmenu-list")
-  editor.key("C-x r d", "bookmark-delete")
 }

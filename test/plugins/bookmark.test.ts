@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { makeEditor } from "./helper"
+import { installDefaultConfig } from "../../src/config"
 import { clearHooks } from "../../src/kernel/hooks"
 import { listWindowLeaves } from "../../src/kernel/window"
 import { setCustom } from "../../src/runtime/custom"
@@ -103,6 +104,14 @@ test("bookmark commands use Emacs names and keys", async () => {
   expect(editor.commands.get("bookmark-insert")?.description).toContain("text of the file")
   expect(editor.commands.get("bookmark-relocate")?.description).toContain("another file")
   expect(editor.commands.get("bookmark-delete-all")?.description).toContain("Permanently delete all bookmarks")
+})
+
+test("bookmark plugin does not override Emacs rectangle delete key", async () => {
+  const editor = makeEditor()
+  installDefaultConfig(editor)
+  await install(editor)
+  expect(editor.commands.get("bookmark-delete")).toBeDefined()
+  expect(editor.keymaps.lookup("C-x r d")).toMatchObject({ status: "matched", command: "delete-rectangle" })
 })
 
 test("bookmark-write writes bookmarks to a selected file", async () => {
