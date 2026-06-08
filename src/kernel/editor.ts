@@ -135,6 +135,7 @@ export class Editor {
   quotedInsertNext = false
   macroRecording: string[] | null = null
   lastKbdMacro: string[] = []
+  private lastEchoMessage = ""
   lsp: LspManager | null = null
   /** Stack of completing-read overrides; top wins. push/pop instead of save/restore so
    *  enable A → enable B → disable A → disable B doesn't resurrect A's function. */
@@ -589,6 +590,7 @@ export class Editor {
       runArgs = await readInteractiveArgs(this, spec.interactive)
     }
     const ctx = { editor: this, buffer: this.activeBuffer, args: runArgs, prefixArgument, keyEvent }
+    this.clearMessage()
     const result = await invokeWithAdvice(name, spec.fn, ctx)
     await this.runHook("post-command-hook", this.activeBuffer)
     await this.changed(`command:${name}`)
@@ -1151,6 +1153,7 @@ export class Editor {
   }
 
   message(text: string): string {
+    this.lastEchoMessage = text
     const msg = [...this.buffers.values()].find(b => b.name === "*messages*")
     if (msg) {
       msg.append(`${new Date().toISOString()}  ${text}\n`)
@@ -1159,6 +1162,13 @@ export class Editor {
     void this.events.emit("message", { text })
     void this.changed("message")
     return text
+  }
+
+  clearMessage(): void {
+    if (!this.lastEchoMessage) return
+    this.lastEchoMessage = ""
+    void this.events.emit("message", { text: "" })
+    void this.changed("message-clear")
   }
 
   async changed(reason: string): Promise<void> {

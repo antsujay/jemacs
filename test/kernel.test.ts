@@ -91,6 +91,22 @@ test("editor messages return their text for eval feedback", async () => {
   expect([...editor.buffers.values()].find(b => b.name === "*messages*")?.text).toContain("hello")
 })
 
+test("commands clear stale echo unless they replace it", async () => {
+  const editor = new Editor()
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.command("noop", () => {})
+  editor.command("say-new", ({ editor }) => { editor.message("new") })
+
+  editor.message("old")
+  await editor.run("noop")
+  expect(messages.at(-1)).toBe("")
+
+  editor.message("old")
+  await editor.run("say-new")
+  expect(messages.at(-1)).toBe("new")
+})
+
 test("buffer supports emacs-style movement primitives", () => {
   const b = new BufferModel({ name: "x", text: "one two\nthree" })
   b.point = 4
@@ -368,6 +384,22 @@ test("incremental search moves point as the query grows", async () => {
   await editor.run("keyboard-quit")
   expect(editor.isearch).toBeNull()
   expect(editor.currentBuffer.point).toBe(0)
+})
+
+test("isearch enter exits and clears stale prompt echo", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  let lastMessage = ""
+  editor.events.on("message", ({ text }) => { lastMessage = text })
+  editor.currentBuffer.setText("foo bar foo", false)
+
+  await editor.run("isearch-forward")
+  await editor.handleKey({ name: "f", sequence: "f" })
+  expect(lastMessage).toContain("I-search")
+
+  await editor.handleKey({ name: "enter", sequence: "\r" })
+  expect(editor.isearch).toBeNull()
+  expect(lastMessage).toBe("")
 })
 
 test("find-file prompt defaults to dired buffer directory", async () => {

@@ -21,6 +21,7 @@ async function handleIsearchKey(editor: Editor, key: KeyEventLike): Promise<KeyD
     case "enter":
     case "return":
       editor.endIsearch()
+      editor.clearMessage()
       return { status: "inserted" }
     case "delete":
       return { status: "inserted" }
