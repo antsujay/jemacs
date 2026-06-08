@@ -56,6 +56,7 @@ describe("jterm: install wiring", () => {
 
     // Top-level entry points
     expect(editor.commands.get("jterm")).toBeDefined()
+    expect(editor.commands.get("shell")).toBeDefined()
     expect(editor.commands.get("jterm-run-command")).toBeDefined()
     expect(editor.commands.get("opencode")).toBeDefined()
 

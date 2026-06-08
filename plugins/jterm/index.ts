@@ -49,6 +49,7 @@ async function spawnTerminalBuffer(editor: Editor, opts: {
   env?: Record<string, string>
 }): Promise<BufferModel> {
   const buffer = editor.scratch(opts.name, "", JTERM_MODE)
+  if (opts.cwd) buffer.locals.set("default-directory", opts.cwd)
   const { rows, cols } = bodyDims(buffer)
   const session = await spawnSession(editor, buffer, opts.argv, {
     cwd: opts.cwd,
@@ -110,6 +111,11 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const shell = process.env.SHELL ?? "bash"
     await spawnTerminalBuffer(editor, { argv: [shell, "-i"], name: `*jterm*<${shell}>` })
   }, "Spawn an interactive shell in a *jterm* buffer (low-latency PTY mode).")
+
+  editor.command("shell", async ({ editor, args }) => {
+    const shell = process.env.SHELL ?? "bash"
+    await spawnTerminalBuffer(editor, { argv: [shell, "-i"], name: "*shell*", cwd: args[0] })
+  }, "Run an inferior shell, with I/O through the *shell* buffer.")
 
   editor.command("jterm-run-command", async ({ editor }) => {
     const command = await editor.prompt("Run in jterm: ")

@@ -243,6 +243,17 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     await editor.run("vc-dir", [root])
   }, "Run VC-Dir in the current project's root.")
 
+  editor.command("project-shell", async ({ editor, args }) => {
+    const root = await requireCurrentProject(editor, args[0])
+    if (!root) return
+    await rememberProject(root)
+    if (!editor.commands.get("shell")) {
+      editor.message("shell command is not available")
+      return
+    }
+    await editor.run("shell", [root])
+  }, "Start an inferior shell in the current project's root directory.")
+
   editor.command("project-kill-buffers", async ({ editor, args }) => {
     const noConfirm = args.includes("no-confirm") || args.includes("true")
     const directory = args.find(arg => arg !== "no-confirm" && arg !== "true")
@@ -280,6 +291,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-x p p", "project-switch-project")
   editor.key("C-x p v", "project-vc-dir")
   editor.key("C-x p S-d", "project-dired")
+  editor.key("C-x p s", "project-shell")
   editor.key("C-x p c", "project-compile")
   editor.key("C-x p k", "project-kill-buffers")
   editor.key("C-x v d", "vc-dir")

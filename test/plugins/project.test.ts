@@ -78,7 +78,7 @@ test("projectDirectories lists tracked project directories relative to root", as
 
 test("install registers commands and C-x p bindings", () => {
   const editor = ed()
-  for (const cmd of ["project-current", "project-root", "project-find-file", "project-find-regexp", "project-find-dir", "project-switch-project", "project-dired", "project-vc-dir", "project-kill-buffers", "project-compile", "vc-dir"]) {
+  for (const cmd of ["project-current", "project-root", "project-find-file", "project-find-regexp", "project-find-dir", "project-switch-project", "project-dired", "project-vc-dir", "project-shell", "project-kill-buffers", "project-compile", "vc-dir"]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
   expect(editor.commands.get("project-current")?.interactive).toBeUndefined()
@@ -90,6 +90,7 @@ test("install registers commands and C-x p bindings", () => {
   expect(editor.keymap.get("C-x p p")).toBe("project-switch-project")
   expect(editor.keymap.get("C-x p v")).toBe("project-vc-dir")
   expect(editor.keymap.get("C-x p S-d")).toBe("project-dired")
+  expect(editor.keymap.get("C-x p s")).toBe("project-shell")
   expect(editor.keymap.get("C-x p c")).toBe("project-compile")
   expect(editor.keymap.get("C-x p k")).toBe("project-kill-buffers")
   expect(editor.keymap.get("C-x v d")).toBe("vc-dir")
@@ -292,6 +293,20 @@ test("project-vc-dir runs VC status at the current project root", async () => {
   })
 
   await editor.run("project-vc-dir")
+
+  expect(seen).toBe(resolve(repo))
+  expect((await readProjectList())[0]).toBe(resolve(repo))
+})
+
+test("project-shell starts shell at the current project root", async () => {
+  const editor = ed()
+  await editor.openFile(join(repo, "src", "a.ts"))
+  let seen: string | undefined
+  editor.command("shell", ({ args }) => {
+    seen = args[0]
+  })
+
+  await editor.run("project-shell")
 
   expect(seen).toBe(resolve(repo))
   expect((await readProjectList())[0]).toBe(resolve(repo))
