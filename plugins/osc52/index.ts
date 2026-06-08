@@ -35,10 +35,9 @@ function adviseDestructive(ctx: PluginContext, name: string): void {
 
 /** kill-ring-save doesn't mutate the buffer; recompute its copy target. */
 function copyRegionAfter({ buffer }: CommandContext): void {
+  if (buffer.mark == null) return
   const selected = buffer.selectedText()
-  if (selected) return emit(selected)
-  const line = buffer.lineBoundsAt()
-  emit(line.text + (line.end < buffer.text.length ? "\n" : ""))
+  if (selected) emit(selected)
 }
 
 export function install(_editor: Editor, ctx: PluginContext = createPluginContext(_editor)): void {

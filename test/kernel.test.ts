@@ -241,6 +241,23 @@ test("default commands support buffer listing, switching, newline, and regions",
   expect(editor.currentBuffer.text.startsWith("\n world")).toBe(true)
 })
 
+test("kill-region and kill-ring-save require a mark like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("hello\nworld", false)
+  let message = ""
+  editor.events.on("message", ({ text }) => { message = text })
+
+  await editor.run("kill-region")
+  expect(editor.currentBuffer.text).toBe("hello\nworld")
+  expect(message).toContain("The mark is not set now")
+
+  message = ""
+  await editor.run("kill-ring-save")
+  expect(editor.currentBuffer.text).toBe("hello\nworld")
+  expect(message).toContain("The mark is not set now")
+})
+
 test("help keybindings keep C-h as a prefix", () => {
   const editor = new Editor()
   installDefaultCommands(editor)

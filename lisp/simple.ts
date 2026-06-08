@@ -264,22 +264,23 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.command("kill-word", ({ buffer, prefixArgument }) => killWords(buffer, prefixArgument ?? 1), "Kill the word after point.")
   editor.command("backward-kill-word", ({ buffer, prefixArgument }) => killWords(buffer, -(prefixArgument ?? 1)), "Kill the word before point.")
 
-  editor.command("kill-region", ({ buffer }) => {
-    if (buffer.mark == null || buffer.mark === buffer.point) {
-      const line = buffer.lineBoundsAt()
-      const end = line.end < buffer.text.length ? line.end + 1 : line.end
-      pushKill(buffer.deleteRange(line.start, end))
+  editor.command("kill-region", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
       return
     }
     pushKill(buffer.deleteRange(buffer.mark, buffer.point))
     buffer.clearMark()
-  }, "Kill the active region, or the current line when no region is active.")
+  }, "Kill the text between point and mark.")
 
   editor.command("kill-ring-save", ({ buffer, editor }) => {
-    const selected = buffer.selectedText() || buffer.lineBoundsAt().text + (buffer.lineBoundsAt().end < buffer.text.length ? "\n" : "")
-    pushKill(selected)
-    editor.message(buffer.selectedText() ? "Copied region" : "Copied line")
-  }, "Copy the active region, or the current line when no region is active.")
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
+      return
+    }
+    pushKill(buffer.selectedText())
+    editor.message("Copied region")
+  }, "Copy the text between point and mark to the kill ring.")
 
   editor.command("yank", ({ buffer }) => {
     const text = killRing[yankRingIndex]
