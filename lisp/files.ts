@@ -1,6 +1,6 @@
-import { dirname } from "node:path"
+import { dirname, resolve } from "node:path"
 import { homedir } from "node:os"
-import type { SaveContext } from "../src/kernel/buffer"
+import type { BufferModel, SaveContext } from "../src/kernel/buffer"
 import type { CommandContext } from "../src/kernel/command"
 import type { Editor } from "../src/kernel/editor"
 import { setModeSystem } from "../src/kernel/extension-points"
@@ -17,6 +17,7 @@ import {
   diredDoFlaggedDelete,
   diredDoRename,
   diredEntriesForPrefix,
+  diredEntryLines,
   diredEntryAtPoint,
   diredFlagFileDeletion,
   diredMarkEntry,
@@ -28,8 +29,10 @@ import {
   diredUnmarkAllFiles,
   diredUnmarkBackward,
   diredUnmarkEntry,
+  HEADER_LINES,
   makeDirectory,
   makeDiredBuffer,
+  NAME_OFFSET,
   refreshDiredBuffer,
 } from "../src/modes/dired"
 
@@ -228,6 +231,37 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (!entry) return
     await editor.openFile(entry.path)
   }, "Visit the file or directory on the current Dired line.")
+  editor.command("dired-jump", async ({ buffer, editor, args, prefixArgument }) => {
+    const input = args[0] ?? (prefixArgument != null
+      ? await editor.completingRead("Jump to Dired file: ", {
+        completion: "file",
+        history: "file",
+        initialValue: directoryInitialValue(buffer.directory() ?? process.cwd()),
+      })
+      : null)
+    if (input == null && prefixArgument != null) return
+
+    let directory: string
+    let target: string | null = null
+    if (input) {
+      target = resolve(substituteInFileName(input))
+      directory = dirname(target)
+    } else if (buffer.kind === "directory" && buffer.path) {
+      target = buffer.path
+      directory = dirname(buffer.path)
+    } else if (buffer.path) {
+      target = buffer.path
+      directory = dirname(buffer.path)
+    } else {
+      directory = buffer.directory() ?? process.cwd()
+    }
+
+    const dired = await editor.openDirectory(directory)
+    if (target && !diredGotoPath(dired, target)) {
+      await refreshDiredBuffer(dired)
+      diredGotoPath(dired, target)
+    }
+  }, "Jump to Dired buffer corresponding to current buffer.")
   editor.command("dired-up-directory", async ({ buffer, editor }) => {
     if (!buffer.path) return
     await editor.openDirectory(dirname(buffer.path))
@@ -325,4 +359,16 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-x C-c", "save-buffers-kill-terminal")
   editor.key("C-c C-q", "save-buffers-kill-terminal")
   editor.key("C-x d", "dired")
+  editor.key("C-x C-j", "dired-jump")
+}
+
+function diredGotoPath(buffer: BufferModel, path: string): boolean {
+  const entries = diredEntryLines.get(buffer)
+  const index = entries?.findIndex(entry => entry.path === path) ?? -1
+  if (index < 0) return false
+  const lines = buffer.text.split("\n")
+  let offset = 0
+  for (let i = 0; i < HEADER_LINES + index; i++) offset += lines[i]!.length + 1
+  buffer.point = offset + NAME_OFFSET
+  return true
 }

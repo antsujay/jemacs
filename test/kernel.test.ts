@@ -12,6 +12,7 @@ import { install as installStephenConfig } from "./fixtures/stephen-config"
 import { defaultTheme } from "../src/themes"
 import { getCustom, resetCustom } from "../src/runtime/custom"
 import { pageScrollLines, visibleStyledText, visibleText } from "../src/ui/opentui"
+import { diredEntryAtPoint } from "../src/modes/dired"
 import { registerTreeSitterGrammars } from "../plugins/tree-sitter-grammars"
 
 // Tree-sitter grammars are an opt-in plugin; register them for the font-lock
@@ -364,6 +365,23 @@ test("kill-ring-save deactivates mark and yank marks inserted text like Emacs", 
   expect(buffer.selectedText()).toBe("hello")
 })
 
+test("downcase-region converts region text and preserves point and mark", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("AbC DeF", false)
+  buffer.point = 1
+  buffer.mark = 5
+  buffer.markActive = true
+
+  await editor.run("downcase-region")
+
+  expect(buffer.text).toBe("Abc deF")
+  expect(buffer.point).toBe(1)
+  expect(buffer.mark).toBe(5)
+  expect(buffer.markActive).toBe(true)
+})
+
 test("help keybindings keep C-h as a prefix", () => {
   const editor = new Editor()
   installDefaultCommands(editor)
@@ -703,6 +721,24 @@ test("dired .. opens the parent directory", async () => {
   buffer.point = buffer.text.indexOf("..")
   await editor.run("dired-find-file")
   expect(editor.currentBuffer.path).toBe("/tmp")
+})
+
+test("dired-jump opens the current file directory and moves to the file line", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = "/tmp/jemacs-dired-jump-test"
+  const file = `${dir}/target.txt`
+  await mkdir(dir, { recursive: true })
+  await Bun.write(file, "jump")
+  await editor.openFile(file)
+
+  await editor.run("dired-jump")
+
+  expect(editor.currentBuffer.kind).toBe("directory")
+  expect(editor.currentBuffer.path).toBe(dir)
+  expect(diredEntryAtPoint(editor.currentBuffer)?.path).toBe(file)
 })
 
 test("c-mode and json-mode font-lock highlight keywords and strings", async () => {

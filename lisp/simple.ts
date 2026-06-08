@@ -488,6 +488,14 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     editor.message(copied ? "Copied text to clipboard" : "Copied text")
   }, "Copy region or current line to the macOS clipboard.")
 
+  editor.command("downcase-region", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("No mark set in this buffer")
+      return
+    }
+    replaceRegionText(buffer, text => text.toLowerCase())
+  }, "Convert the region to lower case.")
+
   editor.command("replace-string", async ({ buffer, editor, args }) => {
     const from = args[0] ?? await editor.prompt("Replace string: ", "", "replace")
     if (!from) return
@@ -616,6 +624,7 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.key("C-_", "undo")
   editor.key("C-/", "undo")
   editor.key("C-x u", "undo")
+  editor.key("C-x C-l", "downcase-region")
 
   editor.key("C-c r", "replace-string")
   editor.key("M-%", "query-replace")
@@ -697,6 +706,20 @@ function replaceRectangle(buffer: BufferModel, mode: RectangleEditMode, replacem
   buffer.setText(rebuilt, true)
   buffer.point = start
   buffer.clearMark()
+}
+
+function replaceRegionText(buffer: BufferModel, transform: (text: string) => string): void {
+  if (buffer.mark == null) return
+  const point = buffer.point
+  const mark = buffer.mark
+  const markActive = buffer.markActive
+  const start = Math.min(mark, point)
+  const end = Math.max(mark, point)
+  const replacement = transform(buffer.text.slice(start, end))
+  buffer.replaceRange(start, end, replacement)
+  buffer.point = Math.min(point, buffer.text.length)
+  buffer.mark = Math.min(mark, buffer.text.length)
+  buffer.markActive = markActive
 }
 
 function numberRectangle(buffer: BufferModel, startAt: number, format: string): void {
