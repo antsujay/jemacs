@@ -8,6 +8,7 @@ import { spawnProcess } from "../../src/platform/runtime"
 import {
   install,
   projectCurrent,
+  projectDirectories,
   projectFiles,
   projectRoot,
   readProjectList,
@@ -70,17 +71,22 @@ test("projectFiles lists git-tracked files relative to root", async () => {
   expect(files.sort()).toEqual(["README.md", "src/a.ts", "src/deep/b.ts"])
 })
 
+test("projectDirectories lists tracked project directories relative to root", async () => {
+  expect(await projectDirectories(repo)).toEqual([".", "src", "src/deep"])
+})
+
 test("install registers commands and C-x p bindings", () => {
   const editor = ed()
-  for (const cmd of ["project-current", "project-root", "project-find-file", "project-switch-project", "project-dired", "project-compile"]) {
+  for (const cmd of ["project-current", "project-root", "project-find-file", "project-find-dir", "project-switch-project", "project-dired", "project-compile"]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
   expect(editor.commands.get("project-current")?.interactive).toBeUndefined()
   expect(editor.commands.get("project-root")?.interactive).toBeUndefined()
   expect(editor.commands.get("project-find-file")?.interactive).toBe(true)
   expect(editor.keymap.get("C-x p f")).toBe("project-find-file")
+  expect(editor.keymap.get("C-x p d")).toBe("project-find-dir")
   expect(editor.keymap.get("C-x p p")).toBe("project-switch-project")
-  expect(editor.keymap.get("C-x p D")).toBe("project-dired")
+  expect(editor.keymap.get("C-x p S-d")).toBe("project-dired")
   expect(editor.keymap.get("C-x p c")).toBe("project-compile")
 })
 
@@ -176,6 +182,23 @@ test("project-find-file outside any repo just messages", async () => {
   expect(prompted).toBe(false)
 })
 
+test("project-find-dir completes over project directories and opens Dired", async () => {
+  const editor = ed()
+  await editor.openFile(join(repo, "src", "a.ts"))
+
+  let seen: string[] | undefined
+  editor.completingRead = (_prompt, opts) => {
+    seen = opts.collection
+    return Promise.resolve("src/deep")
+  }
+  await editor.run("project-find-dir")
+
+  expect(seen).toEqual([".", "src", "src/deep"])
+  expect(editor.currentBuffer.kind).toBe("directory")
+  expect(editor.currentBuffer.path).toBe(resolve(repo, "src", "deep"))
+  expect((await readProjectList())[0]).toBe(resolve(repo))
+})
+
 test("project-switch-project picks a project then dispatches project-switch-commands", async () => {
   const editor = ed()
   const other = join(dir, "other")
@@ -194,7 +217,7 @@ test("project-switch-project picks a project then dispatches project-switch-comm
   expect(prompts[0]!.collection).toEqual([other, resolve(repo)])
   expect(prompts[1]).toEqual({
     prompt: "Run project command: ",
-    collection: ["Find file (project-find-file)"],
+    collection: ["Find file (project-find-file)", "Find directory (project-find-dir)"],
   })
   expect(prompts[2]!.prompt).toContain("Find file in project")
   expect(editor.currentBuffer.path).toBe(resolve(repo, "README.md"))

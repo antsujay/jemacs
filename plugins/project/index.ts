@@ -41,6 +41,20 @@ export async function projectFiles(root: string): Promise<string[]> {
   return out.split("\0").filter(Boolean)
 }
 
+export async function projectDirectories(root: string): Promise<string[]> {
+  const dirs = new Set<string>(["."])
+  for (const file of await projectFiles(root)) {
+    let dir = dirname(file)
+    while (dir && dir !== ".") {
+      dirs.add(dir)
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+  }
+  return [...dirs].sort((a, b) => a.localeCompare(b))
+}
+
 function projectListFile(): string {
   return getCustom<string>("project-list-file") ?? join(homedir(), ".jemacs", "projects.json")
 }
@@ -128,6 +142,19 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     await editor.openFile(join(root, choice))
   }, "Visit a file in the current project, with completion over git ls-files.")
 
+  editor.command("project-find-dir", async ({ editor, args }) => {
+    const root = await requireCurrentProject(editor, args[0])
+    if (!root) return
+    await rememberProject(root)
+    const dirs = await projectDirectories(root)
+    const choice = await editor.completingRead("Find directory in project: ", {
+      collection: dirs,
+      history: "project-directory",
+    })
+    if (!choice) return
+    await editor.run("dired", [choice === "." ? root : join(root, choice)])
+  }, "Start Dired in a directory inside the current project.")
+
   editor.command("project-switch-project", async ({ editor }) => {
     const roots = await readProjectList()
     if (!roots.length) {
@@ -173,8 +200,9 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   }, "Run `compile` with the project root as default-directory.")
 
   editor.key("C-x p f", "project-find-file")
+  editor.key("C-x p d", "project-find-dir")
   editor.key("C-x C-z", "project-find-file")
   editor.key("C-x p p", "project-switch-project")
-  editor.key("C-x p D", "project-dired")
+  editor.key("C-x p S-d", "project-dired")
   editor.key("C-x p c", "project-compile")
 }
