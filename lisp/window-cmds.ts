@@ -31,6 +31,15 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.switchToBuffer(editor.tabs[editor.selectedTab]!.bufferId)
   }
 
+  const newTab = (editor: Editor, prefixArgument: number | null) => {
+    const offset = prefixArgument ?? 1
+    const target = Math.max(0, Math.min(editor.tabs.length, editor.selectedTab + offset))
+    const bufferId = editor.currentBufferId
+    editor.tabs.splice(target, 0, { name: String(editor.tabs.length + 1), bufferId })
+    editor.selectedTab = target
+    editor.switchToBuffer(bufferId)
+  }
+
   const cycleBuffer = (editor: Editor, delta: number) => {
     const values = [...editor.buffers.values()].filter(b => b.kind !== "minibuffer")
     const i = values.findIndex(b => b.id === editor.currentBufferId)
@@ -165,10 +174,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Saved window configuration to register ${register}`)
   }, "Save the current window configuration to a register.")
 
-  editor.command("tab-bar-new-tab", ({ editor }) => {
-    editor.tabs.push({ name: String(editor.tabs.length + 1), bufferId: editor.currentBufferId })
-    editor.selectedTab = editor.tabs.length - 1
-  }, "Create a new tab.")
+  editor.command("tab-bar-new-tab", ({ editor, prefixArgument }) => newTab(editor, prefixArgument), "Create a new tab.")
 
   editor.command("tab-bar-close-tab", ({ editor, prefixArgument }) => closeTab(editor, prefixArgument), "Close the current tab.")
 

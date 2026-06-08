@@ -24,6 +24,10 @@ async function createThreeTabs(editor: Editor): Promise<void> {
   editor.scratch("c", "c", "text")
 }
 
+function tabBufferNames(editor: Editor): Array<string | undefined> {
+  return editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)
+}
+
 test("split-window-below stacks vertically and keeps the original window selected", async () => {
   const editor = installEditor()
   const start = editor.selectedWindowId
@@ -371,6 +375,57 @@ test("tab-bar-switch-to-prev-tab honors positive and negative numeric prefixes",
   expect(editor.currentBuffer.name).toBe("b")
 })
 
+test("tab-bar-new-tab creates a selected tab to the right by default", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "b", "c"])
+  expect(editor.selectedTab).toBe(2)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-new-tab honors positive numeric prefixes as relative positions", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "c", "b"])
+  expect(editor.selectedTab).toBe(3)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-new-tab honors negative numeric prefixes as relative positions", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["b", "a", "b", "c"])
+  expect(editor.selectedTab).toBe(0)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-new-tab with zero prefix creates the selected tab in place", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "b", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
 test("tab-bar-close-tab with numeric prefix closes that absolute tab", async () => {
   const editor = installEditor()
   await createThreeTabs(editor)
@@ -379,7 +434,7 @@ test("tab-bar-close-tab with numeric prefix closes that absolute tab", async () 
 
   editor.prefixArg.addDigit(2)
   await editor.run("tab-bar-close-tab")
-  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "c"])
+  expect(tabBufferNames(editor)).toEqual(["a", "c"])
   expect(editor.selectedTab).toBe(0)
   expect(editor.currentBuffer.name).toBe("a")
 })
@@ -392,7 +447,7 @@ test("tab-bar-close-tab adjusts selection when closing a preceding tab", async (
 
   editor.prefixArg.addDigit(2)
   await editor.run("tab-bar-close-tab")
-  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "c"])
+  expect(tabBufferNames(editor)).toEqual(["a", "c"])
   expect(editor.selectedTab).toBe(1)
   expect(editor.currentBuffer.name).toBe("c")
 })
@@ -404,7 +459,7 @@ test("tab-bar-close-tab selects the following tab when closing the current tab",
   editor.switchToBuffer(editor.tabs[1]!.bufferId)
 
   await editor.run("tab-bar-close-tab")
-  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "c"])
+  expect(tabBufferNames(editor)).toEqual(["a", "c"])
   expect(editor.selectedTab).toBe(1)
   expect(editor.currentBuffer.name).toBe("c")
 })
@@ -417,7 +472,7 @@ test("tab-bar-close-tab ignores out-of-range numeric prefixes", async () => {
 
   editor.prefixArg.addDigit(9)
   await editor.run("tab-bar-close-tab")
-  expect(editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)).toEqual(["a", "b", "c"])
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "c"])
   expect(editor.selectedTab).toBe(1)
   expect(editor.currentBuffer.name).toBe("b")
 })
