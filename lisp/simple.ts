@@ -228,7 +228,12 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     const key = editor.lastKeyEvent
     const ch = args[0] ?? key?.sequence
     if (!ch) return
-    const text = ch.repeat(Math.max(1, Math.abs(prefixArgument ?? 1)))
+    const count = prefixArgument ?? 1
+    if (count < 0) {
+      editor.message(`Negative repetition argument ${count}`)
+      return
+    }
+    const text = ch.repeat(count)
     if (editor.quotedInsertNext) {
       editor.quotedInsertNext = false
       if (editor.minibuffer) await editor.minibufferInsert(text)

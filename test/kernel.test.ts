@@ -264,6 +264,33 @@ test("universal argument repeats motion, insertion, and deletion commands", asyn
   expect(editor.currentBuffer.text).toBe("ef")
 })
 
+test("self-insert-command with zero prefix inserts nothing", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.addDigit(0)
+  await editor.handleKey({ name: "x", sequence: "x" })
+  expect(editor.currentBuffer.text).toBe("ab")
+  expect(editor.currentBuffer.point).toBe(1)
+})
+
+test("self-insert-command rejects negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  await editor.handleKey({ name: "x", sequence: "x" })
+  expect(editor.currentBuffer.text).toBe("ab")
+  expect(editor.currentBuffer.point).toBe(1)
+  expect(messages.at(-1)).toBe("Negative repetition argument -1")
+})
+
 test("default commands support buffer listing, switching, newline, and regions", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   const { getMode } = await import("../src/modes/mode")
