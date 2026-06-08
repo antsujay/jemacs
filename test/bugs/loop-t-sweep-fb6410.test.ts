@@ -7,6 +7,7 @@ import { BufferModel } from "../../src/kernel/buffer"
 import { script, keySeq } from "../harness"
 import { makeEditor } from "../plugins/helper"
 import { addHook } from "../../src/kernel/hooks"
+import { listWindowLeaves } from "../../src/kernel/window"
 
 // t-sweep-fb6410 — commands.ts still feeds raw buffer.name into user-facing
 // strings (next-buffer, *-other-window collections, revert-buffer, …). With two
@@ -52,20 +53,24 @@ test("switch-to-buffer-other-window: collection lists display names and resolves
   expect(msg).toContain(editor.bufferDisplayName(b))
 })
 
-test("display-buffer: initialValue and message use display name", async () => {
-  const { editor, a } = twoSameName()
+test("display-buffer: initialValue and message use display name without selecting the shown window", async () => {
+  const { editor, a, b } = twoSameName()
   editor.switchToBuffer(a.id)
   expect(editor.commands.get("display-buffer-other-window")).toBeDefined()
   let initial: string | undefined
   editor.completingRead = (_p, opts) => {
     initial = (opts as { initialValue?: string }).initialValue
-    return Promise.resolve(editor.bufferDisplayName(a))
+    return Promise.resolve(editor.bufferDisplayName(b))
   }
   let msg = ""
   editor.events.on("message", ({ text }) => { msg = text })
+  const selected = editor.selectedWindowId
   await editor.run("display-buffer")
   expect(initial).toBe(editor.bufferDisplayName(a))
-  expect(msg).toContain(editor.bufferDisplayName(a))
+  expect(editor.selectedWindowId).toBe(selected)
+  expect(editor.currentBuffer.id).toBe(a.id)
+  expect(listWindowLeaves(editor.windowLayout).some(leaf => leaf.bufferId === b.id)).toBe(true)
+  expect(msg).toContain(editor.bufferDisplayName(b))
 })
 
 test("revert-buffer message uses the uniquified display name", async () => {

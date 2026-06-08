@@ -319,25 +319,36 @@ export class Editor {
     void this.changed("set-window-dedicated")
   }
 
-  displayBufferInOtherWindow(idOrName: string): BufferModel {
-    const found = this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
+  displayBufferInOtherWindow(idOrName: string, options: { select?: boolean } = {}): BufferModel {
+    const select = options.select ?? true
+    const found = this.buffers.get(idOrName)
+      ?? [...this.buffers.values()].find(b => b.name === idOrName || this.displayNames.get(b.id) === idOrName)
     if (!found) throw new Error(`No such buffer: ${idOrName}`)
     const existing = findWindowShowingBuffer(this.windowLayout, found.id, this.selectedWindowId)
     if (existing) {
-      this.selectWindow(existing.id)
+      if (select) this.selectWindow(existing.id)
       return found
     }
+    let targetId: string | null = null
     const reusable = pickReusableWindow(this.windowLayout, this.selectedWindowId)
-    if (reusable) {
-      this.selectWindow(reusable.id)
-    } else {
-      const otherId = nextEligibleWindowId(this.windowLayout, this.selectedWindowId, 1, leaf => leaf.id !== this.selectedWindowId && !leaf.dedicated)
-      if (otherId) this.selectWindow(otherId)
-      else this.ensureOtherWindowSelected()
+    if (reusable) targetId = reusable.id
+    else {
+      targetId = nextEligibleWindowId(this.windowLayout, this.selectedWindowId, 1, leaf => leaf.id !== this.selectedWindowId && !leaf.dedicated)
+        ?? this.splitSelectedWindow("vertical")
     }
-    this.setSelectedWindowBuffer(found.id)
-    if (found.name.startsWith("*") && found.name.endsWith("*")) {
-      this.setSelectedWindowDedicated(true)
+    if (select) {
+      this.selectWindow(targetId)
+      this.setSelectedWindowBuffer(found.id)
+      if (found.name.startsWith("*") && found.name.endsWith("*")) {
+        this.setSelectedWindowDedicated(true)
+      }
+    } else {
+      this.persistSelectedWindowPoint()
+      this.windowLayout = setWindowLeafBuffer(this.windowLayout, targetId, found.id, found.point)
+      if (found.name.startsWith("*") && found.name.endsWith("*")) {
+        this.windowLayout = setWindowLeafDedicated(this.windowLayout, targetId, true)
+      }
+      void this.changed("display-buffer")
     }
     return found
   }

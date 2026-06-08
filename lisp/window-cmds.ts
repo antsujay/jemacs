@@ -109,10 +109,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (!name) return
     const target = editor.buffers.get(name)
       ?? [...editor.buffers.values()].find(b => b.name === name || editor.bufferDisplayName(b) === name)
-    const shown = editor.displayBufferInOtherWindow(target?.id ?? name)
+    const shown = editor.displayBufferInOtherWindow(target?.id ?? name, { select: false })
     editor.message(`Displayed ${editor.bufferDisplayName(shown)} in other window`)
   }
-  editor.command("display-buffer", displayBuffer, "Display a buffer in another window and select it.")
+  editor.command("display-buffer", displayBuffer, "Display a buffer in another window without selecting it.")
   editor.command("display-buffer-other-window", displayBuffer, "Compatibility alias for display-buffer.")
 
   editor.command("toggle-window-dedicated", ({ editor }) => {
