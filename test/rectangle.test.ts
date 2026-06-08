@@ -1,0 +1,52 @@
+import { expect, test } from "bun:test"
+import { Editor } from "../src/kernel/editor"
+import { installDefaultConfig } from "../src/config"
+
+function installEditor(): Editor {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  return editor
+}
+
+test("rectangle commands use Emacs names and keys", () => {
+  const editor = installEditor()
+  expect(editor.commands.get("kill-rectangle")).toBeDefined()
+  expect(editor.commands.get("copy-rectangle-as-kill")).toBeDefined()
+  expect(editor.commands.get("copy-rectangle-to-register")).toBeDefined()
+  expect(editor.commands.get("yank-rectangle")).toBeDefined()
+  expect(editor.keymaps.lookup("C-x r k")).toMatchObject({ status: "matched", command: "kill-rectangle" })
+  expect(editor.keymaps.lookup("C-x r M-w")).toMatchObject({ status: "matched", command: "copy-rectangle-as-kill" })
+  expect(editor.keymaps.lookup("C-x r r")).toMatchObject({ status: "matched", command: "copy-rectangle-to-register" })
+  expect(editor.keymaps.lookup("C-x r y")).toMatchObject({ status: "matched", command: "yank-rectangle" })
+})
+
+test("copy-rectangle-as-kill copies without deleting and yank-rectangle inserts it", async () => {
+  const editor = installEditor()
+  const buffer = editor.currentBuffer
+  buffer.setText("abcdef\nghijkl\nmnopqr", false)
+  buffer.mark = 1
+  buffer.point = 17
+
+  await editor.run("copy-rectangle-as-kill")
+
+  expect(buffer.text).toBe("abcdef\nghijkl\nmnopqr")
+  buffer.point = 0
+  await editor.run("yank-rectangle")
+  expect(buffer.text).toBe("bcabcdef\nhighijkl\nnomnopqr")
+})
+
+test("copy-rectangle-to-register stores rectangle and prefix deletes it", async () => {
+  const editor = installEditor()
+  const buffer = editor.currentBuffer
+  buffer.setText("abcdef\nghijkl\nmnopqr", false)
+  buffer.mark = 1
+  buffer.point = 17
+  editor.prefixArg.universalArgument()
+
+  await editor.run("copy-rectangle-to-register", ["r"])
+
+  expect(editor.registers.get("r")).toEqual({ kind: "rectangle", lines: ["bc", "hi", "no"] })
+  expect(buffer.text).toBe("adef\ngjkl\nmpqr")
+  expect(buffer.point).toBe(1)
+  expect(buffer.mark).toBeNull()
+})

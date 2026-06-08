@@ -378,10 +378,32 @@ export function install(editor: Editor, ctx?: PluginContext): void {
       editor.message("Mark must be set for rectangle command")
       return
     }
-    const killed = killRectangle(buffer)
+    const killed = extractRectangle(buffer, true)
     pushKill(killed)
     editor.message("Killed rectangle")
   }, "Kill the text in the rectangle defined by point and mark.")
+
+  editor.command("copy-rectangle-as-kill", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    pushKill(extractRectangle(buffer, false))
+    buffer.markActive = false
+    editor.message("Copied rectangle")
+  }, "Copy the region-rectangle and save it as the last killed one.")
+
+  editor.command("copy-rectangle-to-register", async ({ buffer, editor, args, prefixArgument }) => {
+    const register = args[0] ?? await editor.prompt("Copy rectangle to register: ", "", "register")
+    if (!register) return
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    const rectangle = extractRectangle(buffer, prefixArgument != null)
+    editor.registers.set(register, { kind: "rectangle", lines: rectangle.split("\n") })
+    editor.message(`Copied rectangle to register ${register}`)
+  }, "Copy rectangular region into register; with prefix arg, delete it.")
 
   editor.command("yank-rectangle", ({ buffer, editor }) => {
     const text = killRing[yankRingIndex]
@@ -513,6 +535,8 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.key("C-y", "yank")
   editor.key("M-y", "yank-pop")
   editor.key("C-x r k", "kill-rectangle")
+  editor.key("C-x r M-w", "copy-rectangle-as-kill")
+  editor.key("C-x r r", "copy-rectangle-to-register")
   editor.key("C-x r y", "yank-rectangle")
 
   editor.key("C-_", "undo")
@@ -571,7 +595,7 @@ function nthLineBoundary(text: string, from: number, n: number): number {
   return Math.max(0, pos)
 }
 
-function killRectangle(buffer: BufferModel): string {
+function extractRectangle(buffer: BufferModel, deleteFlag: boolean): string {
   const start = Math.min(buffer.mark ?? buffer.point, buffer.point)
   const end = Math.max(buffer.mark ?? buffer.point, buffer.point)
   const startLine = buffer.text.slice(0, start).split("\n").length - 1
@@ -587,6 +611,7 @@ function killRectangle(buffer: BufferModel): string {
     chunks.push(text.slice(colA, colB))
   }
   const killed = chunks.join("\n")
+  if (!deleteFlag) return killed
   const rebuilt = lines.map((text, line) => {
     if (line < startLine || line > endLine) return text
     return text.slice(0, colA) + text.slice(colB)
