@@ -14,6 +14,7 @@ import { bindDefaultKeybindings } from "./default-bindings"
 import { installDefaultCustomVariables } from "./custom-init"
 import { installDefaultFaces } from "./faces-init"
 import { install as installWindowPlugin } from "../../plugins/window"
+import { installFillCommands } from "../core/fill"
 
 export { installDefaultHooks, installLspDeferredHooks } from "./install-hooks"
 export { LSP_AUTO_MODES, LSP_AUTO_EXTENSIONS, shouldAutoStartLsp } from "./lsp-auto-modes"
@@ -24,6 +25,7 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   addToLoadPath(root)
   addToLoadPath(join(homedir(), ".jemacs"))
   const evaluator = installLisp(editor)
+  installFillCommands(editor)
   installLinumMode()
   installTextScaleMode()
   installMinorModeCommands(editor)

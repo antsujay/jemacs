@@ -10,6 +10,7 @@ import { getTextScaleAmount, textScaleFactor } from "../src/core/text-scale"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { install as installStephenConfig } from "./fixtures/stephen-config"
 import { defaultTheme } from "../src/themes"
+import { getCustom, resetCustom } from "../src/runtime/custom"
 import { pageScrollLines, visibleStyledText, visibleText } from "../src/ui/opentui"
 import { registerTreeSitterGrammars } from "../plugins/tree-sitter-grammars"
 
@@ -189,6 +190,30 @@ test("default emacs keybindings are registered and runnable", async () => {
   expect(editor.keymaps.feed({ name: "≈", sequence: "≈" })).toMatchObject({ status: "matched", command: "execute-extended-command" })
   expect(editor.keymaps.feed({ name: "escape" }).status).toBe("pending")
   expect(editor.keymaps.feed({ name: "x" })).toMatchObject({ status: "matched", command: "execute-extended-command" })
+})
+
+test("set-fill-column is the C-x f command and updates fill-column", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  resetCustom("fill-column")
+  editor.currentBuffer.setText("abc\ndef", false)
+  editor.currentBuffer.point = 5
+
+  expect(getCustom<number>("fill-column")).toBe(70)
+  expect(editor.commands.get("set-fill-column")?.interactive).toBe(true)
+  expect(editor.keymap.get("C-x f")).toBe("set-fill-column")
+
+  expect(await editor.run("set-fill-column")).toBe(1)
+  expect(editor.currentBuffer.locals.get("fill-column")).toBe(1)
+  expect(getCustom<number>("fill-column")).toBe(70)
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "1" })
+  await editor.handleKey({ name: "2" })
+  await editor.handleKey({ name: "x", ctrl: true })
+  await editor.handleKey({ name: "f" })
+  expect(editor.currentBuffer.locals.get("fill-column")).toBe(12)
+  expect(getCustom<number>("fill-column")).toBe(70)
 })
 
 test("universal argument repeats motion, insertion, and deletion commands", async () => {
