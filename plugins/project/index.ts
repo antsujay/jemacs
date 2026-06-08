@@ -7,6 +7,7 @@ import { findProjectRoot } from "../../src/lsp/project-root"
 import { spawnProcess } from "../../src/platform/runtime"
 import { defcustom, getCustom } from "../../src/runtime/custom"
 import { compilationStart, lastCompileCommand } from "../compile"
+import { grepProject } from "../next-error"
 
 export { findProjectRoot }
 
@@ -155,6 +156,18 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     await editor.run("dired", [choice === "." ? root : join(root, choice)])
   }, "Start Dired in a directory inside the current project.")
 
+  editor.command("project-find-regexp", async ({ editor, args }) => {
+    const firstArgIsRoot = args[0] != null && await projectRoot(args[0]) === resolve(args[0])
+    const root = await requireCurrentProject(editor, firstArgIsRoot ? args[0] : args[1])
+    if (!root) return
+    await rememberProject(root)
+    await grepProject(editor, {
+      cwd: root,
+      pattern: firstArgIsRoot ? undefined : args[0],
+      prompt: "Find regexp in project: ",
+    })
+  }, "Find all matches for REGEXP in the current project's roots.")
+
   editor.command("project-switch-project", async ({ editor }) => {
     const roots = await readProjectList()
     if (!roots.length) {
@@ -201,6 +214,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
 
   editor.key("C-x p f", "project-find-file")
   editor.key("C-x p d", "project-find-dir")
+  editor.key("C-x p g", "project-find-regexp")
   editor.key("C-x C-z", "project-find-file")
   editor.key("C-x p p", "project-switch-project")
   editor.key("C-x p S-d", "project-dired")

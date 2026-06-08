@@ -77,6 +77,41 @@ async function visit(editor: Editor, loc: ErrorLocation): Promise<BufferModel> {
   return buffer
 }
 
+export async function grepProject(
+  editor: Editor,
+  options: { cwd: string; pattern?: string; prompt?: string },
+): Promise<BufferModel | null> {
+  const pattern = options.pattern ?? await editor.prompt(options.prompt ?? "Search project: ", "", "search")
+  if (!pattern) return null
+  const cwd = options.cwd
+  const proc = spawnProcess({
+    cmd: ["rg", "--line-number", "--column", "--no-heading", "--", pattern],
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr] = await Promise.all([
+    proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
+    proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
+  ])
+  const exit = await proc.exited
+  const text = exit === 0 || stdout ? stdout : stderr
+  const locations = parseGrepOutput(text, cwd)
+  setLocationList(editor, locations)
+  const buf = editor.scratch("*grep*", text || "No matches\n", "grep")
+  buf.kind = "grep"
+  buf.locals.set("default-directory", cwd)
+  const byLine = new Map<number, ErrorLocation>()
+  let li = 0, i = 0
+  for (const raw of text.split("\n")) {
+    li++
+    if (GREP_LINE.test(raw)) byLine.set(li, locations[i++]!)
+  }
+  buf.locals.set("next-error-locations", byLine)
+  editor.message(locations.length ? `Found ${locations.length} matches` : "No matches")
+  return buf
+}
+
 async function nextError(editor: Editor, n: number, reset: boolean): Promise<void> {
   const s = stateFor(editor)
   if (!s.locations.length) {
@@ -151,34 +186,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   }, "Visit the source for the grep/compile match at point.")
 
   editor.command("counsel-ag", async ({ editor, buffer, args }) => {
-    const pattern = args[0] ?? await editor.prompt("Search project: ", "", "search")
-    if (!pattern) return
     const cwd = buffer.path ? await findProjectRoot(buffer.path) : process.cwd()
-    const proc = spawnProcess({
-      cmd: ["rg", "--line-number", "--column", "--no-heading", "--", pattern],
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const [stdout, stderr] = await Promise.all([
-      proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
-      proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
-    ])
-    const exit = await proc.exited
-    const text = exit === 0 || stdout ? stdout : stderr
-    const locations = parseGrepOutput(text, cwd)
-    setLocationList(editor, locations)
-    const buf = editor.scratch("*grep*", text || "No matches\n", "grep")
-    buf.kind = "grep"
-    buf.locals.set("default-directory", cwd)
-    const byLine = new Map<number, ErrorLocation>()
-    let li = 0, i = 0
-    for (const raw of text.split("\n")) {
-      li++
-      if (GREP_LINE.test(raw)) byLine.set(li, locations[i++]!)
-    }
-    buf.locals.set("next-error-locations", byLine)
-    editor.message(locations.length ? `Found ${locations.length} matches` : "No matches")
+    await grepProject(editor, { cwd, pattern: args[0], prompt: "Search project: " })
   }, "Search the project with ripgrep and populate the location list.")
 
   editor.key("M-g n", "next-error")
