@@ -123,6 +123,24 @@ test("bookmark-write writes bookmarks to a selected file", async () => {
   expect(exported["my-note"]).toMatchObject({ filename: file, position: 6 })
 })
 
+test("bookmark-bmenu-list uses the Emacs bookmark list buffer name", async () => {
+  const editor = makeEditor()
+  const file = join(dir, "note.txt")
+  const bookmarkFile = join(dir, "bookmarks.json")
+  await writeFile(file, "hello\nworld\n", "utf8")
+  await install(editor)
+  setCustom("bookmark-file", bookmarkFile)
+
+  const buffer = await editor.openFile(file)
+  buffer.point = 6
+  await editor.run("bookmark-set", ["my-note"])
+  await editor.run("bookmark-bmenu-list")
+
+  expect(editor.currentBuffer.name).toBe("*Bookmark List*")
+  expect(editor.currentBuffer.text).toContain("my-note")
+  expect(editor.currentBuffer.text).toContain(file)
+})
+
 test("bookmark-rename changes a bookmark name", async () => {
   const editor = makeEditor()
   const file = join(dir, "note.txt")

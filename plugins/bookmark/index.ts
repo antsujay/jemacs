@@ -318,7 +318,7 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
       const rec = table[name]!
       return `${String(i + 1).padStart(3)}  ${name} — ${rec.filename}${rec.position ? ` @${rec.position + 1}` : ""}`
     })
-    editor.scratch("*Bookmarks*", lines.join("\n"), "text")
+    editor.scratch("*Bookmark List*", lines.join("\n"), "text")
   }
   editor.command("bookmark-bmenu-list", listBookmarks, "Display a list of all bookmarks.")
   editor.command("list-bookmarks", listBookmarks, "Display a list of all bookmarks.")
