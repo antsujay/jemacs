@@ -10,6 +10,7 @@ import { readFileText } from "../src/platform/runtime"
 import { defcustom, getCustom } from "../src/runtime/custom"
 import { saveContextOptions } from "../src/core/save-context"
 import {
+  diredChangeMarks,
   diredCreateDirectory,
   diredDoCopy,
   diredDoDelete,
@@ -50,6 +51,12 @@ export function substituteInFileName(input: string): string {
 
 export function directoryInitialValue(directory: string): string {
   return directory.endsWith("/") ? directory : `${directory}/`
+}
+
+function diredMarkChar(input: string | null): string | null {
+  if (input == null) return null
+  if (input === "space") return " "
+  return input[0] ?? ""
 }
 
 export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
@@ -254,6 +261,14 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const { count, totalSize } = diredMarkedFilesSummary(buffer)
     editor.message(`${count} marked file${count === 1 ? "" : "s"}, ${totalSize} byte${totalSize === 1 ? "" : "s"} total`)
   }, "Display the number and total size of marked files in Dired.")
+  editor.command("dired-change-marks", async ({ buffer, editor, args }) => {
+    const oldChar = diredMarkChar(args[0] ?? await readKey(editor, "Change (old mark): "))
+    if (oldChar == null) return
+    const newChar = diredMarkChar(args[1] ?? await readKey(editor, `Change ${oldChar} marks to (new mark): `))
+    if (newChar == null) return
+    const count = diredChangeMarks(buffer, oldChar, newChar)
+    editor.message(`Changed ${count} mark${count === 1 ? "" : "s"}`)
+  }, "Change all OLD marks to NEW marks in Dired.")
   editor.command("dired-mark-files-regexp", async ({ buffer, editor, args }) => {
     const regexp = args[0] ?? await editor.prompt("% m Mark files (regexp): ", "", "dired-regexp")
     if (!regexp) return

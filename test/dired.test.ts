@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { Editor } from "../src/kernel/editor"
 import {
+  diredChangeMarks,
   diredDoCopy,
   diredDoDelete,
   diredDoFlaggedDelete,
@@ -78,6 +79,11 @@ test("dired mark, unmark, toggle, and mark-all update the listing", async () => 
     expect(buffer.text).toContain("beta.txt")
     expect(buffer.text).toMatch(/^\* -.*beta\.txt/m)
     expect(diredMarkedFilesSummary(buffer)).toEqual({ count: 1, totalSize: 4 })
+
+    expect(diredChangeMarks(buffer, "*", "D")).toBe(1)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+    expect(diredChangeMarks(buffer, "D", "-")).toBe(1)
+    expect(buffer.text).not.toMatch(/^D -.*beta\.txt/m)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -147,6 +153,7 @@ test("dired keymap binds mark, copy, delete, and regexp commands", async () => {
   installDefaultCommands(editor)
   expect(editor.commands.get("dired-unmark-all-files")?.description).toContain("specific mark")
   expect(editor.commands.get("dired-number-of-marked-files")?.description).toContain("total size")
+  expect(editor.commands.get("dired-change-marks")?.description).toContain("OLD marks")
   expect(keymap?.get("m")).toBe("dired-mark")
   expect(keymap?.get("S-c")).toBe("dired-do-copy")
   expect(keymap?.get("d")).toBe("dired-flag-file-deletion")
@@ -160,6 +167,28 @@ test("dired keymap binds mark, copy, delete, and regexp commands", async () => {
   expect(keymap?.get("* %")).toBe("dired-mark-files-regexp")
   expect(keymap?.get("% .")).toBeUndefined()
   expect(keymap?.get("+")).toBe("dired-create-directory")
+})
+
+test("dired-change-marks changes supported mark characters", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    await editor.run("dired-change-marks", ["-", "*"])
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^\* -.*beta\.txt/m)
+
+    await editor.run("dired-change-marks", ["*", "D"])
+    expect(buffer.text).toMatch(/^D -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+
+    await editor.run("dired-change-marks", ["D", " "])
+    expect(buffer.text).not.toMatch(/^[*D] -/m)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test("dired-number-of-marked-files reports count and total size", async () => {

@@ -142,6 +142,13 @@ function markMatches(mark: DiredMark, markChar?: string): boolean {
   return false
 }
 
+function markFromChar(markChar?: string): DiredMark | null | undefined {
+  if (markChar === "*") return "marked"
+  if (markChar === "D") return "delete"
+  if (markChar === "-" || markChar === " " || markChar === "") return null
+  return undefined
+}
+
 export async function diredUnmarkAllFiles(
   buffer: BufferModel,
   markChar?: string,
@@ -157,6 +164,25 @@ export async function diredUnmarkAllFiles(
     marks.delete(entry.path)
     count++
   }
+  renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
+  return count
+}
+
+export function diredChangeMarks(buffer: BufferModel, oldChar: string, newChar: string): number {
+  const oldMark = markFromChar(oldChar)
+  const newMark = markFromChar(newChar)
+  if (oldMark === undefined || newMark === undefined) return 0
+  const marks = diredMarks.get(buffer) ?? new Map()
+  let count = 0
+  for (const entry of diredEntryLines.get(buffer) ?? []) {
+    if (diredSpecialEntry(entry)) continue
+    const current = marks.get(entry.path) ?? null
+    if (current !== oldMark) continue
+    if (newMark) marks.set(entry.path, newMark)
+    else marks.delete(entry.path)
+    count++
+  }
+  diredMarks.set(buffer, marks)
   renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
   return count
 }
