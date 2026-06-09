@@ -8,7 +8,7 @@ async function handleIsearchKey(editor: Editor, key: KeyEventLike): Promise<KeyD
   if (state && key.ctrl && !key.meta && key.name === "w") {
     const buffer = editor.buffers.get(state.bufferId)
     if (buffer) {
-      const from = buffer.point + state.string.length
+      const from = state.match?.end ?? buffer.point
       const m = /^\W?\w*/.exec(buffer.text.slice(from))
       if (m && m[0]) editor.setIsearchString(state.string + m[0])
     }
@@ -21,6 +21,7 @@ async function handleIsearchKey(editor: Editor, key: KeyEventLike): Promise<KeyD
     case "enter":
     case "return":
       editor.endIsearch()
+      editor.clearMessage()
       return { status: "inserted" }
     case "delete":
       return { status: "inserted" }

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import type { Editor } from "../../src/kernel/editor"
 import type { BufferModel } from "../../src/kernel/buffer"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
@@ -11,6 +11,7 @@ import {
   bookmarkLoad,
   bookmarkNames,
   bookmarkSave,
+  bookmarkSaveToFile,
   type BookmarkRecord,
   type BookmarkTable,
 } from "./store"
@@ -58,11 +59,17 @@ function isRemotePath(path: string): boolean {
   return /^\/[^:]+:/.test(path) || /^[a-z+]+:\/\//i.test(path)
 }
 
-async function jumpToBookmark(editor: Editor, record: BookmarkRecord, name: string): Promise<void> {
+async function jumpToBookmark(
+  editor: Editor,
+  record: BookmarkRecord,
+  name: string,
+  options: { otherWindow?: boolean } = {},
+): Promise<void> {
   if (isRemotePath(record.filename)) {
     editor.message(`Bookmark ${name}: remote paths (${record.filename}) are not supported yet`)
     return
   }
+  if (options.otherWindow) editor.ensureOtherWindowSelected()
   const buffer = await editor.openFile(record.filename)
   const pos = Math.min(Math.max(0, record.position), buffer.text.length)
   buffer.point = pos
@@ -154,7 +161,153 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     await jumpToBookmark(editor, record, name)
   }, "Jump to a previously set bookmark.")
 
-  editor.command("bookmark-list", ({ editor }) => {
+  editor.command("bookmark-jump-other-window", async ({ editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const name = args[0]
+      ?? await editor.completingRead("Jump to bookmark: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!name) return
+    const record = table[name]
+    if (!record) {
+      editor.message(`No bookmark named ${name}`)
+      return
+    }
+    await jumpToBookmark(editor, record, name, { otherWindow: true })
+  }, "Jump to BOOKMARK in another window.")
+
+  editor.command("bookmark-rename", async ({ editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const oldName = args[0]
+      ?? await editor.completingRead("Rename bookmark: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!oldName) return
+    const record = table[oldName]
+    if (!record) {
+      editor.message(`No bookmark named ${oldName}`)
+      return
+    }
+    const newName = args[1]
+      ?? await editor.completingRead(`Rename ${oldName} to: `, {
+        collection: names,
+        history: "bookmark",
+        initialValue: oldName,
+      })
+    if (!newName || newName === oldName) return
+    if (newName in table) {
+      editor.message(`Bookmark ${newName} already exists`)
+      return
+    }
+    table[newName] = record
+    delete table[oldName]
+    await bookmarkSave(table)
+    editor.message(`Renamed bookmark ${oldName} to ${newName}`)
+  }, "Change the name of OLD-NAME bookmark to NEW-NAME name.")
+
+  editor.command("bookmark-relocate", async ({ editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const name = args[0]
+      ?? await editor.completingRead("Bookmark to relocate: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!name) return
+    const record = table[name]
+    if (!record) {
+      editor.message(`No bookmark named ${name}`)
+      return
+    }
+    const newFilename = args[1]
+      ?? await editor.completingRead(`Relocate ${name} to: `, {
+        completion: "file",
+        history: "file",
+        defaultDirectory: dirname(record.filename),
+        initialValue: record.filename,
+      })
+    if (!newFilename) return
+    record.filename = resolve(newFilename)
+    await bookmarkSave(table)
+    editor.message(`Relocated bookmark ${name} to ${record.filename}`)
+  }, "Relocate BOOKMARK-NAME to another file, reading file name with minibuffer.")
+
+  const insertBookmarkLocation = async ({ buffer, editor, args }: { buffer: BufferModel; editor: Editor; args: string[] }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const name = args[0]
+      ?? await editor.completingRead("Insert bookmark location: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!name) return
+    const record = table[name]
+    if (!record) {
+      editor.message(`No bookmark named ${name}`)
+      return
+    }
+    buffer.insert(record.filename)
+  }
+  editor.command("bookmark-insert-location", insertBookmarkLocation,
+    "Insert the name of the file associated with BOOKMARK-NAME.")
+  editor.command("bookmark-locate", insertBookmarkLocation,
+    "Alias for bookmark-insert-location.")
+
+  editor.command("bookmark-insert", async ({ buffer, editor, args }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const name = args[0]
+      ?? await editor.completingRead("Insert bookmark contents: ", {
+        collection: names,
+        history: "bookmark",
+      })
+    if (!name) return
+    const record = table[name]
+    if (!record) {
+      editor.message(`No bookmark named ${name}`)
+      return
+    }
+    if (isRemotePath(record.filename)) {
+      editor.message(`Bookmark ${name}: remote paths (${record.filename}) are not supported yet`)
+      return
+    }
+    const text = await readFile(record.filename, "utf8").catch(() => null)
+    if (text == null) {
+      editor.message(`Cannot insert bookmark ${name}`)
+      return
+    }
+    const originalPoint = buffer.point
+    buffer.insert(text)
+    buffer.mark = buffer.point
+    buffer.markActive = false
+    buffer.point = originalPoint
+  }, "Insert the text of the file pointed to by bookmark BOOKMARK-NAME.")
+
+  const listBookmarks = ({ editor }: { editor: Editor }) => {
     const table = tableFor(editor)
     const names = bookmarkNames(table)
     if (!names.length) {
@@ -165,8 +318,11 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
       const rec = table[name]!
       return `${String(i + 1).padStart(3)}  ${name} — ${rec.filename}${rec.position ? ` @${rec.position + 1}` : ""}`
     })
-    editor.scratch("*Bookmarks*", lines.join("\n"), "text")
-  }, "Display a list of all bookmarks.")
+    editor.scratch("*Bookmark List*", lines.join("\n"), "text")
+  }
+  editor.command("bookmark-bmenu-list", listBookmarks, "Display a list of all bookmarks.")
+  editor.command("list-bookmarks", listBookmarks, "Display a list of all bookmarks.")
+  editor.command("bookmark-list", listBookmarks, "Compatibility alias for bookmark-bmenu-list.")
 
   editor.command("bookmark-delete", async ({ editor, args }) => {
     const table = tableFor(editor)
@@ -190,10 +346,41 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     editor.message(`Deleted bookmark ${name}`)
   }, "Delete a bookmark.")
 
+  editor.command("bookmark-delete-all", async ({ editor, args, prefixArgument }) => {
+    const table = tableFor(editor)
+    const names = bookmarkNames(table)
+    if (!names.length) {
+      editor.message("No bookmarks")
+      return
+    }
+    const noConfirm = prefixArgument != null || args[0] === "no-confirm"
+    if (!noConfirm) {
+      const answer = await editor.completingRead("Permanently delete all bookmarks? ", {
+        collection: ["yes", "no"],
+        initialValue: "no",
+      })
+      if (answer !== "yes") return
+    }
+    for (const key of Object.keys(table)) delete table[key]
+    await bookmarkSave(table)
+    editor.message("Deleted all bookmarks")
+  }, "Permanently delete all bookmarks.")
+
   editor.command("bookmark-save", async ({ editor }) => {
     await bookmarkSave(tableFor(editor))
     editor.message(`Wrote ${bookmarkFile()}`)
   }, "Save the bookmark list to bookmark-file.")
+
+  editor.command("bookmark-write", async ({ editor, args }) => {
+    const file = args[0] ?? await editor.completingRead("Write bookmarks to file: ", {
+      completion: "file",
+      history: "file",
+      initialValue: bookmarkFile(),
+    })
+    if (!file) return
+    await bookmarkSaveToFile(tableFor(editor), file)
+    editor.message(`Wrote ${file}`)
+  }, "Write bookmarks to a file.")
 
   editor.command("bookmark-load", async ({ editor }) => {
     const loaded = await bookmarkLoad()
@@ -211,6 +398,5 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
 
   editor.key("C-x r m", "bookmark-set")
   editor.key("C-x r b", "bookmark-jump")
-  editor.key("C-x r l", "bookmark-list")
-  editor.key("C-x r d", "bookmark-delete")
+  editor.key("C-x r l", "bookmark-bmenu-list")
 }

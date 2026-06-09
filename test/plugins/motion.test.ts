@@ -18,6 +18,7 @@ describe("keybindings", () => {
     expect(editor.keymap.get("M-m")).toBe("back-to-indentation")
     expect(editor.keymap.get("M-}")).toBe("forward-paragraph")
     expect(editor.keymap.get("M-{")).toBe("backward-paragraph")
+    expect(editor.keymap.get("M-h")).toBe("mark-paragraph")
     expect(editor.keymap.get("M-t")).toBe("transpose-words")
     expect(editor.keymap.get("C-x C-t")).toBe("transpose-lines")
   })
@@ -96,6 +97,46 @@ describe("forward-paragraph / backward-paragraph", () => {
     await editor.run("forward-paragraph")
     expect(buffer.point).toBe(9)
   })
+
+  test("mark-paragraph marks the containing paragraph", async () => {
+    const { editor, buffer } = setup(text, 6)
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(4)
+    expect(buffer.mark).toBe(9)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("\nbbb\n")
+  })
+
+  test("mark-paragraph with negative prefix puts point at end and mark at beginning", async () => {
+    const { editor, buffer } = setup(text, 6)
+    editor.prefixArg.toggleNegative()
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(9)
+    expect(buffer.mark).toBe(4)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("\nbbb\n")
+  })
+
+  test("repeating mark-paragraph extends an active region forward like Emacs", async () => {
+    const { editor, buffer } = setup("aaa\n\nbbb\n\nccc\n\nddd", 6)
+    await editor.run("mark-paragraph")
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(4)
+    expect(buffer.mark).toBe(14)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("\nbbb\n\nccc\n")
+  })
+
+  test("mark-paragraph extends backward when point is after the active mark", async () => {
+    const { editor, buffer } = setup("aaa\n\nbbb\n\nccc\n\nddd", 6)
+    editor.prefixArg.toggleNegative()
+    await editor.run("mark-paragraph")
+    await editor.run("mark-paragraph")
+    expect(buffer.point).toBe(9)
+    expect(buffer.mark).toBe(0)
+    expect(buffer.markActive).toBe(true)
+    expect(buffer.selectedText()).toBe("aaa\n\nbbb\n")
+  })
 })
 
 describe("transpose-words", () => {
@@ -125,6 +166,60 @@ describe("transpose-words", () => {
     await editor.run("transpose-words")
     expect(buffer.text).toBe("solo")
   })
+
+  test("positive prefix drags the previous word forward past that many words", async () => {
+    const { editor, buffer } = setup("one two three four", 4)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("two three one four")
+    expect(buffer.point).toBe(13)
+  })
+
+  test("positive prefix preserves punctuation separators like Emacs", async () => {
+    const { editor, buffer } = setup("one two, three four", 4)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("two, three one four")
+    expect(buffer.point).toBe(14)
+  })
+
+  test("negative prefix drags the previous word backward past that many words", async () => {
+    const { editor, buffer } = setup("one two three four", 14)
+    editor.prefixArg.toggleNegative()
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("three one two four")
+    expect(buffer.point).toBe(5)
+  })
+
+  test("negative prefix with too few preceding words is a no-op", async () => {
+    const { editor, buffer } = setup("one two three four", 4)
+    editor.prefixArg.toggleNegative()
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("one two three four")
+  })
+
+  test("zero prefix swaps words around point and mark", async () => {
+    const { editor, buffer } = setup("one two three four", 4)
+    buffer.mark = 14
+    buffer.markActive = true
+    editor.prefixArg.addDigit(0)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("one four three two")
+    expect(buffer.point).toBe(15)
+    expect(buffer.mark).toBe(4)
+  })
+
+  test("zero prefix swaps unequal-length words and preserves point/mark destinations", async () => {
+    const { editor, buffer } = setup("one two three four", 0)
+    buffer.mark = 8
+    buffer.markActive = true
+    editor.prefixArg.addDigit(0)
+    await editor.run("transpose-words")
+    expect(buffer.text).toBe("three two one four")
+    expect(buffer.point).toBe(10)
+    expect(buffer.mark).toBe(0)
+  })
 })
 
 describe("transpose-lines", () => {
@@ -153,5 +248,48 @@ describe("transpose-lines", () => {
     await editor.run("transpose-lines")
     expect(buffer.text).toBe("longer\nx\nz\n")
     expect(buffer.point).toBe(9)
+  })
+
+  test("positive prefix moves previous line forward past that many lines", async () => {
+    const { editor, buffer } = setup("1\n2\n3\n4\n", 4)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("1\n3\n4\n2\n")
+    expect(buffer.point).toBe(8)
+  })
+
+  test("positive prefix past end creates intervening blank lines like Emacs", async () => {
+    const { editor, buffer } = setup("one\ntwo", 5)
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("two\n\none\n")
+    expect(buffer.point).toBe(9)
+  })
+
+  test("negative prefix moves previous line backward when enough lines exist", async () => {
+    const { editor, buffer } = setup("1\n2\n3\n4\n", 6)
+    editor.prefixArg.toggleNegative()
+    editor.prefixArg.addDigit(2)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("3\n1\n2\n4\n")
+    expect(buffer.point).toBe(2)
+  })
+
+  test("negative prefix with too few preceding lines is a no-op", async () => {
+    const { editor, buffer } = setup("aaa\nbbb\nccc\n", 5)
+    editor.prefixArg.toggleNegative()
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("aaa\nbbb\nccc\n")
+  })
+
+  test("zero prefix swaps the lines containing point and mark", async () => {
+    const { editor, buffer } = setup("aaa\nbbb\nccc\nddd\n", 5)
+    buffer.mark = 12
+    buffer.markActive = true
+    editor.prefixArg.addDigit(0)
+    await editor.run("transpose-lines")
+    expect(buffer.text).toBe("aaa\nddd\nccc\nbbb\n")
+    expect(buffer.point).toBe(12)
+    expect(buffer.mark).toBe(4)
   })
 })

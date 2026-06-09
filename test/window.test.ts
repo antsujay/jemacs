@@ -3,10 +3,12 @@ import { Editor } from "../src/kernel/editor"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import {
   createLeafWindow,
+  findWindowLeaf,
   listWindowLeaves,
   splitWindowLeaf,
   type WindowNode,
 } from "../src/kernel/window"
+import { pageScrollLines } from "../src/display/viewport"
 
 function installEditor(): Editor {
   const editor = new Editor()
@@ -14,15 +16,29 @@ function installEditor(): Editor {
   return editor
 }
 
-test("split-window-below stacks vertically and selects the new window", async () => {
+async function createThreeTabs(editor: Editor): Promise<void> {
+  editor.scratch("a", "a", "text")
+  await editor.run("tab-bar-new-tab")
+  editor.scratch("b", "b", "text")
+  await editor.run("tab-bar-new-tab")
+  editor.scratch("c", "c", "text")
+}
+
+function tabBufferNames(editor: Editor): Array<string | undefined> {
+  return editor.tabs.map(tab => editor.buffers.get(tab.bufferId)?.name)
+}
+
+test("split-window-below stacks vertically and keeps the original window selected", async () => {
   const editor = installEditor()
+  const start = editor.selectedWindowId
   await editor.run("split-window-below")
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
   expect(editor.windowLayout.kind).toBe("split")
   if (editor.windowLayout.kind === "split") {
     expect(editor.windowLayout.direction).toBe("vertical")
   }
-  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[1]!.id)
+  expect(editor.selectedWindowId).toBe(start)
+  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[0]!.id)
 })
 
 test("split-window-right places panes side by side", async () => {
@@ -34,11 +50,29 @@ test("split-window-right places panes side by side", async () => {
   }
 })
 
-test("other-window-backward cycles windows in reverse tree order", async () => {
+test("split windows clone the selected window viewport", async () => {
+  const editor = installEditor()
+  const buffer = editor.currentBuffer
+  buffer.setText(Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n"), false)
+  buffer.point = buffer.text.indexOf("line 10")
+  editor.setSelectedWindowStartLine(4)
+
+  await editor.run("split-window-below")
+  let leaves = listWindowLeaves(editor.windowLayout)
+  expect(leaves.map(leaf => leaf.startLine)).toEqual([4, 4])
+
+  await editor.run("other-window")
+  editor.setSelectedWindowStartLine(7)
+  await editor.run("split-window-right")
+  leaves = listWindowLeaves(editor.windowLayout)
+  expect(leaves.map(leaf => leaf.startLine)).toEqual([4, 7, 7])
+})
+
+test("previous-window-any-frame cycles windows in reverse tree order", async () => {
   const editor = installEditor()
   await editor.run("split-window-below")
   const start = editor.selectedWindowId
-  await editor.run("other-window-backward")
+  await editor.run("previous-window-any-frame")
   expect(editor.selectedWindowId).not.toBe(start)
 })
 
@@ -46,9 +80,48 @@ test("other-window cycles through leaves in tree order", async () => {
   const editor = installEditor()
   await editor.run("split-window-below")
   const leaves = listWindowLeaves(editor.windowLayout)
-  expect(editor.selectedWindowId).toBe(leaves[1]!.id)
-  await editor.run("other-window")
   expect(editor.selectedWindowId).toBe(leaves[0]!.id)
+  await editor.run("other-window")
+  expect(editor.selectedWindowId).toBe(leaves[1]!.id)
+})
+
+test("other-window honors positive numeric prefix as a skip count", async () => {
+  const editor = installEditor()
+  await editor.run("split-window-below")
+  await editor.run("split-window-right")
+  const leaves = listWindowLeaves(editor.windowLayout)
+  expect(editor.selectedWindowId).toBe(leaves[0]!.id)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("other-window")
+  expect(editor.selectedWindowId).toBe(leaves[2]!.id)
+})
+
+test("other-window with zero prefix keeps the selected window", async () => {
+  const editor = installEditor()
+  await editor.run("split-window-below")
+  const start = editor.selectedWindowId
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("other-window")
+  expect(editor.selectedWindowId).toBe(start)
+})
+
+test("other-window honors negative numeric prefix and wraps", async () => {
+  const editor = installEditor()
+  await editor.run("split-window-below")
+  await editor.run("split-window-right")
+  const leaves = listWindowLeaves(editor.windowLayout)
+  expect(editor.selectedWindowId).toBe(leaves[0]!.id)
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("other-window")
+  expect(editor.selectedWindowId).toBe(leaves[2]!.id)
+
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(4)
+  await editor.run("other-window")
+  expect(editor.selectedWindowId).toBe(leaves[1]!.id)
 })
 
 test("delete-other-windows keeps only the selected pane", async () => {
@@ -83,6 +156,7 @@ test("split windows preserve independent points into the same buffer", async () 
 test("split below then split right builds a vertical branch with a horizontal sub-split", async () => {
   const editor = installEditor()
   await editor.run("split-window-below")
+  await editor.run("other-window")
   await editor.run("split-window-right")
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(3)
   const layout = editor.windowLayout
@@ -112,6 +186,7 @@ test("window-configuration-to-register restores layout and selection", async () 
   await editor.run("split-window-right")
   await editor.run("other-window")
   scratch.point = 0
+  const savedSelection = editor.selectedWindowId
   await editor.run("window-configuration-to-register", ["w"])
   await editor.run("split-window-below")
   await editor.run("delete-other-windows")
@@ -119,8 +194,29 @@ test("window-configuration-to-register restores layout and selection", async () 
 
   await editor.run("jump-to-register", ["w"])
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
-  expect(editor.selectedWindowId).toBe(listWindowLeaves(editor.windowLayout)[0]!.id)
+  expect(editor.selectedWindowId).toBe(savedSelection)
   expect(scratch.point).toBe(0)
+})
+
+test("quit-window without prefix does not kill the quit buffer", async () => {
+  const editor = installEditor()
+  const help = editor.scratch("*Help*", "help", "text")
+  await editor.run("split-window-below")
+
+  await editor.run("quit-window")
+  expect(editor.buffers.has(help.id)).toBe(true)
+  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(1)
+})
+
+test("quit-window with prefix kills the quit buffer", async () => {
+  const editor = installEditor()
+  const help = editor.scratch("*Help*", "help", "text")
+  await editor.run("split-window-below")
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("quit-window")
+  expect(editor.buffers.has(help.id)).toBe(false)
+  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(1)
 })
 
 test("scroll-other-window scrolls the next window without selecting it", async () => {
@@ -140,6 +236,73 @@ test("scroll-other-window scrolls the next window without selecting it", async (
   expect(editor.selectedWindowId).toBe(selectedId)
 })
 
+test("scroll-other-window numeric prefixes are line counts", async () => {
+  const editor = installEditor()
+  const buffer = editor.currentBuffer
+  buffer.setText(Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n"), false)
+  await editor.run("split-window-below")
+  const otherId = editor.selectedWindowId
+  await editor.run("other-window")
+  const selectedId = editor.selectedWindowId
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("scroll-other-window")
+  let otherLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.id === otherId)!
+  expect(otherLeaf.startLine).toBe(3)
+  expect(editor.selectedWindowId).toBe(selectedId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("scroll-other-window-down")
+  otherLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.id === otherId)!
+  expect(otherLeaf.startLine).toBe(1)
+  expect(editor.selectedWindowId).toBe(selectedId)
+})
+
+test("recenter-top-bottom with numeric prefix moves point to that row", async () => {
+  const editor = installEditor()
+  editor.lastViewport = { rows: 20 }
+  const lines = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n")
+  const buffer = editor.scratch("recenter.txt", lines, "text")
+  buffer.point = buffer.text.indexOf("line 40")
+
+  editor.prefixArg.addDigit(5)
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(34)
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39)
+})
+
+test("recenter-top-bottom with negative prefix counts up from the bottom", async () => {
+  const editor = installEditor()
+  editor.lastViewport = { rows: 20 }
+  const page = pageScrollLines(20)
+  const lines = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n")
+  const buffer = editor.scratch("recenter.txt", lines, "text")
+  buffer.point = buffer.text.indexOf("line 40")
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39 - (page - 1))
+})
+
+test("recenter-top-bottom without prefix keeps cycling center top bottom", async () => {
+  const editor = installEditor()
+  editor.lastViewport = { rows: 20 }
+  const page = pageScrollLines(20)
+  const lines = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n")
+  const buffer = editor.scratch("recenter.txt", lines, "text")
+  buffer.point = buffer.text.indexOf("line 40")
+
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39 - Math.floor(page / 2))
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39)
+  await editor.run("recenter-top-bottom")
+  expect(findWindowLeaf(editor.windowLayout, editor.selectedWindowId)!.startLine).toBe(39 - page + 1)
+})
+
 test("dedicated windows are skipped when displaying another buffer", async () => {
   const editor = installEditor()
   editor.scratch("*Help*", "help text", "text")
@@ -147,10 +310,11 @@ test("dedicated windows are skipped when displaying another buffer", async () =>
   await editor.run("split-window-below")
   await editor.run("other-window")
   await editor.run("toggle-window-dedicated")
+  const dedicatedId = editor.selectedWindowId
   await editor.run("other-window")
   editor.displayBufferInOtherWindow("*Help*")
   expect(editor.currentBuffer.name).toBe("*Help*")
-  const dedicatedLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.dedicated)!
+  const dedicatedLeaf = listWindowLeaves(editor.windowLayout).find(leaf => leaf.id === dedicatedId)!
   expect(dedicatedLeaf.bufferId).not.toBe(editor.currentBuffer.id)
 })
 
@@ -161,6 +325,199 @@ test("find-file-other-window selects the other window", async () => {
   await editor.run("find-file-other-window", [path])
   expect(editor.currentBuffer.path).toBe(path)
   expect(listWindowLeaves(editor.windowLayout).length).toBeGreaterThanOrEqual(1)
+})
+
+test("next-buffer honors positive numeric prefix and wraps", async () => {
+  const editor = installEditor()
+  editor.scratch("a", "a", "text")
+  editor.scratch("b", "b", "text")
+  editor.scratch("c", "c", "text")
+  editor.switchToBuffer("a")
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("next-buffer")
+  expect(editor.currentBuffer.name).toBe("c")
+
+  editor.switchToBuffer("a")
+  editor.prefixArg.addDigit(7)
+  await editor.run("next-buffer")
+  expect(editor.currentBuffer.name).toBe("c")
+})
+
+test("next-buffer with zero prefix keeps the selected buffer", async () => {
+  const editor = installEditor()
+  editor.scratch("a", "a", "text")
+  const start = editor.currentBuffer.id
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("next-buffer")
+  expect(editor.currentBuffer.id).toBe(start)
+})
+
+test("previous-buffer honors positive and negative numeric prefixes", async () => {
+  const editor = installEditor()
+  editor.scratch("a", "a", "text")
+  editor.scratch("b", "b", "text")
+  editor.scratch("c", "c", "text")
+  editor.switchToBuffer("c")
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("previous-buffer")
+  expect(editor.currentBuffer.name).toBe("a")
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("previous-buffer")
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-switch-to-next-tab honors positive numeric prefix and wraps", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 0
+  editor.switchToBuffer(editor.tabs[0]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-switch-to-next-tab")
+  expect(editor.selectedTab).toBe(2)
+  expect(editor.currentBuffer.name).toBe("c")
+
+  editor.selectedTab = 0
+  editor.switchToBuffer(editor.tabs[0]!.bufferId)
+  editor.prefixArg.addDigit(4)
+  await editor.run("tab-bar-switch-to-next-tab")
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-switch-to-next-tab with zero prefix keeps the selected tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("tab-bar-switch-to-next-tab")
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-switch-to-prev-tab honors positive and negative numeric prefixes", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 2
+  editor.switchToBuffer(editor.tabs[2]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-switch-to-prev-tab")
+  expect(editor.selectedTab).toBe(0)
+  expect(editor.currentBuffer.name).toBe("a")
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("tab-bar-switch-to-prev-tab")
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-new-tab creates a selected tab to the right by default", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "b", "c"])
+  expect(editor.selectedTab).toBe(2)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-new-tab honors positive numeric prefixes as relative positions", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "c", "b"])
+  expect(editor.selectedTab).toBe(3)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-new-tab honors negative numeric prefixes as relative positions", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["b", "a", "b", "c"])
+  expect(editor.selectedTab).toBe(0)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-new-tab with zero prefix creates the selected tab in place", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("tab-bar-new-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "b", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
+})
+
+test("tab-bar-close-tab with numeric prefix closes that absolute tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 0
+  editor.switchToBuffer(editor.tabs[0]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-close-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "c"])
+  expect(editor.selectedTab).toBe(0)
+  expect(editor.currentBuffer.name).toBe("a")
+})
+
+test("tab-bar-close-tab adjusts selection when closing a preceding tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 2
+  editor.switchToBuffer(editor.tabs[2]!.bufferId)
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("tab-bar-close-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("c")
+})
+
+test("tab-bar-close-tab selects the following tab when closing the current tab", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  await editor.run("tab-bar-close-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("c")
+})
+
+test("tab-bar-close-tab ignores out-of-range numeric prefixes", async () => {
+  const editor = installEditor()
+  await createThreeTabs(editor)
+  editor.selectedTab = 1
+  editor.switchToBuffer(editor.tabs[1]!.bufferId)
+
+  editor.prefixArg.addDigit(9)
+  await editor.run("tab-bar-close-tab")
+  expect(tabBufferNames(editor)).toEqual(["a", "b", "c"])
+  expect(editor.selectedTab).toBe(1)
+  expect(editor.currentBuffer.name).toBe("b")
 })
 
 function countDirections(node: WindowNode, direction: "horizontal" | "vertical"): number {

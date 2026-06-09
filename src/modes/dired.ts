@@ -25,14 +25,14 @@ export const NAME_OFFSET = 22
 export function installDiredMode(): void {
   const keymap = new Keymap("dired-map")
   keymap.bind("enter", "dired-find-file")
-  keymap.bind("g", "dired-revert")
+  keymap.bind("g", "revert-buffer")
   keymap.bind("^", "dired-up-directory")
   keymap.bind("q", "quit-window")
   keymap.bind("m", "dired-mark")
   keymap.bind("u", "dired-unmark")
-  keymap.bind("S-u", "dired-unmark-all")
-  keymap.bind("t", "dired-toggle-mark")
-  keymap.bind("% .", "dired-mark-all")
+  keymap.bind("S-u", "dired-unmark-all-marks")
+  keymap.bind("t", "dired-toggle-marks")
+  keymap.bind("* %", "dired-mark-files-regexp")
   keymap.bind("% m", "dired-mark-files-regexp")
   keymap.bind("% d", "dired-flag-files-regexp")
   keymap.bind("d", "dired-flag-file-deletion")
@@ -135,11 +135,74 @@ export function diredUnmarkAll(buffer: BufferModel): void {
   renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
 }
 
+function markMatches(mark: DiredMark, markChar?: string): boolean {
+  if (!markChar) return true
+  if (markChar === "*") return mark === "marked"
+  if (markChar === "D") return mark === "delete"
+  return false
+}
+
+function markFromChar(markChar?: string): DiredMark | null | undefined {
+  if (markChar === "*") return "marked"
+  if (markChar === "D") return "delete"
+  if (markChar === "-" || markChar === " " || markChar === "") return null
+  return undefined
+}
+
+export async function diredUnmarkAllFiles(
+  buffer: BufferModel,
+  markChar?: string,
+  confirm?: (entry: DiredEntry, mark: DiredMark) => Promise<boolean>,
+): Promise<number> {
+  const marks = diredMarks.get(buffer)
+  if (!marks) return 0
+  let count = 0
+  for (const entry of diredEntryLines.get(buffer) ?? []) {
+    const mark = marks.get(entry.path)
+    if (!mark || !markMatches(mark, markChar)) continue
+    if (confirm && !await confirm(entry, mark)) continue
+    marks.delete(entry.path)
+    count++
+  }
+  renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
+  return count
+}
+
+export function diredChangeMarks(buffer: BufferModel, oldChar: string, newChar: string): number {
+  const oldMark = markFromChar(oldChar)
+  const newMark = markFromChar(newChar)
+  if (oldMark === undefined || newMark === undefined) return 0
+  const marks = diredMarks.get(buffer) ?? new Map()
+  let count = 0
+  for (const entry of diredEntryLines.get(buffer) ?? []) {
+    if (diredSpecialEntry(entry)) continue
+    const current = marks.get(entry.path) ?? null
+    if (current !== oldMark) continue
+    if (newMark) marks.set(entry.path, newMark)
+    else marks.delete(entry.path)
+    count++
+  }
+  diredMarks.set(buffer, marks)
+  renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
+  return count
+}
+
 export function diredToggleMark(buffer: BufferModel, entry: DiredEntry | undefined): void {
   if (!entry || diredSpecialEntry(entry)) return
   const marks = diredMarks.get(buffer)
   if (marks?.get(entry.path) === "marked") diredUnmarkEntry(buffer, entry)
   else diredMarkEntry(buffer, entry, "marked")
+}
+
+export function diredToggleMarks(buffer: BufferModel): void {
+  const marks = diredMarks.get(buffer) ?? new Map()
+  for (const entry of diredEntryLines.get(buffer) ?? []) {
+    if (diredSpecialEntry(entry)) continue
+    if (marks.get(entry.path) === "marked") marks.delete(entry.path)
+    else if (!marks.has(entry.path)) marks.set(entry.path, "marked")
+  }
+  diredMarks.set(buffer, marks)
+  renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
 }
 
 export function diredMarkAll(buffer: BufferModel): void {
@@ -149,6 +212,30 @@ export function diredMarkAll(buffer: BufferModel): void {
   }
   diredMarks.set(buffer, marks)
   renderDiredBuffer(buffer, diredEntryLines.get(buffer) ?? [])
+}
+
+export function diredEntriesForPrefix(buffer: BufferModel, prefixArgument: number | null): DiredEntry[] {
+  const entries = diredEntryLines.get(buffer) ?? []
+  const current = diredEntryAtPoint(buffer)
+  const start = current ? entries.findIndex(entry => entry === current) : -1
+  if (start < 0) return []
+  const count = Math.max(1, Math.abs(prefixArgument ?? 1))
+  const selected = prefixArgument != null && prefixArgument < 0
+    ? entries.slice(Math.max(0, start - count + 1), start + 1)
+    : entries.slice(start, start + count)
+  return selected.filter(entry => !diredSpecialEntry(entry))
+}
+
+export function diredMarkedFilesSummary(buffer: BufferModel): { count: number; totalSize: number } {
+  const marks = diredMarks.get(buffer)
+  let count = 0
+  let totalSize = 0
+  for (const entry of diredEntryLines.get(buffer) ?? []) {
+    if (marks?.get(entry.path) !== "marked" || diredSpecialEntry(entry)) continue
+    count++
+    totalSize += entry.size
+  }
+  return { count, totalSize }
 }
 
 export function diredMarkFilesRegexp(buffer: BufferModel, regexp: string, mark: DiredMark, editor?: Editor): number {

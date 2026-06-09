@@ -17,7 +17,7 @@ import type { TerminalData } from "../display/protocol"
 import type { ViewportSize } from "../display/viewport"
 import { composeTheme } from "../runtime/faces"
 import { fileCompletionCandidates } from "./completion"
-import { findBackward, findForward, isearchPrompt, type IsearchState } from "./isearch"
+import { findMatchBackward, findMatchForward, isearchPrompt, type IsearchMatch, type IsearchState } from "./isearch"
 import {
   cloneWindowNode,
   createLeafWindow,
@@ -133,8 +133,10 @@ export class Editor {
   readonly globalMinorModes = new Set<string>()
   lastKeyEvent: KeyEventLike | null = null
   quotedInsertNext = false
+  quotedInsertCount = 1
   macroRecording: string[] | null = null
   lastKbdMacro: string[] = []
+  private lastEchoMessage = ""
   lsp: LspManager | null = null
   /** Stack of completing-read overrides; top wins. push/pop instead of save/restore so
    *  enable A → enable B → disable A → disable B doesn't resurrect A's function. */
@@ -279,7 +281,7 @@ export class Editor {
 
   ensureOtherWindowSelected(): void {
     if (listWindowLeaves(this.windowLayout).length === 1) {
-      this.splitWindowBelow()
+      this.selectWindow(this.splitSelectedWindow("vertical"))
       return
     }
     const otherId = nextEligibleWindowId(
@@ -289,7 +291,7 @@ export class Editor {
       leaf => leaf.id !== this.selectedWindowId && !leaf.dedicated,
     )
     if (otherId) this.selectWindow(otherId)
-    else this.splitWindowBelow()
+    else this.selectWindow(this.splitSelectedWindow("vertical"))
   }
 
   currentWindowConfiguration(): Extract<RegisterContents, { kind: "window-configuration" }> {
@@ -319,25 +321,36 @@ export class Editor {
     void this.changed("set-window-dedicated")
   }
 
-  displayBufferInOtherWindow(idOrName: string): BufferModel {
-    const found = this.buffers.get(idOrName) ?? [...this.buffers.values()].find(b => b.name === idOrName)
+  displayBufferInOtherWindow(idOrName: string, options: { select?: boolean } = {}): BufferModel {
+    const select = options.select ?? true
+    const found = this.buffers.get(idOrName)
+      ?? [...this.buffers.values()].find(b => b.name === idOrName || this.displayNames.get(b.id) === idOrName)
     if (!found) throw new Error(`No such buffer: ${idOrName}`)
     const existing = findWindowShowingBuffer(this.windowLayout, found.id, this.selectedWindowId)
     if (existing) {
-      this.selectWindow(existing.id)
+      if (select) this.selectWindow(existing.id)
       return found
     }
+    let targetId: string | null = null
     const reusable = pickReusableWindow(this.windowLayout, this.selectedWindowId)
-    if (reusable) {
-      this.selectWindow(reusable.id)
-    } else {
-      const otherId = nextEligibleWindowId(this.windowLayout, this.selectedWindowId, 1, leaf => leaf.id !== this.selectedWindowId && !leaf.dedicated)
-      if (otherId) this.selectWindow(otherId)
-      else this.ensureOtherWindowSelected()
+    if (reusable) targetId = reusable.id
+    else {
+      targetId = nextEligibleWindowId(this.windowLayout, this.selectedWindowId, 1, leaf => leaf.id !== this.selectedWindowId && !leaf.dedicated)
+        ?? this.splitSelectedWindow("vertical")
     }
-    this.setSelectedWindowBuffer(found.id)
-    if (found.name.startsWith("*") && found.name.endsWith("*")) {
-      this.setSelectedWindowDedicated(true)
+    if (select) {
+      this.selectWindow(targetId)
+      this.setSelectedWindowBuffer(found.id)
+      if (found.name.startsWith("*") && found.name.endsWith("*")) {
+        this.setSelectedWindowDedicated(true)
+      }
+    } else {
+      this.persistSelectedWindowPoint()
+      this.windowLayout = setWindowLeafBuffer(this.windowLayout, targetId, found.id, found.point)
+      if (found.name.startsWith("*") && found.name.endsWith("*")) {
+        this.windowLayout = setWindowLeafDedicated(this.windowLayout, targetId, true)
+      }
+      void this.changed("display-buffer")
     }
     return found
   }
@@ -364,6 +377,12 @@ export class Editor {
   get activeBuffer(): BufferModel {
     if (!this.minibuffer) return this.currentBuffer
     return this.buffers.get(this.minibuffer.bufferId) ?? this.currentBuffer
+  }
+
+  otherBuffer(buffer: BufferModel = this.currentBuffer): BufferModel | null {
+    const id = this.bufferRecency.find(candidateId => candidateId !== buffer.id && this.buffers.get(candidateId)?.kind !== "minibuffer")
+    if (id) return this.buffers.get(id) ?? null
+    return [...this.buffers.values()].find(candidate => candidate.id !== buffer.id && candidate.kind !== "minibuffer") ?? null
   }
 
   get minibufferDepthLevel(): number {
@@ -578,6 +597,7 @@ export class Editor {
       runArgs = await readInteractiveArgs(this, spec.interactive)
     }
     const ctx = { editor: this, buffer: this.activeBuffer, args: runArgs, prefixArgument, keyEvent }
+    this.clearMessage()
     const result = await invokeWithAdvice(name, spec.fn, ctx)
     await this.runHook("post-command-hook", this.activeBuffer)
     await this.changed(`command:${name}`)
@@ -590,6 +610,12 @@ export class Editor {
     if (this.isearch && this.isearchKeyHandler) {
       const isearchResult = await this.isearchKeyHandler(key)
       if (isearchResult) return isearchResult
+    }
+
+    if (this.quotedInsertNext && this.commands.get("self-insert-command")) {
+      await this.run("self-insert-command", key.sequence ? [key.sequence] : [], key)
+      if (this.macroRecording && key.sequence) this.macroRecording.push(key.sequence)
+      return { status: "command", command: "self-insert-command" }
     }
 
     const digit = digitFromKey(key.name)
@@ -753,21 +779,21 @@ export class Editor {
   }
 
   /** @deprecated Compat shim — call `mutateWindowLayout` with `splitWindowLeaf`, or `run("split-window-below")`. */
-  splitWindowBelow(): void { this.splitSelectedWindow("vertical") }
+  splitWindowBelow(): void { void this.splitSelectedWindow("vertical") }
   /** @deprecated Compat shim — call `mutateWindowLayout` with `splitWindowLeaf`, or `run("split-window-right")`. */
-  splitWindowRight(): void { this.splitSelectedWindow("horizontal") }
+  splitWindowRight(): void { void this.splitSelectedWindow("horizontal") }
 
-  private splitSelectedWindow(orientation: "vertical" | "horizontal"): void {
+  private splitSelectedWindow(orientation: "vertical" | "horizontal"): string {
     const buffer = this.currentBuffer
-    const startLine = this.lineAtPoint(buffer.point)
+    const startLine = this.selectedWindowLeaf()?.startLine ?? 0
     let newId = this.selectedWindowId
     this.mutateWindowLayout(layout => {
       const r = splitWindowLeaf(layout, this.selectedWindowId, orientation, buffer.id, buffer.point)
       newId = r.newWindowId
       return setWindowLeafStartLine(r.layout, newId, startLine)
     })
-    this.selectedWindowId = newId
     void this.changed(`split-window-${orientation === "vertical" ? "below" : "right"}`)
+    return newId
   }
 
   /** @deprecated Compat shim — call `mutateWindowLayout` with `deleteOtherWindowLeaves`, or `run("delete-other-windows")`. */
@@ -908,15 +934,14 @@ export class Editor {
     }
     const buffer = this.buffers.get(state.bufferId)
     if (!buffer) return
-    const from = state.direction === 1 ? buffer.point + 1 : buffer.point - 1
     const match = state.direction === 1
-      ? findForward(buffer.text, state.string, from)
-      : findBackward(buffer.text, state.string, from)
+      ? findMatchForward(buffer.text, state.string, buffer.point, state.regexp ?? false)
+      : findMatchBackward(buffer.text, state.string, buffer.point, state.regexp ?? false)
     if (match == null) {
       this.message(`Search failed: ${state.string}`)
       return
     }
-    buffer.point = match
+    this.applyIsearchMatch(buffer, state, match)
     this.message(isearchPrompt(state))
     void this.changed("isearch-repeat")
   }
@@ -945,22 +970,28 @@ export class Editor {
     state.string = string
     if (!string) {
       buffer.point = state.startPoint
+      state.match = undefined
       this.message(isearchPrompt(state))
       void this.changed("isearch-input")
       return
     }
-    const from = state.direction === 1 ? state.startPoint : state.startPoint
     const match = state.direction === 1
-      ? findForward(buffer.text, string, from, state.regexp ?? false)
-      : findBackward(buffer.text, string, from, state.regexp ?? false)
+      ? findMatchForward(buffer.text, string, state.startPoint, state.regexp ?? false)
+      : findMatchBackward(buffer.text, string, state.startPoint, state.regexp ?? false)
     if (match == null) {
+      state.match = undefined
       this.message(`Failing I-search: ${string}`)
       void this.changed("isearch-fail")
       return
     }
-    buffer.point = match
+    this.applyIsearchMatch(buffer, state, match)
     this.message(isearchPrompt(state))
     void this.changed("isearch-input")
+  }
+
+  applyIsearchMatch(buffer: BufferModel, state: IsearchState, match: IsearchMatch): void {
+    state.match = match
+    buffer.point = state.direction === 1 ? match.end : match.start
   }
 
   async minibufferInsert(s: string): Promise<void> {
@@ -1135,6 +1166,7 @@ export class Editor {
   }
 
   message(text: string): string {
+    this.lastEchoMessage = text
     const msg = [...this.buffers.values()].find(b => b.name === "*messages*")
     if (msg) {
       msg.append(`${new Date().toISOString()}  ${text}\n`)
@@ -1143,6 +1175,13 @@ export class Editor {
     void this.events.emit("message", { text })
     void this.changed("message")
     return text
+  }
+
+  clearMessage(): void {
+    if (!this.lastEchoMessage) return
+    this.lastEchoMessage = ""
+    void this.events.emit("message", { text: "" })
+    void this.changed("message-clear")
   }
 
   async changed(reason: string): Promise<void> {

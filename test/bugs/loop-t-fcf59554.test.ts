@@ -9,12 +9,7 @@ import { listWindowLeaves } from "../../src/kernel/window"
 //
 // window.ts is clean: splitWindowLeaf puts original→first, new→second;
 // listWindowLeaves walks first→second; nextWindowId(+1) from first hits second.
-// Root cause is editor.ts splitWindowRight/Below reassigning
-// `this.selectedWindowId = result.newWindowId` (the right leaf). Dropping that
-// line — and the matching reliance in ensureOtherWindowSelected — is the fix,
-// which lives outside src/kernel/window.ts. Leave failing until editor.ts owner
-// lands it; see also loop-split-other-window.test.ts.
-test.failing("t-fcf59554: C-x 3, C-x o, switch-buffer → right pane gets the new buffer", async () => {
+test("t-fcf59554: C-x 3, C-x o, switch-buffer → right pane gets the new buffer", async () => {
   await script()
     .do(ed => {
       ed.scratch("task.go", "package task\n", "text")

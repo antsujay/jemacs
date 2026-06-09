@@ -19,13 +19,19 @@ test("copy-to-register stores region text and insert-register inserts it", async
   await editor.run("insert-register", ["a"])
   expect(buf.text).toBe("hello worldhello")
   expect(buf.point).toBe(16)
+  expect(buf.mark).toBe(11)
+  expect(buf.markActive).toBe(false)
 })
 
-test("C-x r s / C-x r i are bound", async () => {
+test("copy-to-register and insert-register use Emacs key bindings", async () => {
   const editor = makeEditor()
   install(editor)
   expect(editor.keymaps.lookup("C-x r s")).toMatchObject({ status: "matched", command: "copy-to-register" })
+  expect(editor.keymaps.lookup("C-x r x")).toMatchObject({ status: "matched", command: "copy-to-register" })
   expect(editor.keymaps.lookup("C-x r i")).toMatchObject({ status: "matched", command: "insert-register" })
+  expect(editor.keymaps.lookup("C-x r g")).toMatchObject({ status: "matched", command: "insert-register" })
+  expect(editor.keymaps.lookup("C-x r n")).toMatchObject({ status: "matched", command: "number-to-register" })
+  expect(editor.keymaps.lookup("C-x r +")).toMatchObject({ status: "matched", command: "increment-register" })
 
   const buf = editor.scratch("*t*", "abc")
   editor.registers.set("q", { kind: "text", text: "XYZ" })
@@ -64,6 +70,190 @@ test("jump-to-register refuses text registers (no window-layout corruption)", as
   expect(editor.windowLayout).toBe(layout)
 })
 
+test("copy-to-register with prefix deletes the copied region", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "hello world")
+  buf.mark = 0
+  buf.point = 5
+  editor.prefixArg.universalArgument()
+
+  await editor.run("copy-to-register", ["a"])
+
+  expect(editor.registers.get("a")).toEqual({ kind: "text", text: "hello" })
+  expect(buf.text).toBe(" world")
+  expect(buf.point).toBe(0)
+})
+
+test("insert-register with prefix leaves point before inserted text and mark after", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "ab")
+  editor.registers.set("q", { kind: "text", text: "XYZ" })
+  buf.point = 1
+  editor.prefixArg.universalArgument()
+
+  await editor.run("insert-register", ["q"])
+
+  expect(buf.text).toBe("aXYZb")
+  expect(buf.point).toBe(1)
+  expect(buf.mark).toBe(4)
+  expect(buf.markActive).toBe(false)
+})
+
+test("number-to-register stores prefix or number at point", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "count -42 done")
+  buf.point = buf.text.indexOf("-42")
+
+  await editor.run("number-to-register", ["n"])
+  expect(editor.registers.get("n")).toEqual({ kind: "number", value: -42 })
+  expect(buf.point).toBe(buf.text.indexOf(" done"))
+
+  editor.prefixArg.universalArgument()
+  editor.prefixArg.addDigit(7)
+  await editor.run("number-to-register", ["p"])
+  expect(editor.registers.get("p")).toEqual({ kind: "number", value: 7 })
+})
+
+test("increment-register updates numeric registers and appends text otherwise", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "abc")
+  editor.registers.set("n", { kind: "number", value: 10 })
+
+  await editor.run("increment-register", ["n"])
+  expect(editor.registers.get("n")).toEqual({ kind: "number", value: 11 })
+
+  editor.prefixArg.universalArgument()
+  editor.prefixArg.addDigit(5)
+  await editor.run("increment-register", ["n"])
+  expect(editor.registers.get("n")).toEqual({ kind: "number", value: 16 })
+
+  buf.mark = 0
+  buf.point = 2
+  await editor.run("increment-register", ["t"])
+  expect(editor.registers.get("t")).toEqual({ kind: "text", text: "ab" })
+})
+
+test("insert-register and view-register handle numeric registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "")
+  editor.registers.set("n", { kind: "number", value: 123 })
+
+  await editor.run("insert-register", ["n"])
+  expect(buf.text).toBe("123")
+
+  await editor.run("view-register", ["n"])
+  expect(editor.currentBuffer.text).toContain("Register n contains 123")
+})
+
+test("append-to-register and prepend-to-register compose text registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "aa bb cc")
+
+  buf.mark = 0
+  buf.point = 2
+  await editor.run("append-to-register", ["r"])
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: "aa" })
+
+  buf.mark = 3
+  buf.point = 5
+  await editor.run("append-to-register", ["r"])
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: "aabb" })
+
+  buf.mark = 6
+  buf.point = 8
+  await editor.run("prepend-to-register", ["r"])
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: "ccaabb" })
+})
+
+test("append-to-register with prefix deletes the appended region", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "hello world")
+  editor.registers.set("r", { kind: "text", text: ">" })
+  buf.mark = 0
+  buf.point = 5
+  editor.prefixArg.universalArgument()
+
+  await editor.run("append-to-register", ["r"])
+
+  expect(editor.registers.get("r")).toEqual({ kind: "text", text: ">hello" })
+  expect(buf.text).toBe(" world")
+  expect(buf.point).toBe(0)
+})
+
+test("append-to-register and prepend-to-register reject non-text registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  let msg = ""
+  editor.events.on("message", ({ text }) => { msg = text })
+  const buf = editor.scratch("*t*", "abc")
+  buf.mark = 0
+  buf.point = 1
+  editor.registers.set("p", { kind: "point", point: 0 })
+
+  await editor.run("append-to-register", ["p"])
+  expect(msg).toContain("does not contain text")
+  expect(editor.registers.get("p")).toEqual({ kind: "point", point: 0 })
+
+  msg = ""
+  await editor.run("prepend-to-register", ["p"])
+  expect(msg).toContain("does not contain text")
+  expect(editor.registers.get("p")).toEqual({ kind: "point", point: 0 })
+})
+
+test("view-register displays supported register contents in the Emacs output buffer", async () => {
+  const editor = makeEditor()
+  install(editor)
+  const buf = editor.scratch("*t*", "abc")
+  editor.registers.set("t", { kind: "text", text: "hello" })
+  editor.registers.set("r", { kind: "rectangle", lines: ["ab", "cd"] })
+  editor.registers.set("p", { kind: "point", point: 2, bufferId: buf.id })
+
+  await editor.run("view-register", ["t"])
+  expect(editor.currentBuffer.name).toBe("*Output*")
+  expect(editor.currentBuffer.text).toContain('Register t contains "hello"')
+
+  await editor.run("view-register", ["r"])
+  expect(editor.currentBuffer.text).toContain("Register r contains the rectangle:")
+  expect(editor.currentBuffer.text).toContain("    ab")
+  expect(editor.currentBuffer.text).toContain("    cd")
+
+  await editor.run("view-register", ["p"])
+  expect(editor.currentBuffer.text).toContain("Register p contains a buffer position:")
+  expect(editor.currentBuffer.text).toContain("buffer *t*, position 2")
+})
+
+test("view-register reports empty registers", async () => {
+  const editor = makeEditor()
+  install(editor)
+  let msg = ""
+  editor.events.on("message", ({ text }) => { msg = text })
+
+  await editor.run("view-register", ["z"])
+
+  expect(msg).toContain("Register z is empty")
+})
+
+test("list-registers displays sorted nonempty register descriptions", async () => {
+  const editor = makeEditor()
+  install(editor)
+  editor.registers.set("z", { kind: "text", text: "last" })
+  editor.registers.set("a", { kind: "rectangle", lines: ["first"] })
+
+  await editor.run("list-registers")
+
+  expect(editor.currentBuffer.name).toBe("*Output*")
+  expect(editor.currentBuffer.text).toContain("Register a contains a rectangle starting with first")
+  expect(editor.currentBuffer.text).toContain('Register z contains "last"')
+  expect(editor.currentBuffer.text.indexOf("Register a")).toBeLessThan(editor.currentBuffer.text.indexOf("Register z"))
+})
+
 test("RegisterContents accepts rectangle kind and insert-register handles it", async () => {
   const editor = makeEditor()
   install(editor)
@@ -71,4 +261,6 @@ test("RegisterContents accepts rectangle kind and insert-register handles it", a
   editor.registers.set("r", { kind: "rectangle", lines: ["ab", "cd"] })
   await editor.run("insert-register", ["r"])
   expect(buf.text).toBe("ab\ncd")
+  expect(buf.mark).toBe(0)
+  expect(buf.point).toBe(5)
 })

@@ -4,16 +4,21 @@ import { join } from "node:path"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { Editor } from "../src/kernel/editor"
 import {
+  diredChangeMarks,
   diredDoCopy,
   diredDoDelete,
   diredDoFlaggedDelete,
   diredEntryAtPoint,
+  diredFlagFileDeletion,
   diredFlaggedEntries,
   diredMarkAll,
   diredMarkEntry,
+  diredMarkedFilesSummary,
   diredMarkFilesRegexp,
+  diredToggleMarks,
   diredToggleMark,
   diredUnmarkAll,
+  diredUnmarkAllFiles,
   diredUnmarkEntry,
   refreshDiredBuffer,
 } from "../src/modes/dired"
@@ -46,13 +51,39 @@ test("dired mark, unmark, toggle, and mark-all update the listing", async () => 
     diredMarkAll(buffer)
     expect(buffer.text.match(/^\* /gm)?.length).toBeGreaterThanOrEqual(2)
 
+    diredToggleMarks(buffer)
+    expect(buffer.text).not.toMatch(/^\* /m)
+
+    diredToggleMarks(buffer)
+    expect(buffer.text.match(/^\* /gm)?.length).toBeGreaterThanOrEqual(2)
+
     diredUnmarkAll(buffer)
     expect(buffer.text).not.toMatch(/^\* /m)
+
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
+    buffer.point = buffer.text.indexOf("beta.txt")
+    diredFlagFileDeletion(buffer, diredEntryAtPoint(buffer))
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+
+    expect(await diredUnmarkAllFiles(buffer, "*")).toBe(1)
+    expect(buffer.text).not.toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+
+    expect(await diredUnmarkAllFiles(buffer)).toBe(1)
+    expect(buffer.text).not.toMatch(/^D -.*beta\.txt/m)
 
     const count = diredMarkFilesRegexp(buffer, "beta\\.txt$", "marked")
     expect(count).toBe(1)
     expect(buffer.text).toContain("beta.txt")
     expect(buffer.text).toMatch(/^\* -.*beta\.txt/m)
+    expect(diredMarkedFilesSummary(buffer)).toEqual({ count: 1, totalSize: 4 })
+
+    expect(diredChangeMarks(buffer, "*", "D")).toBe(1)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+    expect(diredChangeMarks(buffer, "D", "-")).toBe(1)
+    expect(buffer.text).not.toMatch(/^D -.*beta\.txt/m)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -118,16 +149,132 @@ test("dired keymap binds mark, copy, delete, and regexp commands", async () => {
   const { getMode } = await import("../src/modes/mode")
   installDefaultModes()
   const keymap = getMode("dired")?.keymap
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  expect(editor.commands.get("dired-unmark-all-files")?.description).toContain("specific mark")
+  expect(editor.commands.get("dired-number-of-marked-files")?.description).toContain("total size")
+  expect(editor.commands.get("dired-change-marks")?.description).toContain("OLD marks")
   expect(keymap?.get("m")).toBe("dired-mark")
   expect(keymap?.get("S-c")).toBe("dired-do-copy")
   expect(keymap?.get("d")).toBe("dired-flag-file-deletion")
   expect(keymap?.get("S-d")).toBe("dired-do-delete")
   expect(keymap?.get("u")).toBe("dired-unmark")
-  expect(keymap?.get("S-u")).toBe("dired-unmark-all")
+  expect(keymap?.get("S-u")).toBe("dired-unmark-all-marks")
+  expect(keymap?.get("t")).toBe("dired-toggle-marks")
+  expect(keymap?.get("g")).toBe("revert-buffer")
   expect(keymap?.get("x")).toBe("dired-do-flagged-delete")
   expect(keymap?.get("% m")).toBe("dired-mark-files-regexp")
-  expect(keymap?.get("% .")).toBe("dired-mark-all")
+  expect(keymap?.get("* %")).toBe("dired-mark-files-regexp")
+  expect(keymap?.get("% .")).toBeUndefined()
   expect(keymap?.get("+")).toBe("dired-create-directory")
+})
+
+test("dired-change-marks changes supported mark characters", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    await editor.run("dired-change-marks", ["-", "*"])
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^\* -.*beta\.txt/m)
+
+    await editor.run("dired-change-marks", ["*", "D"])
+    expect(buffer.text).toMatch(/^D -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+
+    await editor.run("dired-change-marks", ["D", " "])
+    expect(buffer.text).not.toMatch(/^[*D] -/m)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("dired mark commands apply numeric prefix arguments", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    buffer.point = buffer.text.indexOf("alpha.txt")
+
+    editor.prefixArg.universalArgument()
+    editor.prefixArg.addDigit(2)
+    await editor.run("dired-mark")
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^\* -.*beta\.txt/m)
+
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    editor.prefixArg.universalArgument()
+    editor.prefixArg.addDigit(2)
+    await editor.run("dired-unmark")
+    expect(buffer.text).not.toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).not.toMatch(/^\* -.*beta\.txt/m)
+
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    editor.prefixArg.universalArgument()
+    editor.prefixArg.addDigit(2)
+    await editor.run("dired-flag-file-deletion")
+    expect(buffer.text).toMatch(/^D -.*alpha\.txt/m)
+    expect(buffer.text).toMatch(/^D -.*beta\.txt/m)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("dired-number-of-marked-files reports count and total size", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
+    buffer.point = buffer.text.indexOf("beta.txt")
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "delete")
+    let message = ""
+    editor.events.on("message", ({ text }) => { message = text })
+
+    await editor.run("dired-number-of-marked-files")
+
+    expect(message).toBe("1 marked file, 5 bytes total")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("dired-unmark-all-files command removes a selected mark and can query each file", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = await tempDiredDir()
+  try {
+    const buffer = await editor.openDirectory(dir)
+    buffer.point = buffer.text.indexOf("alpha.txt")
+    diredMarkEntry(buffer, diredEntryAtPoint(buffer), "marked")
+    buffer.point = buffer.text.indexOf("beta.txt")
+    diredFlagFileDeletion(buffer, diredEntryAtPoint(buffer))
+
+    await editor.run("dired-unmark-all-files", ["D"])
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).not.toMatch(/^D -.*beta\.txt/m)
+
+    buffer.point = buffer.text.indexOf("beta.txt")
+    diredFlagFileDeletion(buffer, diredEntryAtPoint(buffer))
+    editor.prefixArg.universalArgument()
+    const pending = editor.run("dired-unmark-all-files", [""])
+    await editor.handleKey({ name: "n", sequence: "n" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await editor.handleKey({ name: "y", sequence: "y" })
+    await pending
+    expect(buffer.text).toMatch(/^\* -.*alpha\.txt/m)
+    expect(buffer.text).not.toMatch(/^D -.*beta\.txt/m)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test("make-directory and dired + create a subdirectory", async () => {

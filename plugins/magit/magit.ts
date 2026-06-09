@@ -4,6 +4,7 @@ import { createPluginContext, type PluginContext } from "../../src/runtime/plugi
 import type { BufferModel } from "../../src/kernel/buffer"
 import { defineMode, type TextSpan } from "../../src/modes/mode"
 import { Keymap } from "../../src/kernel/keymap"
+import { nextWindowId } from "../../src/kernel/window"
 import { spawnProcess } from "../../src/platform/runtime"
 import { projectRoot } from "../project"
 
@@ -469,6 +470,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     // Show what's being committed in a split, like real magit.
     const msgWindow = editor.selectedWindowId
     editor.splitWindowBelow()
+    editor.selectWindow(nextWindowId(editor.windowLayout, editor.selectedWindowId, 1))
     const diffBuf = editor.scratch("*magit-diff: staged*", diff || "(nothing staged)\n", "magit-revision")
     diffBuf.readOnly = true
     diffBuf.point = 0
@@ -554,6 +556,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const { out } = await git(["show", "--stat", "-p", sha], root)
     const logWindow = editor.selectedWindowId
     editor.splitWindowBelow()
+    editor.selectWindow(nextWindowId(editor.windowLayout, editor.selectedWindowId, 1))
     const buf = editor.scratch(`*magit-commit: ${sha}*`, out, "magit-revision")
     buf.readOnly = true
     buf.locals.set("magit-root", root)

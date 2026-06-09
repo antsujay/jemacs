@@ -7,6 +7,11 @@ export function installXref(editor: Editor): void {
     await xrefFindDefinitionsCommand(editor, { identifier: args[0], prefixArgument })
   }, "Find the definition of the identifier at point.")
 
+  editor.command("xref-find-definitions-other-window", async ({ editor, args, prefixArgument }) => {
+    editor.displayBufferInOtherWindow(editor.currentBufferId)
+    await xrefFindDefinitionsCommand(editor, { identifier: args[0], prefixArgument })
+  }, "Find the definition of the identifier at point in another window.")
+
   editor.command("xref-go-back", ({ editor }) => {
     if (!xrefGoBack(editor)) editor.message("At start of xref history")
   }, "Go back to the previous position in xref history.")
@@ -17,6 +22,7 @@ export function installXref(editor: Editor): void {
 
   editor.key("M-.", "xref-find-definitions")
   editor.key("esc .", "xref-find-definitions")
+  editor.key("C-x 4 .", "xref-find-definitions-other-window")
   editor.key("M-,", "xref-go-back")
   editor.key("esc ,", "xref-go-back")
   editor.key("M-C-,", "xref-go-forward")

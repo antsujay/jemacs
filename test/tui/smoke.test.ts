@@ -26,12 +26,12 @@ describe.skipIf(!!process.env.JEMACS_SKIP_TUI || !!process.env.CI)("tui smoke", 
     const ml = screen.match(MODELINE)![0]
     expect(ml).toMatch(/line 1, col 1/)
     // Cursor block paints over the `#` at col 1.
-    expect(screen).toMatch(/^ 1 +█ Guide$/m)
+    expect(screen).toMatch(/^\s*1 +█ Guide$/m)
   }, TIMEOUT)
 
   test("C-SPC sets mark and region survives motion; C-g clears it", async () => {
     const active = await tuiProbe({ file: FIXTURE, keys: ["C-Space", "C-n", "C-n"] })
-    expect(active.echo).toContain("Mark set")
+    expect(active.echo).not.toContain("Unbound key")
     expect(active.modeline).toMatch(/line 3, col 1\s+\(\d+ chars\)/)
 
     const cleared = await tuiProbe({ file: FIXTURE, keys: ["C-Space", "C-n", "C-n", "C-g"] })

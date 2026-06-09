@@ -4,8 +4,14 @@ import { findBackward, findForward, isearchLazyHighlightSpans, isearchMatchSpan 
 
 test("isearchMatchSpan covers the full query at point", () => {
   const buffer = new BufferModel({ name: "x", text: "foo bar foo" })
-  buffer.point = 8
-  const span = isearchMatchSpan(buffer, { bufferId: buffer.id, string: "foo", direction: 1, startPoint: 0 })
+  buffer.point = 11
+  const span = isearchMatchSpan(buffer, {
+    bufferId: buffer.id,
+    string: "foo",
+    direction: 1,
+    startPoint: 0,
+    match: { start: 8, end: 11 },
+  })
   expect(span).toEqual({ start: 8, end: 11, face: "isearch" })
 })
 
@@ -20,8 +26,14 @@ test("findForward and findBackward locate substrings", () => {
 
 test("isearchLazyHighlightSpans paints every other match", () => {
   const buffer = new BufferModel({ name: "x", text: "foo bar foo baz foo" })
-  buffer.point = 8
-  const state = { bufferId: buffer.id, string: "foo", direction: 1 as const, startPoint: 0 }
+  buffer.point = 11
+  const state = {
+    bufferId: buffer.id,
+    string: "foo",
+    direction: 1 as const,
+    startPoint: 0,
+    match: { start: 8, end: 11 },
+  }
   expect(isearchLazyHighlightSpans(buffer, state)).toEqual([
     { start: 0, end: 3, face: "lazyHighlight" },
     { start: 16, end: 19, face: "lazyHighlight" },

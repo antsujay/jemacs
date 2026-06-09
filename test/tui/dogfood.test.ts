@@ -22,7 +22,7 @@ describe.skipIf(!!process.env.JEMACS_SKIP_TUI || !!process.env.CI)("tui/dogfood"
     expect(screen).not.toMatch(/Unbound key/)
   })
 
-  test.todo("C-s search then Enter exits and clears echo", async () => {
+  test("C-s search then Enter exits and clears echo", async () => {
     const { screen, echo } = await tuiProbe({
       file: "src/kernel/buffer.ts",
       keys: ["C-s", "moveLine", "Enter", "C-l"],

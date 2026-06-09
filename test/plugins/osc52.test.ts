@@ -89,6 +89,19 @@ describe("osc52", () => {
     expect(lastWrite()).toBe(osc52Encode("two"))
   })
 
+  test("kill-ring-save without a mark does not emit a line fallback", async () => {
+    const editor = makeEditor()
+    install(editor)
+    const buf = editor.currentBuffer
+    buf.setText("one two three", false)
+    buf.point = 4
+
+    await editor.run("kill-ring-save")
+
+    expect(buf.text).toBe("one two three")
+    expect(writeSpy).not.toHaveBeenCalled()
+  })
+
   test("does nothing when stdout is not a TTY", async () => {
     Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true })
     const editor = makeEditor()

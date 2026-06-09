@@ -10,13 +10,35 @@ import { pythonBeginningOfDefun, pythonEndOfDefun } from "../src/modes/python"
 import { spawnProcess } from "../src/platform/runtime"
 import { readKey } from "./misc"
 
-const KILL_COMMANDS = new Set(["kill-line", "kill-word", "backward-kill-word", "kill-region"])
+const KILL_COMMANDS = new Set(["kill-line", "kill-word", "backward-kill-word", "kill-region", "clipboard-kill-region"])
 
 export function install(editor: Editor, ctx?: PluginContext): void {
-  editor.command("forward-char", ({ buffer, prefixArgument }) => buffer.move(prefixArgument ?? 1), "Move point forward one character.")
-  editor.command("backward-char", ({ buffer, prefixArgument }) => buffer.move(-(prefixArgument ?? 1)), "Move point backward one character.")
-  editor.command("next-line", ({ buffer, prefixArgument }) => buffer.moveLine(prefixArgument ?? 1), "Move point down one line.")
-  editor.command("previous-line", ({ buffer, prefixArgument }) => buffer.moveLine(-(prefixArgument ?? 1)), "Move point up one line.")
+  const moveChar = (buffer: BufferModel, editor: Editor, delta: number) => {
+    const target = buffer.point + delta
+    if (target < 0) {
+      buffer.point = 0
+      editor.message("Beginning of buffer")
+      return
+    }
+    if (target > buffer.text.length) {
+      buffer.point = buffer.text.length
+      editor.message("End of buffer")
+      return
+    }
+    buffer.point = target
+  }
+
+  const moveLine = (buffer: BufferModel, editor: Editor, delta: number) => {
+    const target = buffer.lineAt(buffer.point) + delta
+    buffer.moveLine(delta)
+    if (target < 0) editor.message("Beginning of buffer")
+    else if (target >= buffer.lineCount) editor.message("End of buffer")
+  }
+
+  editor.command("forward-char", ({ buffer, editor, prefixArgument }) => moveChar(buffer, editor, prefixArgument ?? 1), "Move point forward one character.")
+  editor.command("backward-char", ({ buffer, editor, prefixArgument }) => moveChar(buffer, editor, -(prefixArgument ?? 1)), "Move point backward one character.")
+  editor.command("next-line", ({ buffer, editor, prefixArgument }) => moveLine(buffer, editor, prefixArgument ?? 1), "Move point down one line.")
+  editor.command("previous-line", ({ buffer, editor, prefixArgument }) => moveLine(buffer, editor, -(prefixArgument ?? 1)), "Move point up one line.")
   editor.command("move-beginning-of-line", ({ buffer, prefixArgument }) => {
     const arg = prefixArgument ?? 1
     if (arg !== 1) buffer.moveLine(arg - 1)
@@ -24,6 +46,10 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   }, "Move point to the beginning of the line.")
   editor.command("move-end-of-line", ({ buffer, prefixArgument }) => {
     const arg = prefixArgument ?? 1
+    if (buffer.lineAt(buffer.point) + arg - 1 < 0) {
+      buffer.point = 0
+      return
+    }
     if (arg !== 1) buffer.moveLine(arg - 1)
     buffer.moveToLineEnd()
   }, "Move point to the end of the line.")
@@ -31,16 +57,22 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.command("forward-word", ({ buffer, prefixArgument }) => {
     const n = prefixArgument ?? 1
     const dir = n < 0 ? -1 : 1
-    for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
+    for (let i = 0; i < Math.abs(n); i++) {
+      if (!moveByWord(buffer, dir)) return false
+    }
+    return true
   }, "Move point forward one word.")
   editor.command("backward-word", ({ buffer, prefixArgument }) => {
     const n = prefixArgument ?? 1
     const dir = n < 0 ? 1 : -1
-    for (let i = 0; i < Math.abs(n); i++) moveByWord(buffer, dir)
+    for (let i = 0; i < Math.abs(n); i++) {
+      if (!moveByWord(buffer, dir)) return false
+    }
+    return true
   }, "Move point backward one word.")
 
   editor.command("beginning-of-buffer", ({ buffer, prefixArgument }) => {
-    if (prefixArgument == null && !buffer.markActive) {
+    if (!buffer.markActive) {
       buffer.mark = buffer.point
       buffer.markActive = false
     }
@@ -51,7 +83,7 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     }
   }, "Set mark (without activating) and move point to the beginning of the buffer.")
   editor.command("end-of-buffer", ({ buffer, editor, prefixArgument }) => {
-    if (prefixArgument == null && !buffer.markActive) {
+    if (!buffer.markActive) {
       buffer.mark = buffer.point
       buffer.markActive = false
     }
@@ -63,11 +95,13 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     }
   }, "Set mark (without activating) and move point to the end of the buffer.")
 
-  editor.command("goto-line", async ({ buffer, editor, args }) => {
-    const value = args[0] ?? await editor.prompt("Goto line: ", "", "goto-line")
+  editor.command("goto-line", async ({ buffer, editor, args, prefixArgument }) => {
+    const value = prefixArgument ?? args[0] ?? await editor.prompt("Goto line: ", "", "goto-line")
     const line = Math.max(1, Number(value) || 1)
     const lines = buffer.text.split("\n")
     const offset = lines.slice(0, line - 1).reduce((offset, text) => offset + text.length + 1, 0)
+    buffer.setMark()
+    editor.message("Mark set")
     buffer.point = Math.min(offset, buffer.text.length)
   }, "Move point to a line number.")
 
@@ -100,8 +134,24 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     buffer.markActive = true
   }, "Set mark at end and point at beginning of buffer.")
 
-  editor.command("python-beginning-of-defun", ({ buffer }) => pythonBeginningOfDefun(buffer), "Move to the beginning of the current Python def or class.")
-  editor.command("python-end-of-defun", ({ buffer }) => pythonEndOfDefun(buffer), "Move to the end of the current Python def or class.")
+  const beginningOfDefun = ({ buffer, editor }: CommandContext) => {
+    if (buffer.mode === "python") {
+      pythonBeginningOfDefun(buffer)
+      return
+    }
+    editor.message("No defun navigation for this mode")
+  }
+  const endOfDefun = ({ buffer, editor }: CommandContext) => {
+    if (buffer.mode === "python") {
+      pythonEndOfDefun(buffer)
+      return
+    }
+    editor.message("No defun navigation for this mode")
+  }
+  editor.command("beginning-of-defun", beginningOfDefun, "Move to the beginning of the current defun.")
+  editor.command("end-of-defun", endOfDefun, "Move to the end of the current defun.")
+  editor.command("python-beginning-of-defun", beginningOfDefun, "Compatibility alias for beginning-of-defun in Python buffers.")
+  editor.command("python-end-of-defun", endOfDefun, "Compatibility alias for end-of-defun in Python buffers.")
 
   // ---- kill ring / basic editing -----------------------------------------
 
@@ -117,10 +167,16 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   let lastCommandName: string | null = null
 
   const offChanged = editor.events.on("changed", ({ reason }) => {
-    if (reason.startsWith("command:")) lastCommandName = reason.slice("command:".length)
+    if (!reason.startsWith("command:")) return
+    lastCommandName = reason.slice("command:".length)
+    if (!["yank", "yank-pop", "clipboard-yank"].includes(lastCommandName)) {
+      lastYankStart = null
+      lastYankEnd = null
+    }
   })
   ctx?.onDispose(offChanged)
   const lastCommandWasKill = () => lastCommandName != null && KILL_COMMANDS.has(lastCommandName)
+  const lastCommandWasYank = () => lastCommandName === "yank" || lastCommandName === "yank-pop" || lastCommandName === "clipboard-yank"
 
   const pushKill = (text: string, append = false, before = false) => {
     if (!text) return
@@ -134,24 +190,26 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     yankRingIndex = 0
   }
 
-  const recordYank = (buffer: BufferModel, text: string) => {
+  const killRingIndex = (delta: number) => ((delta % killRing.length) + killRing.length) % killRing.length
+
+  const recordYank = (buffer: BufferModel, text: string, ringIndex = 0) => {
     lastYankStart = buffer.point - text.length
     lastYankEnd = buffer.point
-    yankRingIndex = 0
+    buffer.mark = lastYankStart
+    buffer.markActive = false
+    yankRingIndex = ringIndex
   }
 
-  const yankPop = (buffer: BufferModel) => {
-    if (!killRing.length) return
-    yankRingIndex = (yankRingIndex + 1) % killRing.length
+  const yankPop = (buffer: BufferModel, delta: number): boolean => {
+    if (!killRing.length) return false
+    if (!lastCommandWasYank() || lastYankStart == null || lastYankEnd == null) return false
+    yankRingIndex = killRingIndex(yankRingIndex + delta)
     const text = killRing[yankRingIndex]!
-    if (lastYankStart != null && lastYankEnd != null) {
-      buffer.replaceRange(lastYankStart, lastYankEnd, text)
-      lastYankEnd = lastYankStart + text.length
-    } else {
-      buffer.insert(text)
-      lastYankStart = buffer.point - text.length
-      lastYankEnd = buffer.point
-    }
+    buffer.replaceRange(lastYankStart, lastYankEnd, text)
+    lastYankEnd = lastYankStart + text.length
+    buffer.mark = lastYankStart
+    buffer.markActive = false
+    return true
   }
 
   const killWords = (buffer: CommandContext["buffer"], n: number) => {
@@ -161,13 +219,82 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     pushKill(buffer.deleteRange(start, buffer.point), lastCommandWasKill(), dir < 0)
   }
 
-  editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument }) => {
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      const pbcopy = spawnProcess({ cmd: ["pbcopy"], stdin: "pipe" })
+      pbcopy.stdin?.write(text)
+      pbcopy.stdin?.end()
+      return await pbcopy.exited === 0
+    } catch {
+      return false
+    }
+  }
+
+  const readFromClipboard = async (): Promise<string | null> => {
+    try {
+      const pbpaste = spawnProcess({ cmd: ["pbpaste"], stdout: "pipe" })
+      const stream = pbpaste.stdout
+      if (!stream) return null
+      const reader = stream.getReader()
+      const chunks: Uint8Array[] = []
+      let length = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) {
+          chunks.push(value)
+          length += value.length
+        }
+      }
+      const code = await pbpaste.exited
+      if (code !== 0) return null
+      const bytes = new Uint8Array(length)
+      let offset = 0
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.length
+      }
+      return new TextDecoder().decode(bytes)
+    } catch {
+      return null
+    }
+  }
+
+  const quotedKeyText = (key: CommandContext["keyEvent"], fallback?: string): string | null => {
+    if (fallback) return fallback
+    if (!key) return null
+    if (key.sequence) return key.sequence
+    if (key.ctrl && key.name.length === 1) {
+      const ch = key.name.toUpperCase()
+      const code = ch.charCodeAt(0)
+      if (code >= 64 && code <= 95) return String.fromCharCode(code - 64)
+    }
+    if (key.name === "space" && key.ctrl) return "\0"
+    if (key.name === "tab") return "\t"
+    if (key.name === "enter" || key.name === "return") return "\r"
+    if (key.name === "linefeed") return "\n"
+    if (key.name === "escape" || key.name === "esc") return "\x1b"
+    if (key.name === "backspace" || key.name === "delete") return "\x7f"
+    return null
+  }
+
+  editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument, keyEvent }) => {
     const key = editor.lastKeyEvent
-    const ch = args[0] ?? key?.sequence
-    if (!ch) return
-    const text = ch.repeat(Math.max(1, Math.abs(prefixArgument ?? 1)))
-    if (editor.quotedInsertNext) {
+    const quoted = editor.quotedInsertNext
+    const ch = quoted ? quotedKeyText(keyEvent ?? key, args[0]) : args[0] ?? key?.sequence
+    const count = quoted ? editor.quotedInsertCount : prefixArgument ?? 1
+    if (quoted) {
       editor.quotedInsertNext = false
+      editor.quotedInsertCount = 1
+    }
+    if (!ch) return
+    if (quoted && count <= 0) return
+    if (count < 0) {
+      editor.message(`Negative repetition argument ${count}`)
+      return
+    }
+    const text = ch.repeat(count)
+    if (quoted) {
       if (editor.minibuffer) await editor.minibufferInsert(text)
       else buffer.insert(text)
       return
@@ -177,29 +304,44 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     else buffer.insert(text)
   }, "Insert the character you type.")
 
-  editor.command("newline", ({ buffer }) => buffer.insert("\n"), "Insert a newline at point.")
+  editor.command("newline", ({ buffer, editor, prefixArgument }) => {
+    const count = prefixArgument ?? 1
+    if (count < 0) {
+      editor.message("Repetition argument has to be non-negative")
+      return
+    }
+    if (count === 0) {
+      buffer.moveToLineStart()
+      return
+    }
+    buffer.insert("\n".repeat(count))
+  }, "Insert a newline at point.")
 
-  editor.command("open-line", ({ buffer }) => {
-    buffer.insert("\n")
-    buffer.move(-1)
+  editor.command("open-line", ({ buffer, editor, prefixArgument }) => {
+    const count = prefixArgument ?? 1
+    if (count < 0) {
+      editor.message("Repetition argument has to be non-negative")
+      return
+    }
+    buffer.insert("\n".repeat(count))
+    buffer.move(-count)
   }, "Insert a newline after point without moving point.")
 
-  editor.command("transpose-chars", ({ buffer }) => {
-    if (buffer.point >= buffer.text.length) buffer.move(-1)
-    if (buffer.point < 1) return
-    const i = buffer.point
-    const text = buffer.text
-    buffer.replaceRange(i - 1, i + 1, text[i]! + text[i - 1]!)
+  editor.command("transpose-chars", ({ buffer, editor, prefixArgument }) => {
+    const result = transposeChars(buffer, prefixArgument)
+    if (result) editor.message(result)
   }, "Transpose the character before point with the character at point.")
 
-  editor.command("quoted-insert", ({ editor }) => {
+  editor.command("quoted-insert", ({ editor, prefixArgument }) => {
     editor.quotedInsertNext = true
+    editor.quotedInsertCount = prefixArgument ?? 1
     editor.message("Quoted insert — type a character")
   }, "Read the next input event and insert it literally.")
 
-  editor.command("delete-char", ({ buffer, prefixArgument }) => {
+  editor.command("delete-char", ({ buffer, editor, prefixArgument }) => {
     if (buffer.deleteActiveRegion()) return
-    repeat(prefixArgument, () => buffer.deleteForward(), () => buffer.deleteBackward())
+    const error = deleteChars(buffer, prefixArgument ?? 1)
+    if (error) editor.message(error)
   }, "Delete the character after point (or the active region).")
 
   editor.command("delete-backward-char", async ({ buffer, editor, prefixArgument }) => {
@@ -214,7 +356,8 @@ export function install(editor: Editor, ctx?: PluginContext): void {
       return
     }
     if (buffer.deleteActiveRegion()) return
-    repeat(prefixArgument, () => buffer.deleteBackward(), () => buffer.deleteForward())
+    const error = deleteChars(buffer, -(prefixArgument ?? 1))
+    if (error) editor.message(error)
   }, "Delete the character before point (or the active region).")
 
   editor.command("newline-and-indent", ({ editor, buffer }) => {
@@ -227,7 +370,8 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   }, "Complete the symbol at point, or indent the current line.")
 
   editor.command("undo", ({ buffer }) => buffer.undo(), "Undo the last text edit.")
-  editor.command("redo", ({ buffer }) => buffer.redo(), "Redo the last undone text edit.")
+  editor.command("undo-redo", ({ buffer }) => buffer.redo(), "Redo the last undone text edit.")
+  editor.command("redo", ({ buffer }) => buffer.redo(), "Compatibility alias for undo-redo.")
 
   editor.command("kill-line", ({ buffer, prefixArgument }) => {
     const append = lastCommandWasKill()
@@ -247,32 +391,70 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.command("kill-word", ({ buffer, prefixArgument }) => killWords(buffer, prefixArgument ?? 1), "Kill the word after point.")
   editor.command("backward-kill-word", ({ buffer, prefixArgument }) => killWords(buffer, -(prefixArgument ?? 1)), "Kill the word before point.")
 
-  editor.command("kill-region", ({ buffer }) => {
-    if (buffer.mark == null || buffer.mark === buffer.point) {
-      const line = buffer.lineBoundsAt()
-      const end = line.end < buffer.text.length ? line.end + 1 : line.end
-      pushKill(buffer.deleteRange(line.start, end))
+  editor.command("kill-region", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
       return
     }
     pushKill(buffer.deleteRange(buffer.mark, buffer.point))
     buffer.clearMark()
-  }, "Kill the active region, or the current line when no region is active.")
+  }, "Kill the text between point and mark.")
 
   editor.command("kill-ring-save", ({ buffer, editor }) => {
-    const selected = buffer.selectedText() || buffer.lineBoundsAt().text + (buffer.lineBoundsAt().end < buffer.text.length ? "\n" : "")
-    pushKill(selected)
-    editor.message(buffer.selectedText() ? "Copied region" : "Copied line")
-  }, "Copy the active region, or the current line when no region is active.")
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
+      return
+    }
+    pushKill(buffer.selectedText())
+    buffer.markActive = false
+    editor.message("Copied region")
+  }, "Copy the text between point and mark to the kill ring.")
 
-  editor.command("yank", ({ buffer }) => {
-    const text = killRing[yankRingIndex]
+  editor.command("clipboard-kill-ring-save", async ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
+      return
+    }
+    const text = buffer.selectedText()
+    pushKill(text)
+    buffer.markActive = false
+    const copied = await copyToClipboard(text)
+    editor.message(copied ? "Copied region to clipboard" : "Copied region")
+  }, "Copy the region to the kill ring and system clipboard.")
+
+  editor.command("clipboard-kill-region", async ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("The mark is not set now, so there is no region")
+      return
+    }
+    const text = buffer.deleteRange(buffer.mark, buffer.point)
+    pushKill(text)
+    buffer.clearMark()
+    const copied = await copyToClipboard(text)
+    editor.message(copied ? "Killed region to clipboard" : "Killed region")
+  }, "Kill the region and save it to the system clipboard.")
+
+  editor.command("yank", ({ buffer, prefixArgument }) => {
+    if (!killRing.length) return
+    const ringIndex = killRingIndex((prefixArgument ?? 1) - 1)
+    const text = killRing[ringIndex]
+    if (!text) return
+    buffer.insert(text)
+    recordYank(buffer, text, ringIndex)
+  }, "Insert the last killed text at point.")
+
+  editor.command("clipboard-yank", async ({ buffer }) => {
+    const text = await readFromClipboard() || killRing[yankRingIndex]
     if (!text) return
     buffer.insert(text)
     recordYank(buffer, text)
-  }, "Insert the last killed text at point.")
+  }, "Insert the clipboard contents, or the last stretch of killed text.")
 
-  editor.command("yank-pop", ({ buffer, editor }) => {
-    yankPop(buffer)
+  editor.command("yank-pop", ({ buffer, editor, prefixArgument }) => {
+    if (!yankPop(buffer, prefixArgument ?? 1)) {
+      editor.message("Previous command was not a yank")
+      return
+    }
     editor.message("Yank pop")
   }, "Replace the last yank with the next item on the kill ring.")
 
@@ -281,10 +463,101 @@ export function install(editor: Editor, ctx?: PluginContext): void {
       editor.message("Mark must be set for rectangle command")
       return
     }
-    const killed = killRectangle(buffer)
+    const killed = extractRectangle(buffer, true)
     pushKill(killed)
     editor.message("Killed rectangle")
   }, "Kill the text in the rectangle defined by point and mark.")
+
+  editor.command("copy-rectangle-as-kill", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    pushKill(extractRectangle(buffer, false))
+    buffer.markActive = false
+    editor.message("Copied rectangle")
+  }, "Copy the region-rectangle and save it as the last killed one.")
+
+  editor.command("copy-rectangle-to-register", async ({ buffer, editor, args, prefixArgument }) => {
+    const register = args[0] ?? await editor.prompt("Copy rectangle to register: ", "", "register")
+    if (!register) return
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    const rectangle = extractRectangle(buffer, prefixArgument != null)
+    editor.registers.set(register, { kind: "rectangle", lines: rectangle.split("\n") })
+    editor.message(`Copied rectangle to register ${register}`)
+  }, "Copy rectangular region into register; with prefix arg, delete it.")
+
+  editor.command("delete-rectangle", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    replaceRectangle(buffer, "delete")
+    editor.message("Deleted rectangle")
+  }, "Delete text in the region-rectangle.")
+
+  editor.command("clear-rectangle", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    replaceRectangle(buffer, "clear")
+    editor.message("Cleared rectangle")
+  }, "Blank out the region-rectangle.")
+
+  editor.command("open-rectangle", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    replaceRectangle(buffer, "open")
+    editor.message("Opened rectangle")
+  }, "Blank out the region-rectangle, shifting text right.")
+
+  editor.command("string-rectangle", async ({ buffer, editor, args }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    const string = args[0] ?? await editor.prompt("String rectangle: ", "", "rectangle")
+    if (string == null) return
+    replaceRectangle(buffer, "string", string)
+    editor.message("Replaced rectangle")
+  }, "Replace rectangle contents with STRING on each line.")
+
+  editor.command("string-insert-rectangle", async ({ buffer, editor, args }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    const string = args[0] ?? await editor.prompt("String insert rectangle: ", "", "rectangle")
+    if (string == null) return
+    replaceRectangle(buffer, "insert", string)
+    editor.message("Inserted string rectangle")
+  }, "Insert STRING on each line of the region-rectangle.")
+
+  editor.command("rectangle-number-lines", async ({ buffer, editor, args, prefixArgument }) => {
+    if (buffer.mark == null) {
+      editor.message("Mark must be set for rectangle command")
+      return
+    }
+    const startInput = args[0] ?? (prefixArgument != null ? await editor.prompt("Number to count from: ", "1", "rectangle-number") : "1")
+    if (startInput == null) return
+    const startAt = Number(startInput)
+    if (!Number.isFinite(startAt)) {
+      editor.message(`Invalid number: ${startInput}`)
+      return
+    }
+    const rect = rectangleBounds(buffer)
+    const defaultFormat = defaultRectangleLineNumberFormat(rect, startAt)
+    const format = args[1] ?? (prefixArgument != null ? await editor.prompt("Format string: ", defaultFormat, "rectangle-number") : defaultFormat)
+    if (format == null) return
+    numberRectangle(buffer, Number.isFinite(startAt) ? startAt : 1, format)
+    editor.message("Numbered rectangle")
+  }, "Insert numbers in front of the region-rectangle.")
 
   editor.command("yank-rectangle", ({ buffer, editor }) => {
     const text = killRing[yankRingIndex]
@@ -295,13 +568,18 @@ export function install(editor: Editor, ctx?: PluginContext): void {
 
   editor.command("copy-region-to-clipboard-mac", async ({ buffer, editor }) => {
     const text = buffer.selectedText() || buffer.lineBoundsAt().text
-    const pbcopy = spawnProcess({ cmd: ["pbcopy"], stdin: "pipe" })
-    pbcopy.stdin?.write(text)
-    pbcopy.stdin?.end()
-    await pbcopy.exited
+    const copied = await copyToClipboard(text)
     pushKill(text)
-    editor.message("Copied text to clipboard")
+    editor.message(copied ? "Copied text to clipboard" : "Copied text")
   }, "Copy region or current line to the macOS clipboard.")
+
+  editor.command("downcase-region", ({ buffer, editor }) => {
+    if (buffer.mark == null) {
+      editor.message("No mark set in this buffer")
+      return
+    }
+    replaceRegionText(buffer, text => text.toLowerCase())
+  }, "Convert the region to lower case.")
 
   editor.command("replace-string", async ({ buffer, editor, args }) => {
     const from = args[0] ?? await editor.prompt("Replace string: ", "", "replace")
@@ -382,6 +660,8 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.key("M-b", "backward-word")
   editor.key("M-<", "beginning-of-buffer")
   editor.key("M->", "end-of-buffer")
+  editor.key("C-M-a", "beginning-of-defun")
+  editor.key("C-M-e", "end-of-defun")
   for (const key of ["home", "kp-home", "C-home", "begin"]) editor.key(key, "beginning-of-buffer")
   for (const key of ["end", "kp-end", "C-end"]) editor.key(key, "end-of-buffer")
   for (const key of ["prior", "kp-prior", "pageup"]) editor.key(key, "scroll-down-command")
@@ -411,17 +691,24 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.key("C-k", "kill-line")
   editor.key("M-d", "kill-word")
   editor.key("M-backspace", "backward-kill-word")
-  editor.key("M-h", "backward-kill-word")
   editor.key("C-w", "kill-region")
   editor.key("M-w", "kill-ring-save")
   editor.key("C-y", "yank")
   editor.key("M-y", "yank-pop")
   editor.key("C-x r k", "kill-rectangle")
+  editor.key("C-x r M-w", "copy-rectangle-as-kill")
+  editor.key("C-x r r", "copy-rectangle-to-register")
+  editor.key("C-x r d", "delete-rectangle")
+  editor.key("C-x r c", "clear-rectangle")
+  editor.key("C-x r o", "open-rectangle")
+  editor.key("C-x r t", "string-rectangle")
+  editor.key("C-x r N", "rectangle-number-lines")
   editor.key("C-x r y", "yank-rectangle")
 
   editor.key("C-_", "undo")
   editor.key("C-/", "undo")
   editor.key("C-x u", "undo")
+  editor.key("C-x C-l", "downcase-region")
 
   editor.key("C-c r", "replace-string")
   editor.key("M-%", "query-replace")
@@ -459,6 +746,43 @@ function repeat(prefixArgument: number | null, fwd: () => void, bwd?: () => void
   for (let i = 0; i < Math.abs(n); i++) fn()
 }
 
+function deleteChars(buffer: BufferModel, count: number): string | null {
+  if (count === 0) return null
+  if (count > 0) {
+    if (buffer.point + count > buffer.text.length) return "End of buffer"
+    buffer.deleteRange(buffer.point, buffer.point + count)
+    return null
+  }
+  if (buffer.point + count < 0) return "Beginning of buffer"
+  buffer.deleteRange(buffer.point + count, buffer.point)
+  return null
+}
+
+function transposeChars(buffer: BufferModel, prefixArgument: number | null): string | null {
+  if (prefixArgument === 0) return "No mark set in this buffer"
+  if (buffer.point < 1) return "Beginning of buffer"
+  const text = buffer.text
+  if (prefixArgument == null) {
+    const point = buffer.point >= text.length ? buffer.point - 1 : buffer.point
+    if (point < 1) return "Beginning of buffer"
+    const pair = text.slice(point - 1, point + 1)
+    if (pair.length < 2) return "End of buffer"
+    buffer.replaceRange(point - 1, point + 1, pair[1]! + pair[0]!)
+    return null
+  }
+
+  const from = buffer.point - 1
+  const to = from + prefixArgument
+  if (to < 0) return "Beginning of buffer"
+  if (to >= text.length) return "End of buffer"
+  const ch = text[from]!
+  const without = text.slice(0, from) + text.slice(from + 1)
+  const replaced = without.slice(0, to) + ch + without.slice(to)
+  buffer.setText(replaced, true)
+  buffer.point = to + 1
+  return null
+}
+
 /** Offset of the start of the line `n` lines after (n>0) or before (n<=0) `from`. */
 function nthLineBoundary(text: string, from: number, n: number): number {
   if (n > 0) {
@@ -475,7 +799,83 @@ function nthLineBoundary(text: string, from: number, n: number): number {
   return Math.max(0, pos)
 }
 
-function killRectangle(buffer: BufferModel): string {
+function extractRectangle(buffer: BufferModel, deleteFlag: boolean): string {
+  const rect = rectangleBounds(buffer)
+  const chunks = rect.lines.slice(rect.startLine, rect.endLine + 1)
+    .map(text => text.slice(rect.colA, rect.colB))
+  const killed = chunks.join("\n")
+  if (!deleteFlag) return killed
+  replaceRectangle(buffer, "delete")
+  return killed
+}
+
+type RectangleEditMode = "delete" | "clear" | "open" | "string" | "insert"
+
+function replaceRectangle(buffer: BufferModel, mode: RectangleEditMode, replacement = ""): void {
+  const start = Math.min(buffer.mark ?? buffer.point, buffer.point)
+  const rect = rectangleBounds(buffer)
+  const width = Math.max(0, rect.colB - rect.colA)
+  const rebuilt = rect.lines.map((text, line) => {
+    if (line < rect.startLine || line > rect.endLine) return text
+    const before = text.slice(0, rect.colA)
+    const after = text.slice(mode === "open" || mode === "insert" ? rect.colA : rect.colB)
+    if (mode === "delete") return before + after
+    if (mode === "clear") return before + " ".repeat(width) + after
+    if (mode === "open") return before + " ".repeat(width) + after
+    return before + replacement + after
+  }).join("\n")
+  buffer.setText(rebuilt, true)
+  buffer.point = start
+  buffer.clearMark()
+}
+
+function replaceRegionText(buffer: BufferModel, transform: (text: string) => string): void {
+  if (buffer.mark == null) return
+  const point = buffer.point
+  const mark = buffer.mark
+  const markActive = buffer.markActive
+  const start = Math.min(mark, point)
+  const end = Math.max(mark, point)
+  const replacement = transform(buffer.text.slice(start, end))
+  buffer.replaceRange(start, end, replacement)
+  buffer.point = Math.min(point, buffer.text.length)
+  buffer.mark = Math.min(mark, buffer.text.length)
+  buffer.markActive = markActive
+}
+
+function numberRectangle(buffer: BufferModel, startAt: number, format: string): void {
+  const start = Math.min(buffer.mark ?? buffer.point, buffer.point)
+  const rect = rectangleBounds(buffer)
+  const rebuilt = rect.lines.map((text, line) => {
+    if (line < rect.startLine || line > rect.endLine) return text
+    const value = formatNumber(format, startAt + line - rect.startLine)
+    const padded = text.length < rect.colA ? text + " ".repeat(rect.colA - text.length) : text
+    return padded.slice(0, rect.colA) + value + padded.slice(rect.colA)
+  }).join("\n")
+  buffer.setText(rebuilt, true)
+  buffer.point = start
+  buffer.clearMark()
+}
+
+function defaultRectangleLineNumberFormat(rect: { startLine: number; endLine: number }, startAt: number): string {
+  const last = Math.trunc(startAt) + (rect.endLine - rect.startLine)
+  return `%${String(last).length}d `
+}
+
+function formatNumber(format: string, value: number): string {
+  return format
+    .replace(/%%/g, "\0")
+    .replace(/%([0 ]?)(\d*)d/g, (_match, flag: string, widthText: string) => {
+      const text = String(value)
+      const width = Number(widthText || 0)
+      if (text.length >= width) return text
+      const padding = (flag === "0" ? "0" : " ").repeat(width - text.length)
+      return padding + text
+    })
+    .replace(/\0/g, "%")
+}
+
+function rectangleBounds(buffer: BufferModel): { startLine: number; endLine: number; colA: number; colB: number; lines: string[] } {
   const start = Math.min(buffer.mark ?? buffer.point, buffer.point)
   const end = Math.max(buffer.mark ?? buffer.point, buffer.point)
   const startLine = buffer.text.slice(0, start).split("\n").length - 1
@@ -485,20 +885,7 @@ function killRectangle(buffer: BufferModel): string {
   const colA = Math.min(startCol, endCol)
   const colB = Math.max(startCol, endCol)
   const lines = buffer.text.split("\n")
-  const chunks: string[] = []
-  for (let line = startLine; line <= endLine; line++) {
-    const text = lines[line] ?? ""
-    chunks.push(text.slice(colA, colB))
-  }
-  const killed = chunks.join("\n")
-  const rebuilt = lines.map((text, line) => {
-    if (line < startLine || line > endLine) return text
-    return text.slice(0, colA) + text.slice(colB)
-  }).join("\n")
-  buffer.setText(rebuilt, true)
-  buffer.point = start
-  buffer.clearMark()
-  return killed
+  return { startLine, endLine, colA, colB, lines }
 }
 
 function yankRectangle(buffer: BufferModel, rectangle: string): void {
@@ -518,16 +905,28 @@ function yankRectangle(buffer: BufferModel, rectangle: string): void {
 /** Unicode-aware word motion so non-ASCII letters and combining marks are
  *  word constituents (e.g. NFD `café`). Defers to `buffer.moveWord` when a
  *  mode (e.g. subword-mode) has overridden the word regexps. */
-function moveByWord(buffer: CommandContext["buffer"], dir: 1 | -1): void {
+function moveByWord(buffer: CommandContext["buffer"], dir: 1 | -1): boolean {
   if (buffer.locals.has("word-forward-regexp") || buffer.locals.has("word-backward-regexp")) {
+    const before = buffer.point
     buffer.moveWord(dir)
-    return
+    return buffer.point !== before
   }
   if (dir > 0) {
     const m = /[\p{L}\p{M}\p{N}_]+/u.exec(buffer.text.slice(buffer.point))
-    buffer.point = m ? buffer.point + m.index + m[0].length : buffer.text.length
+    if (!m) {
+      buffer.point = buffer.text.length
+      return false
+    }
+    buffer.point = buffer.point + m.index + m[0].length
+    return true
   } else {
     const matches = [...buffer.text.slice(0, buffer.point).matchAll(/[\p{L}\p{M}\p{N}_]+/gu)]
-    buffer.point = matches.at(-1)?.index ?? 0
+    const match = matches.at(-1)
+    if (!match) {
+      buffer.point = 0
+      return false
+    }
+    buffer.point = match.index
+    return true
   }
 }

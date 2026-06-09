@@ -12,8 +12,17 @@ test("GNU standard keys from emacs-standard are bound", () => {
   expect(editor.keymap.get("C-x k")).toBe("kill-buffer")
   expect(editor.keymap.get("M-g g")).toBe("goto-line")
   expect(editor.keymap.get("C-x r SPC")).toBe("point-to-register")
+  expect(editor.keymap.get("C-x left")).toBe("previous-buffer")
+  expect(editor.keymap.get("C-x C-left")).toBe("previous-buffer")
+  expect(editor.keymap.get("C-x right")).toBe("next-buffer")
+  expect(editor.keymap.get("C-x C-right")).toBe("next-buffer")
+  expect(editor.keymap.get("C-x C-j")).toBe("dired-jump")
+  expect(editor.keymap.get("C-x C-l")).toBe("downcase-region")
+  expect(editor.keymap.get("C-x C-r")).toBe("find-file-read-only")
+  expect(editor.keymap.get("C-x C-e")).toBe("eval-last-sexp")
+  expect(editor.keymap.get("M-:")).toBe("eval-expression")
   expect(editor.keymap.get("C-h f")).toBe("describe-function")
-  expect(editor.keymap.get("C-h c")).toBe("describe-mode")
+  expect(editor.keymap.get("C-h c")).toBe("describe-key-briefly")
   expect(editor.keymap.get("C-h m")).toBe("describe-mode")
 })
 
@@ -64,4 +73,52 @@ test("end-of-buffer with numeric prefix uses fractional position then forward-li
 
   await editor.run("end-of-buffer")
   expect(editor.currentBuffer.point).toBe(text.length)
+})
+
+test("beginning-of-buffer and end-of-buffer with prefix set inactive mark", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const text = "one\ntwo\nthree"
+  const buffer = editor.currentBuffer
+  buffer.setText(text, false)
+
+  buffer.point = 5
+  buffer.mark = null
+  buffer.markActive = false
+  editor.prefixArg.addDigit(5)
+  await editor.run("beginning-of-buffer")
+  expect(buffer.mark as number | null).toBe(5)
+  expect(buffer.markActive).toBe(false)
+
+  buffer.point = 5
+  buffer.mark = null
+  buffer.markActive = false
+  editor.prefixArg.addDigit(5)
+  await editor.run("end-of-buffer")
+  expect(buffer.mark as number | null).toBe(5)
+  expect(buffer.markActive).toBe(false)
+})
+
+test("beginning-of-buffer and end-of-buffer with prefix preserve active mark", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const text = "one\ntwo\nthree"
+  const buffer = editor.currentBuffer
+  buffer.setText(text, false)
+
+  buffer.point = 5
+  buffer.mark = 1
+  buffer.markActive = true
+  editor.prefixArg.addDigit(5)
+  await editor.run("beginning-of-buffer")
+  expect(buffer.mark).toBe(1)
+  expect(buffer.markActive).toBe(true)
+
+  buffer.point = 5
+  buffer.mark = 1
+  buffer.markActive = true
+  editor.prefixArg.addDigit(5)
+  await editor.run("end-of-buffer")
+  expect(buffer.mark).toBe(1)
+  expect(buffer.markActive).toBe(true)
 })

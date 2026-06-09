@@ -42,6 +42,7 @@ test("balance-windows assigns split ratios by visible leaf count", async () => {
   const editor = setup()
 
   await editor.run("split-window-below")
+  await editor.run("other-window")
   await editor.run("split-window-right")
   await editor.run("balance-windows")
 
@@ -58,6 +59,7 @@ test("window plugin auto-balances after split and delete commands", async () => 
   const editor = setup()
 
   await editor.run("split-window-below")
+  await editor.run("other-window")
   await editor.run("split-window-right")
   expect(editor.windowLayout.kind).toBe("split")
   if (editor.windowLayout.kind !== "split") return
@@ -73,6 +75,7 @@ test("other-window preserves balanced split ratios", async () => {
   const editor = setup()
 
   await editor.run("split-window-below")
+  await editor.run("other-window")
   await editor.run("split-window-right")
   expect(editor.windowLayout.kind).toBe("split")
   if (editor.windowLayout.kind !== "split") return

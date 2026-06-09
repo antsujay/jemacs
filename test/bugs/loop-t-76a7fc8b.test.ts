@@ -18,7 +18,7 @@ describe("t-76a7fc8b [erro-2]: throwing fallthrough command still ends isearch",
 
     await keySeq(editor, "C-s", "t", "a", "r")
     expect(editor.isearch?.string).toBe("tar")
-    expect(buf.point).toBe(4)
+    expect(buf.point).toBe(7)
 
     // Fallthrough to a non-isearch command that throws: handleKey rejects,
     // but the try/finally in dispatchKey must end the search regardless.
@@ -40,7 +40,7 @@ describe("t-76a7fc8b [erro-2]: throwing fallthrough command still ends isearch",
     // C-s again is isearch-forward → repeat; must NOT exit.
     await keySeq(editor, "C-s")
     expect(editor.isearch).not.toBeNull()
-    expect(editor.currentBuffer.point).toBe(8)
+    expect(editor.currentBuffer.point).toBe(11)
     // C-g cancels (restores startPoint) — endIsearch must not also fire.
     await keySeq(editor, "C-g")
     expect(editor.isearch).toBeNull()
@@ -106,6 +106,6 @@ describe("t-87311a94 [Feat-1] / t-92e15670 [Feat-2]: isearch C-w and search-ring
     expect(editor.isearch?.string).toBe("")
     await keySeq(editor, "C-s") // repeat → recall ring
     expect(editor.isearch?.string).toBe("alpha")
-    expect(buf.point).toBe(0)
+    expect(buf.point).toBe(5)
   })
 })

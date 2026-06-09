@@ -6,5 +6,5 @@ test("isearch regexp mode does not leak across editors", async () => {
   expect(b.isearch?.regexp).toBeFalsy()
   await script().run("isearch-forward-regexp").done()
   await keySeq(b, ".")
-  expect(b.currentBuffer.point).toBe(1)
+  expect(b.currentBuffer.point).toBe(2)
 })

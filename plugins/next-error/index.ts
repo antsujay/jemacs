@@ -44,7 +44,7 @@ export function locationIndex(editor: Editor): number {
   return stateFor(editor).index
 }
 
-const GREP_LINE = /^(.+?):(\d+):(\d+):(.*)$/
+const GREP_LINE = /^(.+?):(\d+):(?:(\d+):)?(.*)$/
 
 export function parseGrepOutput(text: string, dir?: string): ErrorLocation[] {
   const out: ErrorLocation[] = []
@@ -55,7 +55,7 @@ export function parseGrepOutput(text: string, dir?: string): ErrorLocation[] {
     out.push({
       file: dir && !isAbsolute(file) ? resolve(dir, file) : file,
       line: Number(m[2]),
-      col: Number(m[3]),
+      col: m[3] ? Number(m[3]) : 1,
       text: m[4]!,
     })
   }
@@ -75,6 +75,65 @@ async function visit(editor: Editor, loc: ErrorLocation): Promise<BufferModel> {
   buffer.point = pointAtLineCol(buffer.text, loc.line, loc.col)
   await editor.runHook("next-error-hook", buffer)
   return buffer
+}
+
+export async function grepProject(
+  editor: Editor,
+  options: { cwd: string; pattern?: string; prompt?: string },
+): Promise<BufferModel | null> {
+  const pattern = options.pattern ?? await editor.prompt(options.prompt ?? "Search project: ", "", "search")
+  if (!pattern) return null
+  const cwd = options.cwd
+  const proc = spawnProcess({
+    cmd: ["rg", "--line-number", "--column", "--no-heading", "--", pattern],
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr] = await Promise.all([
+    proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
+    proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
+  ])
+  const exit = await proc.exited
+  const text = exit === 0 || stdout ? stdout : stderr
+  return grepBuffer(editor, text, cwd)
+}
+
+async function grepBuffer(editor: Editor, text: string, cwd: string): Promise<BufferModel> {
+  const locations = parseGrepOutput(text, cwd)
+  setLocationList(editor, locations)
+  const buf = editor.scratch("*grep*", text || "No matches\n", "grep")
+  buf.kind = "grep"
+  buf.locals.set("default-directory", cwd)
+  const byLine = new Map<number, ErrorLocation>()
+  let li = 0, i = 0
+  for (const raw of text.split("\n")) {
+    li++
+    if (GREP_LINE.test(raw)) byLine.set(li, locations[i++]!)
+  }
+  buf.locals.set("next-error-locations", byLine)
+  editor.message(locations.length ? `Found ${locations.length} matches` : "No matches")
+  return buf
+}
+
+async function runGrepCommand(editor: Editor, command: string, cwd: string): Promise<BufferModel> {
+  const proc = spawnProcess({
+    cmd: ["sh", "-c", command],
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr] = await Promise.all([
+    proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
+    proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
+  ])
+  const exit = await proc.exited
+  const text = exit === 0 || stdout ? stdout : stderr
+  return grepBuffer(editor, text, cwd)
+}
+
+function currentDirectory(buffer: BufferModel): string {
+  return buffer.directory() ?? process.cwd()
 }
 
 async function nextError(editor: Editor, n: number, reset: boolean): Promise<void> {
@@ -140,7 +199,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       loc = {
         file: isAbsolute(file) ? file : resolve(dir, file),
         line: Number(m[2]),
-        col: Number(m[3]),
+        col: m[3] ? Number(m[3]) : 1,
         text: m[4]!,
       }
     }
@@ -151,12 +210,30 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   }, "Visit the source for the grep/compile match at point.")
 
   editor.command("counsel-ag", async ({ editor, buffer, args }) => {
-    const pattern = args[0] ?? await editor.prompt("Search project: ", "", "search")
-    if (!pattern) return
     const cwd = buffer.path ? await findProjectRoot(buffer.path) : process.cwd()
+    await grepProject(editor, { cwd, pattern: args[0], prompt: "Search project: " })
+  }, "Search the project with ripgrep and populate the location list.")
+
+  editor.command("grep", async ({ editor, buffer, args }) => {
+    const cwd = currentDirectory(buffer)
+    const command = args[0] ?? await editor.prompt("Run grep (like this): ", "grep -nH -e  *", "grep-command")
+    if (!command) return
+    await runGrepCommand(editor, command, cwd)
+  }, "Run Grep with user-specified COMMAND-ARGS.")
+
+  editor.command("rgrep", async ({ editor, buffer, args }) => {
+    const regexp = args[0] ?? await editor.prompt("Search for: ", "", "grep-regexp")
+    if (!regexp) return
+    const files = args[1] ?? await editor.prompt(`Search for "${regexp}" in files: `, "*", "grep-files")
+    if (!files) return
+    const dirInput = args[2] ?? await editor.prompt("Base directory: ", currentDirectory(buffer), "grep-dir")
+    if (!dirInput) return
+    const dir = resolve(dirInput)
+    if (!dir) return
+    const globArgs = files === "*" ? [] : ["--glob", files]
     const proc = spawnProcess({
-      cmd: ["rg", "--line-number", "--column", "--no-heading", "--", pattern],
-      cwd,
+      cmd: ["rg", "--line-number", "--column", "--no-heading", ...globArgs, "--", regexp],
+      cwd: dir,
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -165,21 +242,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
     ])
     const exit = await proc.exited
-    const text = exit === 0 || stdout ? stdout : stderr
-    const locations = parseGrepOutput(text, cwd)
-    setLocationList(editor, locations)
-    const buf = editor.scratch("*grep*", text || "No matches\n", "grep")
-    buf.kind = "grep"
-    buf.locals.set("default-directory", cwd)
-    const byLine = new Map<number, ErrorLocation>()
-    let li = 0, i = 0
-    for (const raw of text.split("\n")) {
-      li++
-      if (GREP_LINE.test(raw)) byLine.set(li, locations[i++]!)
-    }
-    buf.locals.set("next-error-locations", byLine)
-    editor.message(locations.length ? `Found ${locations.length} matches` : "No matches")
-  }, "Search the project with ripgrep and populate the location list.")
+    await grepBuffer(editor, exit === 0 || stdout ? stdout : stderr, dir)
+  }, "Recursively grep for REGEXP in FILES in directory tree rooted at DIR.")
 
   editor.key("M-g n", "next-error")
   editor.key("M-g M-n", "next-error")

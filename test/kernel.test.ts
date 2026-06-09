@@ -10,7 +10,9 @@ import { getTextScaleAmount, textScaleFactor } from "../src/core/text-scale"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { install as installStephenConfig } from "./fixtures/stephen-config"
 import { defaultTheme } from "../src/themes"
+import { getCustom, resetCustom } from "../src/runtime/custom"
 import { pageScrollLines, visibleStyledText, visibleText } from "../src/ui/opentui"
+import { diredEntryAtPoint } from "../src/modes/dired"
 import { registerTreeSitterGrammars } from "../plugins/tree-sitter-grammars"
 
 // Tree-sitter grammars are an opt-in plugin; register them for the font-lock
@@ -54,7 +56,7 @@ test("tab key encodings map to Emacs-style window cycle bindings", () => {
   expect(keyToken({ name: "tab", ctrl: true, shift: true, raw: "\x1b[57346;6u" })).toBe("C-S-tab")
 
   expect(editor.keymap.get("C-tab")).toBe("other-window")
-  expect(editor.keymap.get("C-S-tab")).toBe("other-window-backward")
+  expect(editor.keymap.get("C-S-tab")).toBe("previous-window-any-frame")
 
   const fed = editor.keymaps.feed({ name: "tab", ctrl: true })
   expect(fed.status).toBe("matched")
@@ -89,6 +91,50 @@ test("editor messages return their text for eval feedback", async () => {
 
   await expect(evaluator.evalExpression('editor.message("hello")')).resolves.toBe("hello")
   expect([...editor.buffers.values()].find(b => b.name === "*messages*")?.text).toContain("hello")
+})
+
+test("eval-last-sexp evaluates the expression before point", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.currentBuffer.setText("1 + 1;\nMath.max(4, 9)", false)
+  editor.currentBuffer.point = editor.currentBuffer.text.length
+
+  await editor.run("eval-last-sexp")
+
+  expect(messages.at(-1)).toBe("Eval => 9")
+})
+
+test("eval-last-sexp reports user errors like eval-region", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  let echoed = ""
+  editor.events.on("message", ({ text }) => { echoed = text })
+  editor.currentBuffer.setText("1 + 1;\n(() => { throw new Error('sexp-boom') })()", false)
+  editor.currentBuffer.point = editor.currentBuffer.text.length
+
+  await editor.run("eval-last-sexp")
+
+  expect(echoed).toBe("Eval error: sexp-boom")
+  const backtrace = [...editor.buffers.values()].find(b => b.name === "*Backtrace*")
+  expect(backtrace?.text).toContain("sexp-boom")
+})
+
+test("commands clear stale echo unless they replace it", async () => {
+  const editor = new Editor()
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.command("noop", () => {})
+  editor.command("say-new", ({ editor }) => { editor.message("new") })
+
+  editor.message("old")
+  await editor.run("noop")
+  expect(messages.at(-1)).toBe("")
+
+  editor.message("old")
+  await editor.run("say-new")
+  expect(messages.at(-1)).toBe("new")
 })
 
 test("buffer supports emacs-style movement primitives", () => {
@@ -175,6 +221,219 @@ test("default emacs keybindings are registered and runnable", async () => {
   expect(editor.keymaps.feed({ name: "x" })).toMatchObject({ status: "matched", command: "execute-extended-command" })
 })
 
+test("forward-char and backward-char report Emacs boundary errors", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("ab", false)
+  buffer.point = 1
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("forward-char")
+  expect(buffer.point).toBe(2)
+  expect(messages.at(-1)).toBe("End of buffer")
+
+  buffer.point = 1
+  editor.prefixArg.addDigit(3)
+  await editor.run("backward-char")
+  expect(buffer.point).toBe(0)
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+})
+
+test("forward-char and backward-char honor negative prefixes at boundaries", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("ab", false)
+  buffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  await editor.run("forward-char")
+  expect(buffer.point).toBe(0)
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+
+  buffer.point = 1
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  await editor.run("backward-char")
+  expect(buffer.point).toBe(2)
+  expect(messages.at(-1)).toBe("End of buffer")
+})
+
+test("next-line and previous-line report Emacs boundary errors", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("a\nb\nc", false)
+  buffer.point = 2
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("next-line")
+  expect(buffer.lineCol().line).toBe(3)
+  expect(messages.at(-1)).toBe("End of buffer")
+
+  buffer.point = 2
+  editor.prefixArg.addDigit(3)
+  await editor.run("previous-line")
+  expect(buffer.lineCol().line).toBe(1)
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+})
+
+test("next-line and previous-line honor negative prefixes at boundaries", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("a\nb\nc", false)
+  buffer.point = 2
+
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  await editor.run("next-line")
+  expect(buffer.lineCol().line).toBe(1)
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+
+  buffer.point = 2
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  await editor.run("previous-line")
+  expect(buffer.lineCol().line).toBe(3)
+  expect(messages.at(-1)).toBe("End of buffer")
+})
+
+test("move-end-of-line negative prefix stops at buffer start when it overshoots", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("aa\nbb\ncc\ndd", false)
+  buffer.point = 6
+
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(2)
+  await editor.run("move-end-of-line")
+  expect(buffer.point).toBe(0)
+})
+
+test("move-end-of-line zero prefix moves to previous line end", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("aa\nbb\ncc", false)
+  buffer.point = 3
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("move-end-of-line")
+  expect(buffer.point).toBe(2)
+})
+
+test("forward-word and backward-word return false when reaching buffer edge", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("one two", false)
+  buffer.point = 4
+
+  expect(await editor.run("forward-word")).toBe(true)
+  expect(buffer.point).toBe(7)
+
+  buffer.point = 4
+  editor.prefixArg.addDigit(3)
+  expect(await editor.run("forward-word")).toBe(false)
+  expect(buffer.point).toBe(7)
+
+  buffer.point = 4
+  expect(await editor.run("backward-word")).toBe(true)
+  expect(buffer.point).toBe(0)
+
+  buffer.point = 4
+  editor.prefixArg.addDigit(3)
+  expect(await editor.run("backward-word")).toBe(false)
+  expect(buffer.point).toBe(0)
+})
+
+test("forward-word and backward-word preserve negative-prefix return semantics", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("one two", false)
+  buffer.point = 4
+
+  editor.prefixArg.toggleNegative()
+  expect(await editor.run("forward-word")).toBe(true)
+  expect(buffer.point).toBe(0)
+
+  buffer.point = 4
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(3)
+  expect(await editor.run("backward-word")).toBe(false)
+  expect(buffer.point).toBe(7)
+})
+
+test("goto-line uses numeric prefix and sets mark before moving", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("a\nb\nc\nd", false)
+  buffer.point = 2
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("goto-line")
+  expect(buffer.point).toBe(4)
+  expect(buffer.mark).toBe(2)
+  expect(buffer.markActive).toBe(true)
+})
+
+test("goto-line clamps zero and negative prefixes to line one", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("a\nb\nc", false)
+  buffer.point = buffer.text.length
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("goto-line")
+  expect(buffer.point).toBe(0)
+  expect(buffer.mark).toBe(5)
+
+  buffer.point = buffer.text.length
+  editor.prefixArg.toggleNegative()
+  await editor.run("goto-line")
+  expect(buffer.point).toBe(0)
+  expect(buffer.mark).toBe(5)
+})
+
+test("set-fill-column is the C-x f command and updates fill-column", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  resetCustom("fill-column")
+  editor.currentBuffer.setText("abc\ndef", false)
+  editor.currentBuffer.point = 5
+
+  expect(getCustom<number>("fill-column")).toBe(70)
+  expect(editor.commands.get("set-fill-column")?.interactive).toBe(true)
+  expect(editor.keymap.get("C-x f")).toBe("set-fill-column")
+
+  expect(await editor.run("set-fill-column")).toBe(1)
+  expect(editor.currentBuffer.locals.get("fill-column")).toBe(1)
+  expect(getCustom<number>("fill-column")).toBe(70)
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "1" })
+  await editor.handleKey({ name: "2" })
+  await editor.handleKey({ name: "x", ctrl: true })
+  await editor.handleKey({ name: "f" })
+  expect(editor.currentBuffer.locals.get("fill-column")).toBe(12)
+  expect(getCustom<number>("fill-column")).toBe(70)
+})
+
 test("universal argument repeats motion, insertion, and deletion commands", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
@@ -192,6 +451,85 @@ test("universal argument repeats motion, insertion, and deletion commands", asyn
   await editor.handleKey({ name: "u", ctrl: true })
   await editor.handleKey({ name: "backspace", meta: true })
   expect(editor.currentBuffer.text).toBe("ef")
+})
+
+test("self-insert-command with zero prefix inserts nothing", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.addDigit(0)
+  await editor.handleKey({ name: "x", sequence: "x" })
+  expect(editor.currentBuffer.text).toBe("ab")
+  expect(editor.currentBuffer.point).toBe(1)
+})
+
+test("self-insert-command rejects negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  await editor.handleKey({ name: "x", sequence: "x" })
+  expect(editor.currentBuffer.text).toBe("ab")
+  expect(editor.currentBuffer.point).toBe(1)
+  expect(messages.at(-1)).toBe("Negative repetition argument -1")
+})
+
+test("quoted-insert inserts the next key literally and honors repeat prefixes", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("", false)
+
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "a", sequence: "a" })
+  expect(buffer.text).toBe("a")
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "3", sequence: "3" })
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "b", sequence: "b" })
+  expect(buffer.text).toBe("abbb")
+})
+
+test("quoted-insert consumes zero and negative repeat prefixes without inserting", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("x", false)
+  buffer.point = 1
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "0", sequence: "0" })
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "a", sequence: "a" })
+  expect(buffer.text).toBe("x")
+  expect(editor.quotedInsertNext).toBe(false)
+
+  await editor.handleKey({ name: "-", meta: true })
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "b", sequence: "b" })
+  expect(buffer.text).toBe("x")
+  expect(editor.quotedInsertNext).toBe(false)
+})
+
+test("quoted-insert bypasses keymaps for control characters", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("abc", false)
+  buffer.point = buffer.text.length
+
+  await editor.handleKey({ name: "q", ctrl: true })
+  const result = await editor.handleKey({ name: "a", ctrl: true })
+  expect(result).toEqual({ status: "command", command: "self-insert-command" })
+  expect(buffer.text).toBe("abc\u0001")
+  expect(buffer.point).toBe(4)
 })
 
 test("default commands support buffer listing, switching, newline, and regions", async () => {
@@ -241,13 +579,353 @@ test("default commands support buffer listing, switching, newline, and regions",
   expect(editor.currentBuffer.text.startsWith("\n world")).toBe(true)
 })
 
+test("list-buffers with prefix lists only file-visiting buffers", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.addBuffer(new BufferModel({ name: "file.txt", path: "/tmp/file.txt", text: "file" }))
+  editor.scratch("notes", "scratch", "text")
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("list-buffers")
+  expect(editor.currentBuffer.name).toBe("*Buffer List*")
+  expect(editor.currentBuffer.text).toContain("file.txt")
+  expect(editor.currentBuffer.text).not.toContain("notes")
+  expect(editor.currentBuffer.text).not.toContain("*scratch*")
+})
+
+test("newline honors numeric prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("newline")
+  expect(editor.currentBuffer.text).toBe("a\n\n\nb")
+  expect(editor.currentBuffer.point).toBe(4)
+})
+
+test("newline with zero prefix moves to line start without inserting", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("  ab", false)
+  editor.currentBuffer.point = 3
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("newline")
+  expect(editor.currentBuffer.text).toBe("  ab")
+  expect(editor.currentBuffer.point).toBe(0)
+})
+
+test("newline rejects negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { messages.push(text) })
+  editor.currentBuffer.setText("ab", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("newline")
+  expect(editor.currentBuffer.text).toBe("ab")
+  expect(editor.currentBuffer.point).toBe(1)
+  expect(messages.at(-1)).toBe("Repetition argument has to be non-negative")
+})
+
+test("open-line honors positive prefix arguments and preserves point", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("abc", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("open-line")
+
+  expect(editor.currentBuffer.text).toBe("a\n\n\nbc")
+  expect(editor.currentBuffer.point).toBe(1)
+})
+
+test("open-line rejects negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  let echoed = ""
+  editor.events.on("message", ({ text }) => { echoed = text })
+  editor.currentBuffer.setText("abc", false)
+  editor.currentBuffer.point = 1
+
+  editor.prefixArg.toggleNegative()
+  await editor.run("open-line")
+
+  expect(editor.currentBuffer.text).toBe("abc")
+  expect(editor.currentBuffer.point).toBe(1)
+  expect(echoed).toBe("Repetition argument has to be non-negative")
+})
+
+test("transpose-chars honors positive and negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("abcdef", false)
+  buffer.point = 2
+
+  editor.prefixArg.addDigit(3)
+  await editor.run("transpose-chars")
+  expect(buffer.text).toBe("acdebf")
+  expect(buffer.point).toBe(5)
+
+  buffer.setText("abcdef", false)
+  buffer.point = 3
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(2)
+  await editor.run("transpose-chars")
+  expect(buffer.text).toBe("cabdef")
+  expect(buffer.point).toBe(1)
+})
+
+test("transpose-chars reports Emacs boundary errors", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+
+  buffer.setText("abc", false)
+  buffer.point = 0
+  await editor.run("transpose-chars")
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+
+  buffer.point = buffer.text.length
+  editor.prefixArg.addDigit(1)
+  await editor.run("transpose-chars")
+  expect(messages.at(-1)).toBe("End of buffer")
+})
+
+test("kill-region and kill-ring-save require a mark like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  editor.currentBuffer.setText("hello\nworld", false)
+  let message = ""
+  editor.events.on("message", ({ text }) => { message = text })
+
+  await editor.run("kill-region")
+  expect(editor.currentBuffer.text).toBe("hello\nworld")
+  expect(message).toContain("The mark is not set now")
+
+  message = ""
+  await editor.run("kill-ring-save")
+  expect(editor.currentBuffer.text).toBe("hello\nworld")
+  expect(message).toContain("The mark is not set now")
+})
+
+test("clipboard kill commands use Emacs names and region semantics", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+
+  expect(editor.commands.get("clipboard-kill-ring-save")).toBeDefined()
+  expect(editor.commands.get("clipboard-kill-region")).toBeDefined()
+  expect(editor.commands.get("clipboard-yank")).toBeDefined()
+
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 5
+  await editor.run("clipboard-kill-ring-save")
+  expect(buffer.text).toBe("hello world")
+  expect(buffer.mark).toBe(0)
+  expect(buffer.markActive).toBe(false)
+
+  buffer.point = buffer.text.length
+  await editor.run("yank")
+  expect(buffer.text).toBe("hello worldhello")
+
+  buffer.point = buffer.text.length
+  await editor.run("clipboard-yank")
+  expect(buffer.text.endsWith("hellohello")).toBe(true)
+  expect(buffer.mark).toBe(buffer.text.length - 5)
+  expect(buffer.markActive).toBe(false)
+
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 5
+  await editor.run("clipboard-kill-region")
+  expect(buffer.text).toBe(" worldhellohello")
+  expect(buffer.mark).toBeNull()
+
+  buffer.point = 0
+  await editor.run("yank")
+  expect(buffer.text).toBe("hello worldhellohello")
+})
+
+test("kill-ring-save deactivates mark and yank marks inserted text like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("hello world", false)
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 5
+
+  await editor.run("kill-ring-save")
+  expect(buffer.text).toBe("hello world")
+  expect(buffer.mark).toBe(0)
+  expect(buffer.markActive).toBe(false)
+
+  buffer.point = buffer.text.length
+  await editor.run("yank")
+  expect(buffer.text).toBe("hello worldhello")
+  expect(buffer.mark).toBe("hello world".length)
+  expect(buffer.markActive).toBe(false)
+
+  await editor.run("exchange-point-and-mark")
+  expect(buffer.markActive).toBe(true)
+  expect(buffer.selectedText()).toBe("hello")
+})
+
+test("yank honors numeric, zero, and negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  const pushKill = async (text: string) => {
+    buffer.setText(text, false)
+    buffer.mark = 0
+    buffer.markActive = true
+    buffer.point = text.length
+    await editor.run("kill-region")
+  }
+  await pushKill("older")
+  await pushKill("old")
+  await pushKill("new")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  editor.prefixArg.addDigit(2)
+  await editor.run("yank")
+  expect(buffer.text).toBe("old")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  editor.prefixArg.addDigit(0)
+  await editor.run("yank")
+  expect(buffer.text).toBe("older")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(1)
+  await editor.run("yank")
+  expect(buffer.text).toBe("old")
+})
+
+test("yank-pop continues from a prefixed yank ring position", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  const pushKill = async (text: string) => {
+    buffer.setText(text, false)
+    buffer.mark = 0
+    buffer.markActive = true
+    buffer.point = text.length
+    await editor.run("kill-region")
+  }
+  await pushKill("older")
+  await pushKill("old")
+  await pushKill("new")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  editor.prefixArg.addDigit(2)
+  await editor.run("yank")
+  expect(buffer.text).toBe("old")
+
+  await editor.run("yank-pop")
+  expect(buffer.text).toBe("older")
+})
+
+test("yank-pop honors numeric and negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  const pushKill = async (text: string) => {
+    buffer.setText(text, false)
+    buffer.mark = 0
+    buffer.markActive = true
+    buffer.point = text.length
+    await editor.run("kill-region")
+  }
+  await pushKill("older")
+  await pushKill("old")
+  await pushKill("new")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  await editor.run("yank")
+  expect(buffer.text).toBe("new")
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("yank-pop")
+  expect(buffer.text).toBe("older")
+
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(1)
+  await editor.run("yank-pop")
+  expect(buffer.text).toBe("old")
+})
+
+test("yank-pop does not replace a stale yank after another command", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("old", false)
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 3
+  await editor.run("kill-region")
+  buffer.setText("new", false)
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 3
+  await editor.run("kill-region")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  await editor.run("yank")
+  expect(buffer.text).toBe("new")
+
+  await editor.run("backward-char")
+  await editor.run("yank-pop")
+  expect(buffer.text).toBe("new")
+  expect(messages.at(-1)).toBe("Previous command was not a yank")
+})
+
+test("downcase-region converts region text and preserves point and mark", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("AbC DeF", false)
+  buffer.point = 1
+  buffer.mark = 5
+  buffer.markActive = true
+
+  await editor.run("downcase-region")
+
+  expect(buffer.text).toBe("Abc deF")
+  expect(buffer.point).toBe(1)
+  expect(buffer.mark).toBe(5)
+  expect(buffer.markActive).toBe(true)
+})
+
 test("help keybindings keep C-h as a prefix", () => {
   const editor = new Editor()
   installDefaultCommands(editor)
 
   expect(editor.keymaps.feed({ name: "h", ctrl: true }).status).toBe("pending")
   expect(editor.keymaps.feed({ name: "k" })).toMatchObject({ status: "matched", command: "describe-key" })
-  expect(editor.keymap.get("C-h c")).toBe("describe-mode")
+  expect(editor.keymap.get("C-h c")).toBe("describe-key-briefly")
   expect(editor.keymap.get("C-h m")).toBe("describe-mode")
   expect(editor.keymap.get("C-h b")).toBe("describe-bindings")
 })
@@ -310,7 +988,7 @@ test("incremental search moves point as the query grows", async () => {
   expect(editor.isearch?.direction).toBe(1)
 
   await editor.handleKey({ name: "f", sequence: "f" })
-  expect(editor.currentBuffer.point).toBe(0)
+  expect(editor.currentBuffer.point).toBe(1)
   const afterF = visibleStyledText(editor.currentBuffer.text, editor.currentBuffer.point, {
     spans: [{ start: 0, end: 1, face: "isearch" }],
     theme: editor.theme,
@@ -318,14 +996,30 @@ test("incremental search moves point as the query grows", async () => {
   expect(afterF.chunks.some(chunk => chunk.bg != null)).toBe(true)
 
   await editor.handleKey({ name: "o", sequence: "o" })
-  expect(editor.currentBuffer.point).toBe(0)
+  expect(editor.currentBuffer.point).toBe(2)
 
   await editor.run("isearch-forward")
-  expect(editor.currentBuffer.point).toBe(8)
+  expect(editor.currentBuffer.point).toBe(10)
 
   await editor.run("keyboard-quit")
   expect(editor.isearch).toBeNull()
   expect(editor.currentBuffer.point).toBe(0)
+})
+
+test("isearch enter exits and clears stale prompt echo", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  let lastMessage = ""
+  editor.events.on("message", ({ text }) => { lastMessage = text })
+  editor.currentBuffer.setText("foo bar foo", false)
+
+  await editor.run("isearch-forward")
+  await editor.handleKey({ name: "f", sequence: "f" })
+  expect(lastMessage).toContain("I-search")
+
+  await editor.handleKey({ name: "enter", sequence: "\r" })
+  expect(editor.isearch).toBeNull()
+  expect(lastMessage).toBe("")
 })
 
 test("find-file prompt defaults to dired buffer directory", async () => {
@@ -367,6 +1061,19 @@ test("find-file command starts minibuffer at cwd slash", async () => {
   expect(editor.activeBuffer.text).toBe(`${process.cwd()}/`)
   editor.minibufferCancel()
   await prompt
+})
+
+test("find-file-read-only opens a file with buffer read-only", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const file = "/tmp/jemacs-find-file-read-only.txt"
+  await Bun.write(file, "read only")
+
+  await editor.run("find-file-read-only", [file])
+
+  expect(editor.currentBuffer.path).toBe(file)
+  expect(editor.currentBuffer.text).toBe("read only")
+  expect(editor.currentBuffer.readOnly).toBe(true)
 })
 
 test("find-file minibuffer supports readline bindings like C-a", async () => {
@@ -449,7 +1156,8 @@ test("prog-mode and python-mode are installed with a real python major map", asy
 
   expect(getMode("prog-mode")?.keymap?.all()).toEqual([])
   expect(getMode("python")?.parent).toBe("prog-mode")
-  expect(getMode("python")?.keymap?.get("C-M-a")).toBe("python-beginning-of-defun")
+  expect(getMode("python")?.keymap?.get("C-M-a")).toBe("beginning-of-defun")
+  expect(getMode("python")?.keymap?.get("C-M-e")).toBe("end-of-defun")
   expect(modeLineage("python").map(m => m.name)).toEqual(["python", "prog-mode", "text"])
 
   const editor = new Editor()
@@ -474,10 +1182,12 @@ test("python mode supports indentation, defun navigation, font-lock, and TAB com
   expect(buffer.text).toContain("    return ran")
 
   buffer.point = buffer.text.length
-  await editor.run("python-beginning-of-defun")
+  await editor.run("beginning-of-defun")
   expect(buffer.point).toBe(0)
-  await editor.run("python-end-of-defun")
+  await editor.run("end-of-defun")
   expect(buffer.point).toBe(buffer.text.length)
+  expect(editor.commands.get("python-beginning-of-defun")).toBeDefined()
+  expect(editor.commands.get("python-end-of-defun")).toBeDefined()
 
   const spans = editor.fontLock(buffer)
   expect(spans.some(span => span.face === "keyword" && buffer.text.slice(span.start, span.end) === "def")).toBe(true)
@@ -532,7 +1242,7 @@ test("dired opens directories, follows entries, refreshes, and exposes dired key
   expect(editor.currentBuffer.text).toBe("hello")
 
   await editor.run("dired", ["/tmp"])
-  await editor.run("dired-revert")
+  await editor.run("revert-buffer")
   expect(editor.currentBuffer.text).toContain("jemacs-dired-file.txt")
 
   const cwd = process.cwd()
@@ -561,6 +1271,24 @@ test("dired .. opens the parent directory", async () => {
   buffer.point = buffer.text.indexOf("..")
   await editor.run("dired-find-file")
   expect(editor.currentBuffer.path).toBe("/tmp")
+})
+
+test("dired-jump opens the current file directory and moves to the file line", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const dir = "/tmp/jemacs-dired-jump-test"
+  const file = `${dir}/target.txt`
+  await mkdir(dir, { recursive: true })
+  await Bun.write(file, "jump")
+  await editor.openFile(file)
+
+  await editor.run("dired-jump")
+
+  expect(editor.currentBuffer.kind).toBe("directory")
+  expect(editor.currentBuffer.path).toBe(dir)
+  expect(diredEntryAtPoint(editor.currentBuffer)?.path).toBe(file)
 })
 
 test("c-mode and json-mode font-lock highlight keywords and strings", async () => {
@@ -728,6 +1456,39 @@ test("delete-char deletes the active region like Emacs", async () => {
   expect(buffer.text).toBe("hello ")
   expect(buffer.point).toBe(6)
   expect(buffer.markActive).toBe(false)
+})
+
+test("delete-char and delete-backward-char report Emacs boundary errors", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+
+  buffer.setText("abc", false)
+  buffer.point = buffer.text.length
+  await editor.run("delete-char")
+  expect(buffer.text).toBe("abc")
+  expect(messages.at(-1)).toBe("End of buffer")
+
+  buffer.point = 0
+  await editor.run("delete-backward-char")
+  expect(buffer.text).toBe("abc")
+  expect(messages.at(-1)).toBe("Beginning of buffer")
+})
+
+test("delete-char zero prefix is a no-op like Emacs", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("abc", false)
+  buffer.point = 1
+
+  editor.prefixArg.addDigit(0)
+  await editor.run("delete-char")
+
+  expect(buffer.text).toBe("abc")
+  expect(buffer.point).toBe(1)
 })
 
 test("exchange-point-and-mark swaps point and mark; motion preserves markActive", async () => {

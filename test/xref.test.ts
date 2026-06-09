@@ -5,6 +5,7 @@ import { bufferSearchDefinitions } from "../src/xref/jump"
 import { xrefGoBack, xrefPushMark } from "../src/xref/history"
 import { Editor } from "../src/kernel/editor"
 import { installXref } from "../src/xref/install"
+import { listWindowLeaves } from "../src/kernel/window"
 
 test("parseDefinitionResult handles Location and LocationLink", () => {
   const single = parseDefinitionResult({
@@ -51,6 +52,25 @@ test("xref-find-definitions is bound to M-.", () => {
   const editor = new Editor()
   installXref(editor)
   expect(editor.keymap.get("M-.")).toBe("xref-find-definitions")
+  expect(editor.keymap.get("C-x 4 .")).toBe("xref-find-definitions-other-window")
   expect(editor.commands.get("xref-find-definitions")).toBeDefined()
+  expect(editor.commands.get("xref-find-definitions-other-window")).toBeDefined()
   expect(editor.commands.get("lsp-find-definition")).toBeUndefined()
+})
+
+test("xref-find-definitions-other-window jumps in another selected window", async () => {
+  const editor = new Editor()
+  installXref(editor)
+  const buffer = editor.currentBuffer
+  buffer.mode = "python"
+  buffer.setText("def helper():\n    pass\n\nresult = helper()\n", false)
+  buffer.point = buffer.text.lastIndexOf("helper")
+  const originalWindow = editor.selectedWindowId
+
+  await editor.run("xref-find-definitions-other-window")
+
+  expect(editor.selectedWindowId).not.toBe(originalWindow)
+  expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
+  expect(editor.currentBuffer.id).toBe(buffer.id)
+  expect(buffer.point).toBe(buffer.text.indexOf("def helper"))
 })

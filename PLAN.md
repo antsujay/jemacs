@@ -1,264 +1,247 @@
-# PLAN.md — Pluggable UI (OpenTUI + Electron)
-
-Jemacs targets **GNU Emacs–style architecture**: a display-agnostic kernel (buffers, windows, keymaps, commands) with **first-class frontends**—terminal via OpenTUI and GUI via Electron—analogous to Emacs `tty` vs `x`/`ns` frames.
-
-Use checkboxes to track work. Implementation landed **2026-06-04** unless noted.
-
-*Last updated: 2026-06-05 (removed stub commands; tracked below as to implement).*
-
----
-
-## North star
-
-| GNU Emacs | Jemacs (target) |
-| --- | --- |
-| C core + redisplay | `src/kernel/` — no OpenTUI, no DOM |
-| Terminal / GUI frames | **`UiHost`** implementations |
-| `read-key` / input | **`NormalizedInput`** → `Editor.handleKey()` |
-| Frame redisplay | **`DisplayModel`** consumed by each host |
-| Elisp | JavaScript / TypeScript (eval, plugins, modes) |
-
-**Non-goal:** Pixel-perfect GTK Emacs. **Goal:** Same keys, concepts, and extension model.
-
----
-
-## Current architecture
-
-```mermaid
-flowchart TB
-  subgraph entry [Entry]
-    main["src/main.ts"]
-    mainGui["src/main-electron.ts"]
-  end
-  subgraph core [Kernel]
-    editor["kernel/editor.ts"]
-  end
-  subgraph display [Display layer]
-    build["display/build-display-model.ts"]
-    proto["display/protocol.ts"]
-    dom["display/dom-frame.ts"]
-  end
-  subgraph hosts [UiHost]
-    tui["ui/opentui-host.ts"]
-    gui["ui/electron-host.ts"]
-  end
-  subgraph packages [Workspaces]
-    pkgCore["@jemacs/core"]
-    pkgTui["@jemacs/host-opentui"]
-    pkgGui["@jemacs/host-electron"]
-  end
-  main --> run["run.ts"]
-  mainGui --> run
-  run --> editor
-  run --> build
-  build --> proto
-  run --> tui
-  run --> gui
-  dom --> gui
-  pkgCore --> pkgTui
-  pkgCore --> pkgGui
-```
-
-### Already in place
-
-- [x] **Kernel** — `Editor`, buffers, commands, keymap stack, minibuffer, isearch, registers
-- [x] **Window tree** — `windowLayout`; splits update tree
-- [x] **Multi-window redisplay** — `OpenTuiHost` syncs `DisplayModel` to OpenTUI panes
-- [x] **Input boundary** — `opentui-key.ts` / Electron IPC → `KeyEventLike`
-- [x] **Editor events** — `changed`, `message`, `minibuffer` drive `present()`
-- [x] **Minor modes**, **hooks**, **LSP**, **themes**, **tests**
-
-### Coupling removed (this effort)
-
-- [x] **Dual entry** — `main.ts` + `createDefaultHost()`; `--gui` / `JEMACS_UI=electron`
-- [x] **`display/theme.ts`** — `ThemedText`; no `@opentui/core`
-- [x] **Redisplay** — `build-display-model.ts` + `buffer-view.ts` + `viewport.ts`
-- [x] **Viewport sizing** — host passes `rows`/`cols`; TUI uses `renderer.on("resize")`
-- [x] **`UiHost` interface** — `display/protocol.ts`
-- [x] **Electron** — `ElectronHost`, preload, renderer, `bun run dev:gui`
-
----
-
-## Shared protocol (`src/display/`)
-
-- [x] `protocol.ts` — `DisplayModel`, `UiHost`, `NormalizedInput`, `HostCapabilities`
-- [x] `themed-text.ts` — host-agnostic styled chunks
-- [x] `theme.ts` — `applyTheme()` → `ThemedText`
-- [x] `viewport.ts` — line budgets from host `rows`
-- [x] `buffer-view.ts` — `visibleStyledText*` → `ThemedText`
-- [x] `build-display-model.ts` — full frame from `Editor`
-- [x] `serialize.ts` — JSON-safe model for Electron IPC
-- [x] `dom-frame.ts` — shared DOM presenter for Electron (Phase 4b DOM half)
-- [x] `run.ts` — `runJemacs(editor, host)`
-
-**`UiHost` checklist:**
-
-- [x] `readonly kind: "tui" | "gui"`
-- [x] `start()` / `destroy()`
-- [x] `present(model)` / `getViewport()`
-- [x] `onInput` / `onResize`
-- [x] `capabilities`
-
-**Input:**
-
-- [x] OpenTUI `KeyEvent` / paste → `NormalizedInput`
-- [x] Electron DOM `keydown` / paste → `NormalizedInput`
-- [x] Mouse click → `NormalizedInput` (`mouse` + `clickWindow`)
-- [x] Kernel dispatch unchanged (`handleKey`)
-
----
-
-## Phase 1 — Display protocol & decouple theme ✅
-
-- [x] `src/display/protocol.ts`
-- [x] `src/display/build-display-model.ts`
-- [x] `src/display/viewport.ts`
-- [x] `ThemedText` + `applyTheme()` without OpenTUI
-- [x] `src/ui/opentui-styled.ts` — `ThemedText` → `StyledText`
-- [x] `test/build-display-model.test.ts`
-
----
-
-## Phase 2 — `OpenTuiHost` + `runJemacs` ✅
-
-- [x] `src/ui/opentui-host.ts` — `OpenTuiHost implements UiHost`
-- [x] `src/run.ts`
-- [x] `src/main.ts` → `runJemacs(editor, createDefaultHost())`
-- [x] `src/ui/opentui-key.ts` — OpenTUI-only
-- [x] `src/ui/opentui.ts` — re-exports for tests
-- [x] `test/opentui-host.test.ts`
-
----
-
-## Phase 3 — OpenTUI polish (optional)
-
-- [x] Terminal resize → `renderer.on("resize")` → `onResize` → rebuild model
-- [x] `TextareaRenderable` for selected window (`JEMACS_USE_TEXTAREA=1`; syncs via `syncText`/`syncPoint`/`syncSpans`)
-- [x] Font-lock inside native editor (`opentui-textarea-sync.ts` + `editBuffer` highlights)
-- [x] Mouse click → select window / move point (TUI + Electron; `click-to-point.ts`)
-- [ ] `@opentui/react` for static chrome only (deferred — imperative chrome is sufficient)
-
----
-
-## Phase 4 — Electron host ✅ (MVP)
-
-### Package & layout
-
-- [x] `electron` devDependency
-- [x] `src/main-electron.ts`
-- [x] `src/electron/preload.ts`
-- [x] `src/electron/renderer.html` + `renderer.css` + `renderer.ts`
-- [x] `scripts/build-electron.ts`
-- [x] `bun run dev:gui` / `build:gui`
-- [x] README GUI section
-
-### `ElectronHost`
-
-- [x] `class ElectronHost implements UiHost` (`kind: "gui"`)
-- [x] Main process: editor + host (via `main-electron.ts` + `runJemacs`)
-- [x] `present()` — IPC `jemacs:display` with serialized model
-- [x] DOM layout — flex splits, themed spans, modeline
-- [x] Editing — read-only display MVP; keys/paste via IPC (not in-buffer DOM edit)
-- [x] Keyboard → `NormalizedInput`
-- [x] Paste → `insert` + `changed`
-- [x] Resize → `getViewport()` from window pixels
-
-### Shared React components (Phase 4b)
-
-- [x] Shared DOM frame module (`display/dom-frame.ts` + Electron renderer)
-- [ ] React `JemacsFrame` fed by `DisplayModel` (optional; React not required for GUI MVP)
-
----
-
-## Phase 5 — Entry points & packaging
-
-- [x] `--gui` and `JEMACS_UI=electron` on `main.ts`
-- [x] Separate `main-electron.ts` entry
-- [x] `package.json` description + scripts
-- [x] Monorepo split (`packages/jemacs-core`, `host-opentui`, `host-electron` workspace packages)
-- [x] Tests: display/host/mouse/textarea/bind-jemacs/runtime; `server-path` skips when workspace bin shadows Emacs cache
-
----
-
-## Testing checklist
-
-- [x] `build-display-model.test.ts`
-- [x] `opentui-host.test.ts` (includes `createTestRenderer` frame capture)
-- [x] `click-to-point.test.ts`, `mouse-click.test.ts`, `textarea-host.test.ts`, `textarea-highlights.test.ts`, `bind-jemacs.test.ts`
-- [x] `smoke-windows.test.ts`, `smoke-commands.test.ts`, `runtime-parity.test.ts`
-- [x] Regression: kernel, window, minor-mode, prefix-argument tests pass
-- [x] Manual TUI/GUI smoke — covered by automated smoke + host tests; run `bun run dev` / `bun run dev:gui` for human spot-check
-
----
-
-## Emacs parity backlog
-
-### Core editor
-
-- [x] Buffers — visit, edit, dirty, read-only, basic undo
-- [ ] Buffers — multibyte, markers, narrowing, indirect buffers (deferred)
-- [x] Buffer-locals — `BufferModel.locals` map
-- [x] Windows — tree + split/delete/other-window
-- [x] Window-configuration save/restore (see `window.test.ts`)
-- [x] scroll-other-window
-- [x] Transient mark mode — `transient-mark-mode` custom + toggle command + tests
-- [x] Kill ring — partial
-- [x] Full prefix argument — `PrefixArgumentState` + `test/prefix-argument.test.ts`
-
-### Input & commands
-
-- [x] Keymap stack, minor modes, minibuffer, completion
-- [x] `interactive` specs — `runtime/interactive.ts` + command `interactive` string
-- [x] icomplete — incremental `*Completions*` while typing (`refreshMinibufferCompletions`)
-
-### Search, files, help, LSP
-
-- [x] Isearch literal, query-replace, dired partial, help commands, LSP
-
-### Lisp environment
-
-- [x] Evaluator, plugins, hooks
-- [x] `defcustom` / `defvar` — `runtime/custom.ts`
-- [x] Advice — `runtime/advice.ts` + `invokeWithAdvice` in `Editor.run`
-- [x] load-path — `runtime/load-path.ts` + evaluator plugin resolution
-- [ ] **python.el** port (deferred — use `python` mode + LSP instead)
-
----
-
-## To implement
-
-Stub commands and placeholder bindings were removed so missing behavior is explicit (no echo-area “placeholder” messages). Implement as plugins or core commands; restore Stephen/default keys when real.
-
-### Core / modes
-
-- [ ] **`info`** (`C-h i`) — GNU Info manual reader
-- [ ] **`python-shell-switch-to-shell`** (`C-c C-z` in `python-mode`) — Python REPL buffer (`python.el` shell integration)
-- [ ] **`customize-create-theme`** (new themes) — create/edit non-builtin Custom themes (builtin theme edit via `M-x customize-create-theme THEME` still works)
-
-### External packages (Stephen config keys)
-
-- [ ] **`git-link`** (`C-c g l`) — magit/git-link
-- [ ] **`magit-find-main`** (`C-c g m`) — jump to repo default branch
-- [ ] **`projectile-command-map`** (`C-c p`) — projectile dispatch
-- [ ] **`ace-jump-word-mode`** (`C-c SPC`) — avy-style word jump (see also shipped `avy-goto-char` / `C-;`)
-- [ ] **`ace-jump-char-mode`** (`C-c C-x SPC`) — avy-style char jump
-- [ ] **`yafolding-toggle-element`** (`C-c RET`) — fold element at point
-- [ ] **`gptel-menu`** (`s-m`) — LLM chat menu
-- [ ] **`gptel`** (`s-g`) — LLM chat
-- [ ] **`restart-emacs`** (`s-r`) — restart editor process
-
----
-
-## Design rules
-
-1. **No `@opentui/*`** outside `src/ui/opentui*` (and `opentui-styled.ts`, `opentui-textarea-sync.ts`).
-2. **No buffer logic** in renderables / DOM — view only.
-3. **One key model** at host boundary.
-4. **Both hosts first-class** — same `runJemacs` + `DisplayModel`.
-
----
-
-## References
-
-- [OpenTUI docs](https://opentui.com/docs/getting-started)
-- Repo: `README.md`, `DEFAULT_KEYBINDINGS.md`, `AGENTS.md`
+# Emacs Parity Plan
+
+Goal: every implemented GNU Emacs-named command should match GNU Emacs name-by-name for the behavior Jemacs claims to implement. Non-GNU compatibility helpers may remain, but they should be documented as Jemacs extensions or renamed away from misleading GNU names.
+
+Current branch for this work: `emacs-parity-goal`.
+
+## Recently Completed On This Branch
+
+- Prefix and boundary parity for core motion/edit commands:
+  - `forward-char`, `backward-char`
+  - `next-line`, `previous-line`
+  - `move-end-of-line`
+  - `beginning-of-buffer`, `end-of-buffer` inactive/active mark side effects with numeric prefixes
+  - `forward-word`, `backward-word`
+  - `newline`
+  - `self-insert-command`
+  - `goto-line`
+  - `set-mark-command` double-universal prefix and repeat-pop local/global mark behavior
+  - `yank` numeric/zero/negative prefix kill-ring selection
+  - `yank-pop` numeric/negative prefix rotation and stale-yank guard
+  - `quoted-insert` repeat prefixes and quoted control-key insertion
+- Buffer/window/tab prefix parity:
+  - `next-buffer`, `previous-buffer`
+  - `other-window`
+  - `recenter-top-bottom`
+  - `scroll-other-window`, `scroll-other-window-down`
+  - `quit-window`
+  - `list-buffers`
+  - `tab-bar-new-tab`, `tab-bar-close-tab`, tab switching commands
+- Editing parity already covered by tests for:
+  - `delete-char`, `delete-backward-char`
+  - `open-line`
+  - `transpose-chars`, `transpose-lines`, `transpose-words`
+  - `mark-whole-buffer`, `mark-paragraph`
+  - kill/copy/yank basics and active-region deletion
+
+## Missing Or Incomplete Parity Work
+
+### 1. Audit Every Implemented Command Name
+
+- Generate the complete list of `editor.command(...)` registrations from `lisp/`, `plugins/`, `src/modes/`, and user-loaded package surfaces.
+- For each command, classify it as:
+  - GNU Emacs command with expected parity.
+  - Third-party package command, such as Magit/Markdown/Org-style commands, with upstream package parity expectations.
+  - Jemacs-only extension that should be clearly documented or renamed.
+- For every GNU-named command, compare:
+  - Interactive prefix semantics.
+  - Programmatic return value.
+  - Point/mark side effects.
+  - Error/boundary behavior.
+  - Buffer/window selection behavior.
+  - Prompt defaults and history names.
+  - Keybindings where Jemacs advertises GNU defaults.
+
+### 2. Core Motion And Editing Gaps
+
+- `move-beginning-of-line`
+  - Verify all prefix cases against GNU Emacs, including before/after-buffer clamping and field/minibuffer prompt boundaries.
+- `beginning-of-buffer`, `end-of-buffer`
+  - Fractional prefix behavior and active/inactive mark side effects are covered.
+  - Remaining audit: exact messages, mark ring interaction, narrowing, and field boundaries.
+- `set-mark-command`
+  - Double-universal prefix behavior and `set-mark-command-repeat-pop` local/global repeat behavior are covered.
+  - Remaining audit: transient-mark-mode-off temporary activation, exact command-loop state, messages, and full mark/global-mark ring edge cases.
+- `exchange-point-and-mark`
+  - Covered for basic prefix behavior, but still needs mark ring and transient-mark-mode audit.
+- `kill-line`
+  - Covered for several prefix cases, but still needs complete GNU behavior for read-only buffers, invisible text, field boundaries, and exact kill-ring append semantics across all kill commands.
+- `kill-word`, `backward-kill-word`
+  - Unicode-aware behavior exists, but exact syntax-table and subword interactions are incomplete.
+- `yank`, `yank-pop`
+  - `yank` now honors numeric, zero, and negative prefix kill-ring selection.
+  - `yank-pop` now honors numeric and negative prefix rotation and no longer replaces stale yank ranges after unrelated commands.
+  - Remaining audit: plain `C-u C-y` behavior blocked by raw-prefix representation, full `yank-from-kill-ring` prompt behavior after non-yank commands, rotation messages, and text property/yank-handler behavior.
+- Rectangle commands
+  - Implemented commands need complete audit for prefix args, register behavior, padding, tabs, and error cases.
+- Region case commands such as `downcase-region`
+  - Need full point/mark preservation and read-only/error parity audit.
+- `quoted-insert`
+  - Repeat prefixes and quoted control-key insertion are covered.
+  - Remaining audit: octal/decimal/hex character-code input, `read-quoted-char-radix`, overwrite modes, minibuffer behavior, and Unicode input parity.
+
+### 3. Search And Replace Gaps
+
+- `isearch-forward`, `isearch-backward`
+  - Literal search exists, but GNU isearch has extensive state behavior still missing: repeat search, direction toggles, failed search recovery, lazy highlight, word/symbol search variants, and full keymap behavior.
+- `query-replace`, `replace-string`
+  - Need exact prompt flow, region restriction, word-boundary options, case-fold/case-replace behavior, undo grouping, and replacement commands.
+- Regexp isearch plugin
+  - Needs direct comparison to GNU `isearch-forward-regexp` / `isearch-backward-regexp`.
+
+### 4. File And Buffer Command Gaps
+
+- `find-file`, `find-file-read-only`, `find-alternate-file`
+  - Existing behavior is useful but not complete: wildcards, symlinks/truename behavior, remote paths, backup/autosave interactions, file-local variables, hooks, and exact prompt defaults need audit.
+- `save-buffer`, `write-file`, `save-some-buffers`, `save-buffers-kill-terminal`
+  - Need complete GNU confirmation, hooks, backup, autosave, modified flag, and return/message behavior.
+- `kill-buffer`
+  - Existing modified-buffer prompting exists; needs complete GNU handling for process buffers, unsaved buffers, buffer query functions, hooks, and fallback display behavior.
+- `revert-buffer`
+  - Needs exact `noconfirm`, auto-revert, file/directory buffer, and dirty-buffer behavior.
+- `switch-to-buffer`, `switch-to-buffer-other-window`, `display-buffer`, `pop-to-buffer`
+  - Need full display action and buffer selection semantics. `display-buffer-other-window` is not a GNU function in current local Emacs and should be treated as a Jemacs compatibility extension or removed/renamed.
+- `list-buffers`
+  - Prefix files-only behavior is covered; remaining GNU Buffer Menu columns, marks, sorting, and hidden-buffer behavior are incomplete.
+
+### 5. Window And Tab Command Gaps
+
+- `split-window`, `split-window-below`, `split-window-right`
+  - Current window tree has no real size model, so SIZE prefix behavior and return values are incomplete.
+- `delete-window`, `delete-other-windows`
+  - Need GNU return values, dedicated/side/atomic window behavior, and error handling audit.
+- `other-window`, `next-window-any-frame`, `previous-window-any-frame`
+  - Basic prefix behavior exists, but frame/all-frames/minibuffer/window-parameter semantics are incomplete.
+- `quit-window`
+  - Prefix kill behavior is covered, but full bury/quit-restore behavior is incomplete.
+- `scroll-up-command`, `scroll-down-command`
+  - Existing tests cover page and numeric scrolling; still need full `scroll-error-top-bottom`, visual-line, window-start, and boundary behavior audit.
+- `recenter-top-bottom`
+  - Numeric behavior exists, but plain `C-u` cannot be distinguished from numeric `4` in the current prefix representation. This blocks exact GNU `C-u C-l` behavior until prefix raw-shape is represented.
+- Tab bar commands
+  - Prefix behavior for new/close/switch is improved, but full GNU tab objects, tab names, window configurations, tab history, and last-tab errors are incomplete.
+
+### 6. Dired Gaps
+
+- Existing Dired supports opening, marking, unmarking, copy/rename/delete basics.
+- Missing/incomplete:
+  - Exact mark characters and mark command semantics.
+  - `dired-do-delete`, `dired-do-copy`, `dired-do-rename` prompts and confirmation flow.
+  - Recursive directory operations.
+  - Symlink, permission, owner/group/date formatting.
+  - `dired-jump`, `dired-up-directory`, revert, and sorting behavior compared with GNU Dired.
+  - Wdired parity for validation, abort, finish, and unchanged rows.
+
+### 7. Help, Describe, Customize, And Eval Gaps
+
+- `describe-key`, `describe-bindings`, `describe-function`, `describe-variable`
+  - Need exact buffer names, formatting, links/buttons, keymap precedence, and help window behavior.
+- `apropos-command`
+  - Needs full matching and display semantics.
+- `eval-region`, `eval-last-sexp`, `eval-expression`
+  - JavaScript/TypeScript evaluator is intentionally not Elisp; document scope clearly and align command UI, errors, mark/point, and output buffers where GNU names are reused.
+- Customize commands
+  - Many command names exist; need full audit of prompt behavior, saved/unsaved/rogue listings, face/theme behavior, and custom-file persistence.
+
+### 8. Registers And Bookmarks
+
+- Registers:
+  - Text, rectangle, point, number, and window-configuration support need full GNU return/message/error parity.
+  - `insert-register`, `copy-to-register`, `append-to-register`, `prepend-to-register`, `number-to-register`, `increment-register`, `view-register`, `list-registers` need command-by-command audit.
+- Bookmarks:
+  - Basic set/jump/list/delete exists.
+  - Need exact bookmark file format compatibility, annotations, handlers, relocation, bmenu behavior, and prompt/default semantics.
+
+### 9. Project, Xref, Compile, Grep, Flymake, LSP
+
+- Project commands:
+  - Need compare with GNU `project.el` for roots, prompts, buffer selection, project switching, compile integration, and VC behavior.
+- Xref commands:
+  - Need exact `xref-find-references`, navigation, marker stack, and results buffer behavior.
+- Compile/grep/next-error:
+  - Need full compilation-mode buffer semantics, command history, process lifecycle, next-error ring behavior, and error regex coverage.
+- Flymake/LSP:
+  - Implementations are useful but not GNU/Flymake/LSP package complete. Audit command names and document unsupported behavior.
+
+### 10. Major/Minor Mode Package Gaps
+
+- Python/C/JSON/Java modes:
+  - Font-lock exists, but indentation, syntax tables, comments, imenu, defun movement, and local keymaps need full parity audits.
+- Org/Markdown:
+  - Implemented commands should be compared to upstream package command names and behavior, especially movement, promotion/demotion, TODO cycling, link following, and insertion commands.
+- Magit:
+  - Many command names exist; they need explicit Magit parity classification. Some may be intentionally simplified and should be documented as such.
+- Terminal/shell commands:
+  - `term`, `shell`, `term-char-mode`, `term-line-mode` and jterm commands need exact naming and behavior classification versus GNU term/shell.
+- Minor modes:
+  - `global-auto-revert-mode`, `eldoc-mode`, `which-key-mode`, `subword-mode`, `smerge-mode`, `show-paren-mode`, `completion-preview-mode`, etc. need prefix semantics, lighter behavior, hooks, buffer-local/global behavior, and command names audited.
+
+### 11. Prefix Argument Architecture
+
+- Current `CommandContext.prefixArgument` preserves only the numeric value.
+- Missing raw prefix shape:
+  - Plain `C-u`
+  - Repeated `C-u`
+  - `M--`
+  - Digit prefixes
+  - Explicit zero
+- This blocks exact parity for commands whose behavior depends on raw prefix form, not just numeric value.
+- Add a richer prefix object while preserving existing `prefixArgument` for simple commands.
+
+### 12. Return Values And Error Model
+
+- Many commands currently return `undefined` even where GNU returns:
+  - Moved buffer/window object.
+  - `t`/`nil`.
+  - Killed buffer.
+  - Register/bookmark data.
+- Many command errors are currently echo messages rather than thrown/user-error equivalents.
+- Need a command-by-command return/error audit and a consistent representation of GNU `user-error` versus hard errors.
+
+### 13. Keybinding Audit
+
+- Verify GNU default bindings in `src/config/default-bindings.ts` and `lisp/*`.
+- Decide whether non-GNU convenience bindings belong in default config, Stephen config, or packages:
+  - `C-c` custom bindings.
+  - Project/package-specific bindings.
+  - Compatibility aliases that GNU does not define.
+- Ensure user config overrides remain in `jemacs-stephen-config`, not upstream defaults.
+
+### 14. Verification Work Still Needed
+
+- Build a script that:
+  - Extracts all Jemacs command names.
+  - Uses local GNU Emacs to report whether each name is `fboundp`.
+  - Captures GNU docstrings and interactive specs.
+  - Produces a parity matrix with status and test coverage.
+- Add per-command probe tests for behavior that is easy to compare against local GNU Emacs.
+- Keep using focused regression tests for each fixed command.
+- Keep a broad regression suite for touched subsystems.
+
+## Known Current Verification Issues
+
+- `npx bun test` focused and broad parity suites used during this work pass.
+- `git diff --check` passes after recent parity commits.
+- `npx bun run check` currently fails in unrelated existing TypeScript areas:
+  - LSP protocol generated/export type mismatches.
+  - `plugins/lsp-watchman` stream async iterator typing.
+  - `plugins/term-v2` xterm option typing.
+  - Shadow stdout/null and Buffer ArrayBufferView typing.
+  - `src/ui/opentui-host.ts` OpenTUI `KeyHandler`/`TextareaOptions` typings.
+  - Older test typing issues.
+  - `../jemacs-packages/projectile` import path/type resolution.
+
+These typecheck failures should be fixed separately so future parity work can use `bun run check` as a hard gate again.
+
+## Working Rules For Remaining Parity Work
+
+- Make changes on `emacs-parity-goal` or another named branch, never directly on `main`.
+- For each command:
+  - Read current Jemacs implementation.
+  - Check GNU Emacs docstring with local `emacs --batch`.
+  - Probe ambiguous edge cases in local GNU Emacs.
+  - Patch the smallest subsystem that owns the behavior.
+  - Add focused tests covering the probed behavior.
+  - Run focused tests, a relevant broader regression set, and `git diff --check`.
+  - Commit and push before moving to the next command.
+- Leave unrelated untracked files, such as `.agents/`, untouched.
