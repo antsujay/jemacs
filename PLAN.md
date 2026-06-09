@@ -14,6 +14,7 @@ Current branch for this work: `emacs-parity-goal`.
   - `newline`
   - `self-insert-command`
   - `goto-line`
+  - `set-mark-command` double-universal prefix and repeat-pop local/global mark behavior
 - Buffer/window/tab prefix parity:
   - `next-buffer`, `previous-buffer`
   - `other-window`
@@ -54,7 +55,8 @@ Current branch for this work: `emacs-parity-goal`.
 - `beginning-of-buffer`, `end-of-buffer`
   - Existing fractional prefix behavior is covered, but mark side effects need a direct audit against GNU Emacs with active/inactive transient mark cases.
 - `set-mark-command`
-  - Needs full GNU behavior for repeated invocation, prefix argument behavior, mark ring interaction, and global mark ring integration.
+  - Double-universal prefix behavior and `set-mark-command-repeat-pop` local/global repeat behavior are covered.
+  - Remaining audit: transient-mark-mode-off temporary activation, exact command-loop state, messages, and full mark/global-mark ring edge cases.
 - `exchange-point-and-mark`
   - Covered for basic prefix behavior, but still needs mark ring and transient-mark-mode audit.
 - `kill-line`

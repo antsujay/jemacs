@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { makeEditor } from "./helper"
 import { install, localMarkRing, globalMarkRing } from "../../plugins/mark-ring"
+import { resetCustom, setCustom } from "../../src/runtime/custom"
 
 function setup() {
   const editor = makeEditor()
@@ -49,6 +50,52 @@ test("C-u set-mark-command jumps to mark and rotates the local ring", async () =
   expect(buf.point).toBe(3)
   expect(buf.mark).toBe(1)
   expect(localMarkRing(buf)).toEqual([7, 3])
+})
+
+test("C-u C-u set-mark-command sets mark instead of popping", async () => {
+  const editor = setup()
+  const buf = editor.scratch("a", "0123456789")
+  for (const p of [1, 3, 7]) {
+    buf.point = p
+    await editor.run("set-mark-command")
+  }
+  expect(buf.mark).toBe(7)
+  expect(localMarkRing(buf)).toEqual([3, 1])
+
+  buf.point = 9
+  editor.prefixArg.universalArgument()
+  editor.prefixArg.universalArgument()
+  await editor.run("set-mark-command")
+  expect(buf.point).toBe(9)
+  expect(buf.mark).toBe(9)
+  expect(buf.markActive).toBe(true)
+  expect(localMarkRing(buf)).toEqual([7, 3, 1])
+})
+
+test("set-mark-command-repeat-pop repeats local mark pops", async () => {
+  setCustom("set-mark-command-repeat-pop", true)
+  try {
+    const editor = setup()
+    const buf = editor.scratch("a", "0123456789")
+    for (const p of [1, 3, 7]) {
+      buf.point = p
+      await editor.run("set-mark-command")
+    }
+
+    buf.point = 9
+    editor.prefixArg.universalArgument()
+    await editor.run("set-mark-command")
+    expect(buf.point).toBe(7)
+    expect(buf.mark).toBe(3)
+    expect(localMarkRing(buf)).toEqual([1, 7])
+
+    await editor.run("set-mark-command")
+    expect(buf.point).toBe(3)
+    expect(buf.mark).toBe(1)
+    expect(localMarkRing(buf)).toEqual([7, 3])
+  } finally {
+    resetCustom("set-mark-command-repeat-pop")
+  }
 })
 
 test("C-u set-mark-command with no mark reports an error", async () => {
@@ -116,6 +163,30 @@ test("pop-global-mark skips killed buffers", async () => {
   await editor.run("pop-global-mark")
   expect(editor.currentBuffer.id).toBe(a.id)
   expect(editor.currentBuffer.point).toBe(1)
+})
+
+test("set-mark-command-repeat-pop repeats global mark pops", async () => {
+  setCustom("set-mark-command-repeat-pop", true)
+  try {
+    const editor = setup()
+    const a = editor.scratch("a", "aaa")
+    a.point = 1
+    await editor.run("set-mark-command")
+    const b = editor.scratch("b", "bbb")
+    b.point = 2
+    await editor.run("set-mark-command")
+    editor.scratch("c", "ccc")
+
+    await editor.run("pop-global-mark")
+    expect(editor.currentBuffer.id).toBe(b.id)
+    expect(editor.currentBuffer.point).toBe(2)
+
+    await editor.run("set-mark-command")
+    expect(editor.currentBuffer.id).toBe(a.id)
+    expect(editor.currentBuffer.point).toBe(1)
+  } finally {
+    resetCustom("set-mark-command-repeat-pop")
+  }
 })
 
 test("mark-whole-buffer pushes original point onto the local mark ring", async () => {

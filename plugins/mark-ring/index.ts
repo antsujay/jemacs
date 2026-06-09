@@ -1,9 +1,13 @@
 import type { Editor } from "../../src/kernel/editor"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 import type { BufferModel } from "../../src/kernel/buffer"
+import { defcustom, getCustom } from "../../src/runtime/custom"
 
 const MARK_RING_MAX = 16
 const GLOBAL_MARK_RING_MAX = 16
+
+defcustom("set-mark-command-repeat-pop", "boolean", false,
+  "When non-nil, repeating set-mark-command after popping mark pops it again.")
 
 type GlobalMark = { bufferId: string; position: number }
 
@@ -55,19 +59,53 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
-  editor.command("set-mark-command", ({ editor, buffer, prefixArgument }) => {
-    if (prefixArgument != null) {
-      if (buffer.mark == null) {
-        editor.message("No mark set in this buffer")
-        return
-      }
-      if (buffer.point === buffer.mark) editor.message("Mark popped")
-      buffer.point = clamp(buffer.mark, 0, buffer.text.length)
-      popMark(buffer)
-      return
+  type MarkCommandAction = "push-mark-command" | "pop-to-mark-command" | "pop-global-mark" | null
+  let lastMarkCommandAction: MarkCommandAction = null
+  const offChanged = editor.events.on("changed", ({ reason }) => {
+    if (!reason.startsWith("command:")) return
+    const command = reason.slice("command:".length)
+    if (command !== "set-mark-command" && command !== "pop-global-mark") lastMarkCommandAction = null
+  })
+  ctx.onDispose(offChanged)
+
+  const popToMark = (buffer: BufferModel): boolean => {
+    if (buffer.mark == null) {
+      editor.message("No mark set in this buffer")
+      return false
     }
+    if (buffer.point === buffer.mark) editor.message("Mark popped")
+    buffer.point = clamp(buffer.mark, 0, buffer.text.length)
+    popMark(buffer)
+    return true
+  }
+
+  const setMark = (buffer: BufferModel): void => {
     pushMark(editor, buffer)
     editor.message("Mark set")
+  }
+
+  editor.command("set-mark-command", async ({ editor, buffer, prefixArgument }) => {
+    if (prefixArgument != null && prefixArgument > 4) {
+      setMark(buffer)
+      lastMarkCommandAction = "push-mark-command"
+      return
+    }
+    if (prefixArgument != null) {
+      if (popToMark(buffer)) lastMarkCommandAction = "pop-to-mark-command"
+      else lastMarkCommandAction = null
+      return
+    }
+    if (getCustom<boolean>("set-mark-command-repeat-pop") && lastMarkCommandAction === "pop-to-mark-command") {
+      if (popToMark(buffer)) lastMarkCommandAction = "pop-to-mark-command"
+      else lastMarkCommandAction = null
+      return
+    }
+    if (getCustom<boolean>("set-mark-command-repeat-pop") && lastMarkCommandAction === "pop-global-mark") {
+      await editor.run("pop-global-mark")
+      return
+    }
+    setMark(buffer)
+    lastMarkCommandAction = "push-mark-command"
   }, "Set mark at point, pushing the old mark onto the mark ring; with C-u, jump to mark and pop the ring.")
 
   editor.command("mark-whole-buffer", ({ buffer }) => {
@@ -91,6 +129,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     global.push(head)
     const target = editor.switchToBuffer(head.bufferId)
     target.point = clamp(head.position, 0, target.text.length)
+    lastMarkCommandAction = "pop-global-mark"
   }, "Pop off global mark ring and jump to the top location.")
 
   editor.key("C-x C-space", "pop-global-mark")
