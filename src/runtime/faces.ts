@@ -22,6 +22,12 @@ const faces = new Map<string, CustomFace>()
 const customOverrides = new Map<string, FaceStyle>()
 export const FACE_REMAP_KEY = "jemacs-face-remap"
 
+/** Font stacks for the Emacs `variable-pitch` / `fixed-pitch` base faces.
+ *  Prose modes remap `default` → variable-pitch and keep code spans on
+ *  fixed-pitch so monospace alignment survives a proportional body. */
+export const VARIABLE_PITCH_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif'
+export const FIXED_PITCH_FAMILY = 'ui-monospace, "Fira Code", Menlo, monospace'
+
 export function mergeFaceStyles(base: FaceStyle | undefined, overlay: FaceStyle | undefined): FaceStyle | undefined {
   if (!overlay) return base
   if (!base) return { ...overlay }
@@ -66,7 +72,8 @@ export function listCustomFaces(): CustomFace[] {
 
 export function listKnownFaceNames(): string[] {
   const names = new Set<string>([
-    "default", "keyword", "string", "comment", "builtin", "function", "type",
+    "default", "variable-pitch", "fixed-pitch",
+    "keyword", "string", "comment", "builtin", "function", "type",
     "number", "constant", "directory", "region", "isearch", "lazyHighlight",
     "modeLine", "modeLineInactive", "minibuffer", "minibufferPrompt", "title",
     "error", "lineNumber", "lineNumberCurrent",
@@ -262,3 +269,6 @@ function applyFaceRemap(base: FaceStyle | undefined, remap: FaceStyle): FaceStyl
 export function resolveThemeFace(theme: Theme, face: FaceName, buffer?: BufferModel): FaceStyle | undefined {
   return resolveFace(face, theme, buffer)
 }
+
+defface("variable-pitch", { family: VARIABLE_PITCH_FAMILY }, "The basic variable-pitch face.", "basic-faces")
+defface("fixed-pitch", { family: FIXED_PITCH_FAMILY }, "The basic fixed-pitch face.", "basic-faces")

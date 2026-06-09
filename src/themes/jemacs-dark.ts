@@ -1,8 +1,9 @@
 import { defineTheme } from "../display/theme"
+import { FIXED_PITCH_FAMILY } from "../runtime/faces"
 
 /** Built-in VS Code–inspired dark palette (not Gruvbox). */
 export const jemacsDarkTheme = defineTheme("jemacs-dark", {
-  default: { fg: "#d4d4d4", bg: "#1e1e1e" },
+  default: { fg: "#d4d4d4", bg: "#1e1e1e", family: FIXED_PITCH_FAMILY },
   keyword: { fg: "#569cd6", bold: true },
   string: { fg: "#ce9178" },
   comment: { fg: "#6a9955", italic: true },

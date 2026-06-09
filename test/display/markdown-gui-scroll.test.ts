@@ -3,6 +3,7 @@ import { buildDisplayModel } from "../../src/display/build-display-model"
 import { DOM_FRAME_LINE_HEIGHT_RATIO, DOM_FRAME_ROW_PX } from "../../src/display/dom-frame"
 import { themedTextPlain } from "../../src/display/themed-text"
 import { pageScrollLines } from "../../src/display/viewport"
+import { resetFace } from "../../src/runtime/faces"
 import { makeEditor } from "../plugins/helper"
 import { install } from "../../plugins/markdown"
 
@@ -30,6 +31,9 @@ test("GUI markdown scroll keeps cursor on screen below tall headings", async () 
 })
 
 test("GUI markdown body fills the pane without leaving a huge empty gap", () => {
+  // Other suites' installStephenConfig leaks setFaceAttribute("default","height",140);
+  // markdown no longer remaps default :height, so reset to get the 13px fallback.
+  resetFace("default")
   const editor = makeEditor()
   install(editor)
   const lines = Array.from({ length: 80 }, (_, i) => `line ${i}`)
@@ -37,7 +41,7 @@ test("GUI markdown body fills the pane without leaving a huge empty gap", () => 
 
   const rows = 30
   const budget = pageScrollLines(rows)
-  const bodyCost = (20 * DOM_FRAME_LINE_HEIGHT_RATIO) / DOM_FRAME_ROW_PX
+  const bodyCost = (13 * DOM_FRAME_LINE_HEIGHT_RATIO) / DOM_FRAME_ROW_PX
   const expectedLines = Math.floor(budget / bodyCost)
 
   const model = buildDisplayModel(editor, {

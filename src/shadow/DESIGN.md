@@ -78,6 +78,80 @@ The stale case is the same rebase machinery — S's "prediction" is its cached t
 
 Deferred: rsync-style block delta for the "neither side has the other's exact content" case. Cache-hit covers reconnect + same-checkout-locally, which is most of the value.
 
+## Filesystem replica (phase 6 — after shadow-browser)
+
+The CAS (`BufferRef`/`Have`/`Want`/`Chunk`) handles "open a file I've seen
+before." The full local-FS-replica adds a **manifest** so navigation
+(`find-file`, `dired`, `project-find-file`) is local too.
+
+### Manifest
+
+`{path → {sha, mode, size, mtime}}`, dirs hash their sorted children — a
+Merkle tree, i.e., git's tree objects. For a git-tracked project, A's initial
+manifest *is* `git ls-tree -r HEAD` plus the working-tree dirty set.
+
+```ts
+type ManifestEntry  = { path: string; sha: string; mode: number; size: number; mtime: number }
+type ManifestTree   = { kind: "manifest-tree"; root: string; dir: string; entries: ManifestEntry[] }
+type ManifestDelta  = { kind: "manifest-delta"; changes: Array<{path: string; old?: string; new?: ManifestEntry}> }
+type ManifestReq    = { kind: "manifest-req"; dir: string }   // S → A: send me this subtree
+```
+
+On connect: A sends root hash. S compares to cached root → same: done.
+Different: walk down, request only changed subtrees.
+
+### Ops table
+
+| op | S | A | feel |
+|---|---|---|---|
+| `find-file` | manifest → sha → CAS hit → render; miss → placeholder + `Want` | streams chunks | instant if seen; spinner if new |
+| `dired` | render from manifest | sends mtimes/perms | instant; details fill in |
+| `save-buffer` | CAS write + manifest update + `[⊘ saving]` | actual write, ack or error | instant; `[✓]`/`[⚠]` follows |
+| `project-find-file` | filter manifest, no RTT | — | instant |
+| `compile`/`grep`/`M-!` | show CAS(cmd+cwd) stale + `[⊘ re-running]` | run, stream | instant-stale → fresh |
+| LSP | — | runs server | RTT-bound |
+
+`platform/runtime`'s `readFile`/`stat`/`readdir` consult manifest+CAS first,
+fall back to `{command:...}` over the link. `writeFile` is write-through with
+async ack. Same rebase machinery handles stale-base saves
+(`verifyVisitedFileModtime` already does this).
+
+### Scaling to large repos
+
+**Change discovery needs watchman.** Polling `stat` on 60k dirs doesn't work.
+A's manifest-delta push is fed by a watchman subscription (the
+`plugins/lsp-watchman` cursor pattern, repointed at the manifest instead of
+LSP). Without watchman, fall back to per-`find-file` modtime checks — correct
+but no proactive `auto-revert`. `defcustom shadow-manifest-watcher` =
+`"watchman" | "poll" | "none"`.
+
+**Lazy manifest.** Don't ship the whole tree on connect. Ship root hash + dirs
+S has visited. `dired`/`find-file` on a new dir → `ManifestReq` for that
+subtree. A 6M-entry repo costs one root hash + the subtrees you actually
+touch. This is git's partial-clone shape.
+
+**Bounded CAS.** `~/.jemacs/cas/` capped at `defcustom cas-max-bytes` (default
+2 GiB). Evict by atime: each `casWrite` that crosses the cap walks the dir
+sorted by atime and unlinks until under `cas-max-bytes × 0.8`. Manifest
+entries stay (they're tiny); only blob content evicts. For git-tracked
+projects, **`.git/objects` is a free second-tier CAS** — `casLookup(sha)`
+checks `~/.jemacs/cas/` first, then `git cat-file -p <sha>` against the local
+checkout, then `Want`.
+
+**Manifest itself can be large.** Store it as a packed file
+(`~/.jemacs/manifest/<root-sha>.pack`, sorted by path, mmap'd) not an
+in-memory Map. `project-find-file` does a prefix scan; `dired` does a range
+read. Same access pattern as git's pack index.
+
+### Coherence failure modes
+
+- A's watcher misses a change → S stale until next full root-hash check
+  (heartbeat every `shadow-manifest-resync-interval`, default 60s).
+- S edits a stale-cached file → caught at save by `verifyVisitedFileModtime`
+  on A; prompts as today.
+- Network partition during save → S's CAS has the content; on reconnect,
+  `resendPending` includes the write command; A applies or conflicts.
+
 ## Transport (generic)
 
 `ShadowLink` is the interface; transports are implementations:

@@ -88,11 +88,12 @@ export function renderCaret(
   rows: HTMLElement[],
   cursor: { row: number; colOffset: number },
   fg?: string,
+  extraClass?: string,
 ): void {
   const rowEl = rows[Math.min(cursor.row, rows.length - 1)]
   if (!rowEl) return
   const caret = document.createElement("div")
-  caret.className = "jemacs-caret"
+  caret.className = extraClass ? `jemacs-caret ${extraClass}` : "jemacs-caret"
   if (fg) caret.style.backgroundColor = fg
   body.appendChild(caret)
   const place = () => {
@@ -113,6 +114,11 @@ export function renderCaret(
     caret.style.left = `${left - bodyRect.left + body.scrollLeft}px`
     caret.style.top = `${rowRect.top - bodyRect.top + body.scrollTop}px`
     caret.style.height = `${height}px`
+    // Keep point on screen: M->/M-</C-v reposition the caret outside the
+    // visible scroll region; `nearest` is a no-op when already in view.
+    if (typeof caret.scrollIntoView === "function") {
+      caret.scrollIntoView({ block: "nearest", inline: "nearest" })
+    }
   }
   place()
   // Re-measure after layout settles (web fonts, first paint).

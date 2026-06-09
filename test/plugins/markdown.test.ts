@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { BufferModel } from "../../src/kernel/buffer"
 import { makeEditor } from "./helper"
 import { keySeq } from "../harness"
-import { getBufferFaceRemap } from "../../src/runtime/faces"
+import { FIXED_PITCH_FAMILY, getBufferFaceRemap, VARIABLE_PITCH_FAMILY } from "../../src/runtime/faces"
 import { enterMode } from "../../src/modes/mode"
 import {
   install,
@@ -90,8 +90,9 @@ test("markdown-mode onEnter applies proportional default face remap", () => {
   install(editor)
   const buffer = new BufferModel({ name: "doc.md", text: "# Title", mode: "text" })
   enterMode(buffer, "markdown")
-  expect(getBufferFaceRemap(buffer, "default")?.family).toBe("Helvetica Neue")
-  expect(getBufferFaceRemap(buffer, "default")?.height).toBe(200)
+  expect(getBufferFaceRemap(buffer, "default")?.family).toBe(VARIABLE_PITCH_FAMILY)
+  expect(getBufferFaceRemap(buffer, "default")?.height).toBeUndefined()
+  expect(getBufferFaceRemap(buffer, "string")?.family).toBe(FIXED_PITCH_FAMILY)
 })
 
 describe("markdown-cycle", () => {
