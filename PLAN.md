@@ -45,6 +45,7 @@ Current branch for this work: `main`.
   - `toggle-transient-mark-mode` -> `jemacs-toggle-transient-mark-mode`; GNU `transient-mark-mode` added
   - `dired-toggle-mark` -> `jemacs-dired-toggle-mark`
   - `buffer-list-select` -> GNU `Buffer-menu-select`
+  - `toggle-window-dedicated` -> `jemacs-toggle-window-dedicated`
 
 ## Missing Or Incomplete Parity Work
 

@@ -309,7 +309,9 @@ test("dedicated windows are skipped when displaying another buffer", async () =>
   editor.scratch("other-buffer", "other", "text")
   await editor.run("split-window-below")
   await editor.run("other-window")
-  await editor.run("toggle-window-dedicated")
+  expect(editor.commands.get("toggle-window-dedicated")).toBeUndefined()
+  expect(editor.commands.get("jemacs-toggle-window-dedicated")).toBeDefined()
+  await editor.run("jemacs-toggle-window-dedicated")
   const dedicatedId = editor.selectedWindowId
   await editor.run("other-window")
   editor.displayBufferInOtherWindow("*Help*")

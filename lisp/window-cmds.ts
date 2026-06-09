@@ -154,12 +154,12 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Popped to ${editor.bufferDisplayName(shown)}`)
   }, "Display a buffer and select its window.")
 
-  editor.command("toggle-window-dedicated", ({ editor }) => {
+  editor.command("jemacs-toggle-window-dedicated", ({ editor }) => {
     const leaf = editor.selectedWindowLeaf()
     const dedicated = !(leaf?.dedicated ?? false)
     editor.setSelectedWindowDedicated(dedicated)
     editor.message(dedicated ? "Window is now dedicated" : "Window is no longer dedicated")
-  }, "Toggle whether the selected window is dedicated.")
+  }, "Jemacs extension command that toggles whether the selected window is dedicated.")
 
   editor.command("quit-window", ({ editor, prefixArgument }) => {
     const bufferId = editor.currentBufferId
