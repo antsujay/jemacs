@@ -3,7 +3,7 @@ import type { Editor } from "../../src/kernel/editor"
 import { addHook } from "../../src/kernel/hooks"
 import { Keymap } from "../../src/kernel/keymap"
 import { defcustom, getCustom } from "../../src/runtime/custom"
-import { defface, faceRemapAddRelative } from "../../src/runtime/faces"
+import { defface, faceRemapAddRelative, FIXED_PITCH_FAMILY, VARIABLE_PITCH_FAMILY } from "../../src/runtime/faces"
 import { defineMode, enterMode, getMode, modeFeature, type FaceName, type TextSpan } from "../../src/modes/mode"
 import { registeredTreeSitterLanguages, treeSitterFontLock } from "../../src/modes/tree-sitter"
 import { registerTreeSitterGrammars } from "../tree-sitter-grammars"
@@ -768,7 +768,10 @@ function markdownFontLock(buffer: BufferModel): TextSpan[] {
 }
 
 function applyMarkdownFaceRemap(buffer: BufferModel): void {
-  faceRemapAddRelative(buffer, "default", { family: "Helvetica Neue", height: 200 })
+  faceRemapAddRelative(buffer, "default", { family: VARIABLE_PITCH_FAMILY })
+  // Code spans / fences / fenced bodies all font-lock as `string`; pin them to
+  // fixed-pitch so they stay monospace under the variable-pitch default remap.
+  faceRemapAddRelative(buffer, "string", { family: FIXED_PITCH_FAMILY })
   for (const [face, scale] of MARKDOWN_HEADER_FACES) {
     faceRemapAddRelative(buffer, face, { heightScale: scale })
   }
