@@ -3,7 +3,7 @@ import type { Editor } from "../src/kernel/editor"
 import type { PluginContext } from "../src/runtime/plugin-context"
 import type { BufferModel } from "../src/kernel/buffer"
 import type { TextSpan } from "../src/modes/mode"
-import { defvar } from "../src/runtime/custom"
+import { defcustom, defvar, getCustom } from "../src/runtime/custom"
 import { isPrintable } from "../src/kernel/keymap"
 import { scrollDownCommand, scrollUpCommand, selectedWindowBodyBudget } from "../src/display/scroll"
 import { pythonBeginningOfDefun, pythonEndOfDefun } from "../src/modes/python"
@@ -11,6 +11,9 @@ import { spawnProcess } from "../src/platform/runtime"
 import { readKey } from "./misc"
 
 const KILL_COMMANDS = new Set(["kill-line", "kill-word", "backward-kill-word", "kill-region", "clipboard-kill-region"])
+
+defcustom("read-quoted-char-radix", "number", 8,
+  "Radix for numeric character input read by `quoted-insert'.", "editing")
 
 export function install(editor: Editor, ctx?: PluginContext): void {
   const moveChar = (buffer: BufferModel, editor: Editor, delta: number) => {
@@ -278,25 +281,85 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     return null
   }
 
+  const quotedDigitValue = (text: string | null, radix: number): number | null => {
+    if (!text || text.length !== 1) return null
+    const code = text.toLowerCase().charCodeAt(0)
+    const value = code >= 48 && code <= 57
+      ? code - 48
+      : code >= 97 && code <= 122
+        ? code - 87
+        : -1
+    return value >= 0 && value < radix ? value : null
+  }
+
+  const finishQuotedInsert = (editor: Editor): void => {
+    editor.quotedInsertNext = false
+    editor.quotedInsertCount = 1
+    editor.quotedInsertCode = null
+  }
+
+  const insertQuotedText = async (editor: Editor, buffer: BufferModel, text: string): Promise<void> => {
+    if (editor.minibuffer) await editor.minibufferInsert(text)
+    else buffer.insert(text)
+  }
+
+  const insertQuotedCode = async (editor: Editor, buffer: BufferModel, digits: string, radix: number, count: number): Promise<boolean> => {
+    const code = Number.parseInt(digits, radix)
+    try {
+      await insertQuotedText(editor, buffer, String.fromCodePoint(code).repeat(count))
+      return true
+    } catch {
+      editor.message(`${code} is not a valid character`)
+      return false
+    }
+  }
+
+  const quotedInsertTerminator = (key: CommandContext["keyEvent"]): boolean =>
+    key?.name === "enter" || key?.name === "return" || key?.name === "linefeed"
+
   editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument, keyEvent }) => {
     const key = editor.lastKeyEvent
     const quoted = editor.quotedInsertNext
     const ch = quoted ? quotedKeyText(keyEvent ?? key, args[0]) : args[0] ?? key?.sequence
     const count = quoted ? editor.quotedInsertCount : prefixArgument ?? 1
     if (quoted) {
-      editor.quotedInsertNext = false
-      editor.quotedInsertCount = 1
+      if (count <= 0) {
+        finishQuotedInsert(editor)
+        return
+      }
+      const codeState = editor.quotedInsertCode
+      if (codeState) {
+        const keyText = quotedKeyText(keyEvent ?? key, args[0])
+        const digit = quotedDigitValue(keyText, codeState.radix)
+        if (digit != null) {
+          codeState.digits += keyText
+          if (codeState.radix === 8 && codeState.digits.length >= 3) {
+            await insertQuotedCode(editor, buffer, codeState.digits, codeState.radix, codeState.count)
+            finishQuotedInsert(editor)
+            editor.quotedInsertSwallowTerminator = true
+          }
+          return
+        }
+        await insertQuotedCode(editor, buffer, codeState.digits, codeState.radix, codeState.count)
+        finishQuotedInsert(editor)
+        if (quotedInsertTerminator(keyEvent ?? key)) return
+        return { redispatchKey: keyEvent ?? key }
+      }
+      const radix = Math.max(2, Math.min(36, Math.trunc(getCustom<number>("read-quoted-char-radix") ?? 8)))
+      if (ch != null && quotedDigitValue(ch, radix) != null) {
+        editor.quotedInsertCode = { digits: ch, radix, count }
+        return
+      }
+      finishQuotedInsert(editor)
     }
     if (!ch) return
-    if (quoted && count <= 0) return
     if (count < 0) {
       editor.message(`Negative repetition argument ${count}`)
       return
     }
     const text = ch.repeat(count)
     if (quoted) {
-      if (editor.minibuffer) await editor.minibufferInsert(text)
-      else buffer.insert(text)
+      await insertQuotedText(editor, buffer, text)
       return
     }
     if (!args[0] && (!key || !isPrintable(key))) return

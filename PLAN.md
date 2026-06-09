@@ -2,7 +2,7 @@
 
 Goal: every implemented GNU Emacs-named command should match GNU Emacs name-by-name for the behavior Jemacs claims to implement. Non-GNU compatibility helpers may remain, but they should be documented as Jemacs extensions or renamed away from misleading GNU names.
 
-Current branch for this work: `emacs-parity-goal`.
+Current branch for this work: `main`.
 
 ## Recently Completed On This Branch
 
@@ -18,7 +18,7 @@ Current branch for this work: `emacs-parity-goal`.
   - `set-mark-command` double-universal prefix and repeat-pop local/global mark behavior
   - `yank` numeric/zero/negative prefix kill-ring selection
   - `yank-pop` numeric/negative prefix rotation and stale-yank guard
-  - `quoted-insert` repeat prefixes and quoted control-key insertion
+  - `quoted-insert` repeat prefixes, quoted control-key insertion, and numeric character-code input via `read-quoted-char-radix`
 - Buffer/window/tab prefix parity:
   - `next-buffer`, `previous-buffer`
   - `other-window`
@@ -77,8 +77,8 @@ Current branch for this work: `emacs-parity-goal`.
 - Region case commands such as `downcase-region`
   - Need full point/mark preservation and read-only/error parity audit.
 - `quoted-insert`
-  - Repeat prefixes and quoted control-key insertion are covered.
-  - Remaining audit: octal/decimal/hex character-code input, `read-quoted-char-radix`, overwrite modes, minibuffer behavior, and Unicode input parity.
+  - Repeat prefixes, quoted control-key insertion, and octal/decimal/hex `read-quoted-char-radix` character-code input are covered.
+  - Remaining audit: overwrite modes, minibuffer behavior beyond basic insertion, invalid-code errors, and Unicode input parity.
 
 ### 3. Search And Replace Gaps
 

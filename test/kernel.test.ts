@@ -10,7 +10,7 @@ import { getTextScaleAmount, textScaleFactor } from "../src/core/text-scale"
 import { installDefaultConfig as installDefaultCommands } from "../src/config"
 import { install as installStephenConfig } from "./fixtures/stephen-config"
 import { defaultTheme } from "../src/themes"
-import { getCustom, resetCustom } from "../src/runtime/custom"
+import { getCustom, resetCustom, setCustom } from "../src/runtime/custom"
 import { pageScrollLines, visibleStyledText, visibleText } from "../src/ui/opentui"
 import { diredEntryAtPoint } from "../src/modes/dired"
 import { registerTreeSitterGrammars } from "../plugins/tree-sitter-grammars"
@@ -530,6 +530,59 @@ test("quoted-insert bypasses keymaps for control characters", async () => {
   expect(result).toEqual({ status: "command", command: "self-insert-command" })
   expect(buffer.text).toBe("abc\u0001")
   expect(buffer.point).toBe(4)
+})
+
+test("quoted-insert reads numeric character codes with GNU radix behavior", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("", false)
+
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "1", sequence: "1" })
+  await editor.handleKey({ name: "0", sequence: "0" })
+  await editor.handleKey({ name: "1", sequence: "1" })
+  expect(buffer.text).toBe("A")
+  expect(editor.quotedInsertNext).toBe(false)
+
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "1", sequence: "1" })
+  await editor.handleKey({ name: "0", sequence: "0" })
+  await editor.handleKey({ name: "1", sequence: "1" })
+  await editor.handleKey({ name: "x", sequence: "x" })
+  expect(buffer.text).toBe("AAx")
+
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "4", sequence: "4" })
+  await editor.handleKey({ name: "0", sequence: "0" })
+  await editor.handleKey({ name: "0", sequence: "0" })
+  await editor.handleKey({ name: "enter" })
+  expect(buffer.text).toBe("AAx\u0100")
+})
+
+test("quoted-insert honors read-quoted-char-radix", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("", false)
+
+  try {
+    setCustom("read-quoted-char-radix", 10)
+    await editor.handleKey({ name: "q", ctrl: true })
+    await editor.handleKey({ name: "6", sequence: "6" })
+    await editor.handleKey({ name: "5", sequence: "5" })
+    await editor.handleKey({ name: "enter" })
+    expect(buffer.text).toBe("A")
+
+    setCustom("read-quoted-char-radix", 16)
+    await editor.handleKey({ name: "q", ctrl: true })
+    await editor.handleKey({ name: "4", sequence: "4" })
+    await editor.handleKey({ name: "1", sequence: "1" })
+    await editor.handleKey({ name: "enter" })
+    expect(buffer.text).toBe("AA")
+  } finally {
+    resetCustom("read-quoted-char-radix")
+  }
 })
 
 test("default commands support buffer listing, switching, newline, and regions", async () => {

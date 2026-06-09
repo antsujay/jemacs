@@ -98,6 +98,10 @@ export type KeyDispatchResult =
   | { status: "inserted" }
   | { status: "unmatched" }
 
+function isRedispatchKeyResult(value: unknown): value is { redispatchKey: KeyEventLike } {
+  return typeof value === "object" && value !== null && "redispatchKey" in value
+}
+
 export class Editor {
   readonly buffers = new Map<string, BufferModel>()
   private readonly fontLockCache = new WeakMap<BufferModel, { text: string; spans: TextSpan[] }>()
@@ -134,6 +138,8 @@ export class Editor {
   lastKeyEvent: KeyEventLike | null = null
   quotedInsertNext = false
   quotedInsertCount = 1
+  quotedInsertCode: { digits: string; radix: number; count: number } | null = null
+  quotedInsertSwallowTerminator = false
   macroRecording: string[] | null = null
   lastKbdMacro: string[] = []
   private lastEchoMessage = ""
@@ -613,9 +619,18 @@ export class Editor {
     }
 
     if (this.quotedInsertNext && this.commands.get("self-insert-command")) {
-      await this.run("self-insert-command", key.sequence ? [key.sequence] : [], key)
+      const result = await this.run("self-insert-command", key.sequence ? [key.sequence] : [], key)
+      if (isRedispatchKeyResult(result)) return this.handleKey(result.redispatchKey)
       if (this.macroRecording && key.sequence) this.macroRecording.push(key.sequence)
       return { status: "command", command: "self-insert-command" }
+    }
+
+    if (this.quotedInsertSwallowTerminator) {
+      this.quotedInsertSwallowTerminator = false
+      if (key.name === "enter" || key.name === "return" || key.name === "linefeed") {
+        await this.changed("quoted-insert-terminator")
+        return { status: "command", command: "self-insert-command" }
+      }
     }
 
     const digit = digitFromKey(key.name)
