@@ -43,6 +43,7 @@ Current branch for this work: `main`.
   - `lsp-find-references` -> `jemacs-lsp-find-references`
   - `clear-mark` -> `jemacs-clear-mark`; GNU `deactivate-mark` added
   - `toggle-transient-mark-mode` -> `jemacs-toggle-transient-mark-mode`; GNU `transient-mark-mode` added
+  - `dired-toggle-mark` -> `jemacs-dired-toggle-mark`
 
 ## Missing Or Incomplete Parity Work
 

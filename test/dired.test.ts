@@ -153,6 +153,8 @@ test("dired keymap binds mark, copy, delete, and regexp commands", async () => {
   installDefaultCommands(editor)
   expect(editor.commands.get("dired-unmark-all")).toBeUndefined()
   expect(editor.commands.get("jemacs-dired-unmark-all")).toBeDefined()
+  expect(editor.commands.get("dired-toggle-mark")).toBeUndefined()
+  expect(editor.commands.get("jemacs-dired-toggle-mark")).toBeDefined()
   expect(editor.commands.get("dired-unmark-all-files")?.description).toContain("specific mark")
   expect(editor.commands.get("dired-number-of-marked-files")?.description).toContain("total size")
   expect(editor.commands.get("dired-change-marks")?.description).toContain("OLD marks")

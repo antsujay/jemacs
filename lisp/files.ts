@@ -306,9 +306,9 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.command("dired-toggle-marks", ({ buffer }) => {
     diredToggleMarks(buffer)
   }, "Toggle Dired marks throughout the current buffer.")
-  editor.command("dired-toggle-mark", ({ buffer }) => {
+  editor.command("jemacs-dired-toggle-mark", ({ buffer }) => {
     diredToggleMark(buffer, diredEntryAtPoint(buffer))
-  }, "Toggle the mark on the current Dired line.")
+  }, "Jemacs extension command that toggles the mark on the current Dired line.")
   editor.command("dired-number-of-marked-files", ({ buffer, editor }) => {
     const { count, totalSize } = diredMarkedFilesSummary(buffer)
     editor.message(`${count} marked file${count === 1 ? "" : "s"}, ${totalSize} byte${totalSize === 1 ? "" : "s"} total`)
