@@ -100,7 +100,8 @@ Current branch for this work: `emacs-parity-goal`.
 - `revert-buffer`
   - Needs exact `noconfirm`, auto-revert, file/directory buffer, and dirty-buffer behavior.
 - `switch-to-buffer`, `switch-to-buffer-other-window`, `display-buffer`, `pop-to-buffer`
-  - Need full display action and buffer selection semantics. `display-buffer-other-window` is not a GNU function in current local Emacs and should be treated as a Jemacs compatibility extension or removed/renamed.
+  - Need full display action and buffer selection semantics.
+  - `display-buffer-other-window` has been renamed to `jemacs-display-buffer-other-window` because it is not a GNU function in current local Emacs.
 - `list-buffers`
   - Prefix files-only behavior is covered; remaining GNU Buffer Menu columns, marks, sorting, and hidden-buffer behavior are incomplete.
 

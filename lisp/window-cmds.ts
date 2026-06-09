@@ -140,7 +140,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Displayed ${editor.bufferDisplayName(shown)} in other window`)
   }
   editor.command("display-buffer", displayBuffer, "Display a buffer in another window without selecting it.")
-  editor.command("display-buffer-other-window", displayBuffer, "Compatibility alias for display-buffer.")
+  editor.command("jemacs-display-buffer-other-window", displayBuffer, "Jemacs extension alias for display-buffer.")
 
   editor.command("pop-to-buffer", async ({ editor, args }) => {
     const name = args[0] ?? await editor.completingRead("Pop to buffer: ", {

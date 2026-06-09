@@ -56,7 +56,8 @@ test("switch-to-buffer-other-window: collection lists display names and resolves
 test("display-buffer: initialValue and message use display name without selecting the shown window", async () => {
   const { editor, a, b } = twoSameName()
   editor.switchToBuffer(a.id)
-  expect(editor.commands.get("display-buffer-other-window")).toBeDefined()
+  expect(editor.commands.get("display-buffer-other-window")).toBeUndefined()
+  expect(editor.commands.get("jemacs-display-buffer-other-window")).toBeDefined()
   expect(editor.commands.get("pop-to-buffer")?.description).toContain("select")
   let initial: string | undefined
   editor.completingRead = (_p, opts) => {
