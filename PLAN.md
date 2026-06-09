@@ -15,6 +15,7 @@ Current branch for this work: `main`.
   - `newline`
   - `self-insert-command`
   - `goto-line`
+  - `kill-line` plain end-of-buffer error behavior versus explicit numeric-prefix no-op
   - `set-mark-command` double-universal prefix and repeat-pop local/global mark behavior
   - `yank` numeric/zero/negative prefix kill-ring selection
   - `yank-pop` numeric/negative prefix rotation and stale-yank guard
@@ -65,7 +66,8 @@ Current branch for this work: `main`.
 - `exchange-point-and-mark`
   - Covered for basic prefix behavior, but still needs mark ring and transient-mark-mode audit.
 - `kill-line`
-  - Covered for several prefix cases, but still needs complete GNU behavior for read-only buffers, invisible text, field boundaries, and exact kill-ring append semantics across all kill commands.
+  - Covered for several prefix cases, blank-tail newline behavior, consecutive kill append, and plain end-of-buffer error behavior.
+  - Remaining audit: read-only buffers, invisible text, field boundaries, and exact kill-ring append semantics across all kill commands.
 - `kill-word`, `backward-kill-word`
   - Unicode-aware behavior exists, but exact syntax-table and subword interactions are incomplete.
 - `yank`, `yank-pop`

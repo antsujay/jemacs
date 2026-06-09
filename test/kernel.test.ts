@@ -197,6 +197,27 @@ test("M-d kills the word after point and supports yank", async () => {
   expect(editor.currentBuffer.text).toBe("one  three")
 })
 
+test("kill-line reports end of buffer only without an explicit prefix", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("abc", false)
+  buffer.point = buffer.text.length
+
+  await editor.run("kill-line")
+  expect(buffer.text).toBe("abc")
+  expect(buffer.point).toBe(3)
+  expect(messages).toEqual(["End of buffer"])
+
+  editor.prefixArg.addDigit(1)
+  await editor.run("kill-line")
+  expect(buffer.text).toBe("abc")
+  expect(buffer.point).toBe(3)
+  expect(messages).toEqual(["End of buffer"])
+})
+
 test("default emacs keybindings are registered and runnable", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)

@@ -436,13 +436,17 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.command("undo-redo", ({ buffer }) => buffer.redo(), "Redo the last undone text edit.")
   editor.command("redo", ({ buffer }) => buffer.redo(), "Compatibility alias for undo-redo.")
 
-  editor.command("kill-line", ({ buffer, prefixArgument }) => {
+  editor.command("kill-line", ({ buffer, editor, prefixArgument }) => {
     const append = lastCommandWasKill()
     const start = buffer.point
     let end: number
     if (prefixArgument != null) {
       end = nthLineBoundary(buffer.text, start, prefixArgument)
     } else {
+      if (start === buffer.text.length) {
+        editor.message("End of buffer")
+        return
+      }
       const nl = buffer.text.indexOf("\n", start)
       const tail = nl === -1 ? buffer.text.slice(start) : buffer.text.slice(start, nl)
       // Emacs rule: if the rest of the line is blank, kill through the newline.
