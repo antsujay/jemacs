@@ -12,7 +12,7 @@ import { parseInteractiveForm } from "../src/runtime/interactive"
 import { addAdvice } from "../src/runtime/advice"
 import { addToLoadPath, clearLoadPath, getLoadPath } from "../src/runtime/load-path"
 import { Evaluator } from "../src/runtime/evaluator"
-import { setTransientMarkModeEnabled } from "../src/kernel/transient-mark"
+import { isTransientMarkModeEnabled, setTransientMarkModeEnabled } from "../src/kernel/transient-mark"
 
 test("defcustom stores and updates values", () => {
   defcustom("jemacs-test-flag", "boolean", false, "test")
@@ -140,6 +140,45 @@ test("motion preserves markActive (transient-mark-mode semantics)", async () => 
   expect(buffer.markActive).toBe(true)
   buffer.insert("x")
   expect(buffer.markActive).toBe(false)
+})
+
+test("transient-mark-mode command follows GNU interactive prefix semantics", async () => {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+
+  try {
+    setCustom("transient-mark-mode", true)
+    setTransientMarkModeEnabled(true)
+    expect(editor.commands.get("toggle-transient-mark-mode")).toBeUndefined()
+    expect(editor.commands.get("transient-mark-mode")).toBeDefined()
+    expect(editor.commands.get("jemacs-toggle-transient-mark-mode")).toBeDefined()
+
+    await editor.run("transient-mark-mode")
+    expect(getCustom<boolean>("transient-mark-mode")).toBe(false)
+    expect(isTransientMarkModeEnabled()).toBe(false)
+
+    await editor.run("transient-mark-mode")
+    expect(getCustom<boolean>("transient-mark-mode")).toBe(true)
+    expect(isTransientMarkModeEnabled()).toBe(true)
+
+    editor.prefixArg.addDigit(0)
+    await editor.run("transient-mark-mode")
+    expect(getCustom<boolean>("transient-mark-mode")).toBe(false)
+    expect(isTransientMarkModeEnabled()).toBe(false)
+
+    editor.prefixArg.addDigit(1)
+    await editor.run("transient-mark-mode")
+    expect(getCustom<boolean>("transient-mark-mode")).toBe(true)
+    expect(isTransientMarkModeEnabled()).toBe(true)
+
+    editor.prefixArg.toggleNegative()
+    await editor.run("transient-mark-mode")
+    expect(getCustom<boolean>("transient-mark-mode")).toBe(false)
+    expect(isTransientMarkModeEnabled()).toBe(false)
+  } finally {
+    setCustom("transient-mark-mode", true)
+    setTransientMarkModeEnabled(true)
+  }
 })
 
 test("customize displays user options and updates values", async () => {

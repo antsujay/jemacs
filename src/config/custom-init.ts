@@ -6,10 +6,21 @@ export function installDefaultCustomVariables(editor: Editor): void {
   defcustom("transient-mark-mode", "boolean", true, "When non-nil, movement deactivates the mark (region highlight remains).")
   setTransientMarkModeEnabled(getCustom<boolean>("transient-mark-mode") ?? true)
 
-  editor.command("toggle-transient-mark-mode", () => {
+  const setTransientMarkMode = (enabled: boolean): void => {
+    setCustom("transient-mark-mode", enabled)
+    setTransientMarkModeEnabled(enabled)
+    editor.message(`Transient Mark mode ${enabled ? "on" : "off"}`)
+  }
+
+  editor.command("transient-mark-mode", ({ prefixArgument }) => {
+    const next = prefixArgument == null
+      ? !(getCustom<boolean>("transient-mark-mode") ?? true)
+      : prefixArgument > 0
+    setTransientMarkMode(next)
+  }, "Toggle Transient Mark mode interactively.")
+
+  editor.command("jemacs-toggle-transient-mark-mode", () => {
     const next = !(getCustom<boolean>("transient-mark-mode") ?? true)
-    setCustom("transient-mark-mode", next)
-    setTransientMarkModeEnabled(next)
-    editor.message(`Transient Mark mode ${next ? "on" : "off"}`)
-  }, "Toggle `transient-mark-mode`.")
+    setTransientMarkMode(next)
+  }, "Jemacs extension alias for transient-mark-mode toggle.")
 }

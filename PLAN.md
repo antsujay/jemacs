@@ -41,6 +41,8 @@ Current branch for this work: `main`.
   - `dired-unmark-all` -> `jemacs-dired-unmark-all`
   - `bookmark-list` -> `jemacs-bookmark-list`
   - `lsp-find-references` -> `jemacs-lsp-find-references`
+  - `clear-mark` -> `jemacs-clear-mark`; GNU `deactivate-mark` added
+  - `toggle-transient-mark-mode` -> `jemacs-toggle-transient-mark-mode`; GNU `transient-mark-mode` added
 
 ## Missing Or Incomplete Parity Work
 

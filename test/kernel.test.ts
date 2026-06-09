@@ -1476,6 +1476,27 @@ test("C-g clears the mark and removes region highlight", async () => {
   expect(rendered.chunks.some(chunk => chunk.text === "hello" && chunk.bg)).toBe(false)
 })
 
+test("deactivate-mark deactivates without clearing the mark", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("abcdef", false)
+  buffer.point = 3
+  buffer.setMark()
+  buffer.point = 0
+
+  expect(editor.commands.get("clear-mark")).toBeUndefined()
+  expect(editor.commands.get("deactivate-mark")).toBeDefined()
+  expect(editor.commands.get("jemacs-clear-mark")).toBeDefined()
+  await editor.run("deactivate-mark")
+  expect(buffer.mark).toBe(3)
+  expect(buffer.markActive).toBe(false)
+
+  await editor.run("jemacs-clear-mark")
+  expect(buffer.mark).toBeNull()
+  expect(buffer.markActive).toBe(false)
+})
+
 test("C-x C-x exchanges point and mark like Emacs", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)

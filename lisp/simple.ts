@@ -125,10 +125,14 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     }
   }, "Exchange point and mark, activating the region.")
 
-  editor.command("clear-mark", ({ buffer, editor }) => {
+  editor.command("deactivate-mark", ({ buffer }) => {
+    buffer.markActive = false
+  }, "Deactivate the mark.")
+
+  editor.command("jemacs-clear-mark", ({ buffer, editor }) => {
     buffer.clearMark()
     editor.message("Mark cleared")
-  }, "Clear mark.")
+  }, "Jemacs extension command that clears mark entirely.")
 
   editor.command("mark-whole-buffer", ({ buffer }) => {
     buffer.point = buffer.text.length
