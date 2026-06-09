@@ -791,9 +791,9 @@ function applyMarkdownViewModeEnter(buffer: BufferModel): void {
 }
 
 function bindMarkdownModeMap(keymap: Keymap): void {
-  keymap.bind("return", "clear-whitespace-and-newline-and-indent")
-  keymap.bind("enter", "clear-whitespace-and-newline-and-indent")
-  keymap.bind("C-m", "clear-whitespace-and-newline-and-indent")
+  keymap.bind("return", "jemacs-clear-whitespace-and-newline-and-indent")
+  keymap.bind("enter", "jemacs-clear-whitespace-and-newline-and-indent")
+  keymap.bind("C-m", "jemacs-clear-whitespace-and-newline-and-indent")
   keymap.bind("tab", "markdown-cycle")
   keymap.bind("C-i", "markdown-cycle")
   keymap.bind("S-tab", "markdown-shifttab")
@@ -865,7 +865,7 @@ function installMarkdownCommands(editor: Editor): void {
     editor.message("New line")
   }, "Insert a newline and indent like `markdown-mode`.")
 
-  editor.command("clear-whitespace-and-newline-and-indent", async ({ editor, buffer }) => {
+  editor.command("jemacs-clear-whitespace-and-newline-and-indent", async ({ editor, buffer }) => {
     const lineBefore = buffer.lineAt(buffer.point)
     await editor.run("markdown-enter-key")
     const [start, end] = buffer.lineBounds(lineBefore)

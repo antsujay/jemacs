@@ -35,7 +35,7 @@ describe.skipIf(SKIP)("markdown parity: jemacs vs Emacs (tmux)", () => {
     expect(e.modeline).toMatch(/Markdown/)
   }, TIMEOUT)
 
-  test("RET (clear-whitespace-and-newline-and-indent) trims trailing space on previous line", async () => {
+  test("RET (jemacs-clear-whitespace-and-newline-and-indent) trims trailing space on previous line", async () => {
     const src = scratchMd("ret-src-", "line with spaces   ")
     const { jemacs, emacs } = await driveBoth(src, ["End", "Enter"])
     expect(normalizeMarkdownBuffer(jemacs).split("\n")[0]).toBe("line with spaces")

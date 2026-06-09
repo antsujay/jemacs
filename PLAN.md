@@ -48,6 +48,7 @@ Current branch for this work: `main`.
   - `toggle-window-dedicated` -> `jemacs-toggle-window-dedicated`
   - `copy-region-to-clipboard-mac` -> `jemacs-copy-region-to-clipboard-mac`
   - `bookmark-import-from-emacs` -> `jemacs-bookmark-import-from-emacs`
+  - `clear-whitespace-and-newline-and-indent` -> `jemacs-clear-whitespace-and-newline-and-indent`
 
 ## Missing Or Incomplete Parity Work
 

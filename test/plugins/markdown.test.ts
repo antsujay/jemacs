@@ -74,7 +74,7 @@ test("markdownCalcIndents includes previous line indent", () => {
   expect(indents).toContain(4)
 })
 
-test("markdown-mode keymap binds RET to clear-whitespace-and-newline-and-indent", () => {
+test("markdown-mode keymap binds RET to jemacs-clear-whitespace-and-newline-and-indent", () => {
   const editor = makeEditor()
   install(editor)
   const buffer = new BufferModel({ name: "doc.md", text: "", mode: "markdown" })
@@ -82,7 +82,7 @@ test("markdown-mode keymap binds RET to clear-whitespace-and-newline-and-indent"
   editor.currentBufferId = buffer.id
   const result = editor.keymaps.lookup("return")
   expect(result.status).toBe("matched")
-  expect(result.status === "matched" ? result.command : "").toBe("clear-whitespace-and-newline-and-indent")
+  expect(result.status === "matched" ? result.command : "").toBe("jemacs-clear-whitespace-and-newline-and-indent")
 })
 
 test("markdown-mode onEnter applies proportional default face remap", () => {
@@ -253,13 +253,13 @@ describe("markdown-view-mode", () => {
   })
 })
 
-describe("clear-whitespace-and-newline-and-indent", () => {
+describe("jemacs-clear-whitespace-and-newline-and-indent", () => {
   test("trims trailing whitespace on the line above after RET", async () => {
     const editor = makeEditor()
     install(editor)
     const buffer = editor.scratch("doc.md", "line with spaces   ", "markdown")
     buffer.point = buffer.text.length
-    await editor.run("clear-whitespace-and-newline-and-indent")
+    await editor.run("jemacs-clear-whitespace-and-newline-and-indent")
     expect(buffer.text).toBe("line with spaces\n")
   })
 })
