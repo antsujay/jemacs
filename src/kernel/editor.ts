@@ -133,6 +133,7 @@ export class Editor {
   readonly globalMinorModes = new Set<string>()
   lastKeyEvent: KeyEventLike | null = null
   quotedInsertNext = false
+  quotedInsertCount = 1
   macroRecording: string[] | null = null
   lastKbdMacro: string[] = []
   private lastEchoMessage = ""
@@ -609,6 +610,12 @@ export class Editor {
     if (this.isearch && this.isearchKeyHandler) {
       const isearchResult = await this.isearchKeyHandler(key)
       if (isearchResult) return isearchResult
+    }
+
+    if (this.quotedInsertNext && this.commands.get("self-insert-command")) {
+      await this.run("self-insert-command", key.sequence ? [key.sequence] : [], key)
+      if (this.macroRecording && key.sequence) this.macroRecording.push(key.sequence)
+      return { status: "command", command: "self-insert-command" }
     }
 
     const digit = digitFromKey(key.name)

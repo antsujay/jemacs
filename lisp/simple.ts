@@ -260,18 +260,41 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     }
   }
 
-  editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument }) => {
+  const quotedKeyText = (key: CommandContext["keyEvent"], fallback?: string): string | null => {
+    if (fallback) return fallback
+    if (!key) return null
+    if (key.sequence) return key.sequence
+    if (key.ctrl && key.name.length === 1) {
+      const ch = key.name.toUpperCase()
+      const code = ch.charCodeAt(0)
+      if (code >= 64 && code <= 95) return String.fromCharCode(code - 64)
+    }
+    if (key.name === "space" && key.ctrl) return "\0"
+    if (key.name === "tab") return "\t"
+    if (key.name === "enter" || key.name === "return") return "\r"
+    if (key.name === "linefeed") return "\n"
+    if (key.name === "escape" || key.name === "esc") return "\x1b"
+    if (key.name === "backspace" || key.name === "delete") return "\x7f"
+    return null
+  }
+
+  editor.command("self-insert-command", async ({ buffer, editor, args, prefixArgument, keyEvent }) => {
     const key = editor.lastKeyEvent
-    const ch = args[0] ?? key?.sequence
+    const quoted = editor.quotedInsertNext
+    const ch = quoted ? quotedKeyText(keyEvent ?? key, args[0]) : args[0] ?? key?.sequence
+    const count = quoted ? editor.quotedInsertCount : prefixArgument ?? 1
+    if (quoted) {
+      editor.quotedInsertNext = false
+      editor.quotedInsertCount = 1
+    }
     if (!ch) return
-    const count = prefixArgument ?? 1
+    if (quoted && count <= 0) return
     if (count < 0) {
       editor.message(`Negative repetition argument ${count}`)
       return
     }
     const text = ch.repeat(count)
-    if (editor.quotedInsertNext) {
-      editor.quotedInsertNext = false
+    if (quoted) {
       if (editor.minibuffer) await editor.minibufferInsert(text)
       else buffer.insert(text)
       return
@@ -309,8 +332,9 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     if (result) editor.message(result)
   }, "Transpose the character before point with the character at point.")
 
-  editor.command("quoted-insert", ({ editor }) => {
+  editor.command("quoted-insert", ({ editor, prefixArgument }) => {
     editor.quotedInsertNext = true
+    editor.quotedInsertCount = prefixArgument ?? 1
     editor.message("Quoted insert — type a character")
   }, "Read the next input event and insert it literally.")
 

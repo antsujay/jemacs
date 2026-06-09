@@ -17,6 +17,7 @@ Current branch for this work: `emacs-parity-goal`.
   - `set-mark-command` double-universal prefix and repeat-pop local/global mark behavior
   - `yank` numeric/zero/negative prefix kill-ring selection
   - `yank-pop` numeric/negative prefix rotation and stale-yank guard
+  - `quoted-insert` repeat prefixes and quoted control-key insertion
 - Buffer/window/tab prefix parity:
   - `next-buffer`, `previous-buffer`
   - `other-window`
@@ -74,7 +75,8 @@ Current branch for this work: `emacs-parity-goal`.
 - Region case commands such as `downcase-region`
   - Need full point/mark preservation and read-only/error parity audit.
 - `quoted-insert`
-  - Currently inserts the next key literally; needs audit for numeric prefixes, control chars, minibuffer behavior, and octal/Unicode input parity.
+  - Repeat prefixes and quoted control-key insertion are covered.
+  - Remaining audit: octal/decimal/hex character-code input, `read-quoted-char-radix`, overwrite modes, minibuffer behavior, and Unicode input parity.
 
 ### 3. Search And Replace Gaps
 

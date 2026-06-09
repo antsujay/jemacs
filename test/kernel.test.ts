@@ -480,6 +480,58 @@ test("self-insert-command rejects negative prefix arguments", async () => {
   expect(messages.at(-1)).toBe("Negative repetition argument -1")
 })
 
+test("quoted-insert inserts the next key literally and honors repeat prefixes", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("", false)
+
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "a", sequence: "a" })
+  expect(buffer.text).toBe("a")
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "3", sequence: "3" })
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "b", sequence: "b" })
+  expect(buffer.text).toBe("abbb")
+})
+
+test("quoted-insert consumes zero and negative repeat prefixes without inserting", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("x", false)
+  buffer.point = 1
+
+  await editor.handleKey({ name: "u", ctrl: true })
+  await editor.handleKey({ name: "0", sequence: "0" })
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "a", sequence: "a" })
+  expect(buffer.text).toBe("x")
+  expect(editor.quotedInsertNext).toBe(false)
+
+  await editor.handleKey({ name: "-", meta: true })
+  await editor.handleKey({ name: "q", ctrl: true })
+  await editor.handleKey({ name: "b", sequence: "b" })
+  expect(buffer.text).toBe("x")
+  expect(editor.quotedInsertNext).toBe(false)
+})
+
+test("quoted-insert bypasses keymaps for control characters", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  buffer.setText("abc", false)
+  buffer.point = buffer.text.length
+
+  await editor.handleKey({ name: "q", ctrl: true })
+  const result = await editor.handleKey({ name: "a", ctrl: true })
+  expect(result).toEqual({ status: "command", command: "self-insert-command" })
+  expect(buffer.text).toBe("abc\u0001")
+  expect(buffer.point).toBe(4)
+})
+
 test("default commands support buffer listing, switching, newline, and regions", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   const { getMode } = await import("../src/modes/mode")
