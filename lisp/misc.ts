@@ -1,15 +1,10 @@
-import { dirname, resolve } from "node:path"
-import { homedir } from "node:os"
-import { appendFile, mkdir } from "node:fs/promises"
 import type { Editor } from "../src/kernel/editor"
 import type { BufferModel } from "../src/kernel/buffer"
 import { Keymap, keyToken, type KeyEventLike } from "../src/kernel/keymap"
 import { defaultTheme, disableBuiltinTheme, enableBuiltinTheme, getBuiltinTheme, isBuiltinThemeEnabled, listEnabledBuiltinThemes, themeSource } from "../src/themes"
 import { defcustom, getCustom } from "../src/runtime/custom"
-import { saveContextOptions } from "../src/core/save-context"
 import { Evaluator } from "../src/runtime/evaluator"
 import { createPluginContext, type PluginContext } from "../src/runtime/plugin-context"
-import { revertAllDefinitions } from "../src/runtime/patch-eval"
 import { inspectValue } from "../src/runtime/inspect"
 import { defineMinorMode } from "../src/modes/minor-mode"
 
@@ -189,66 +184,6 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     }
   }, "Evaluate a JavaScript expression and display its result.")
 
-  editor.command("load-plugin", async ({ editor, args }) => {
-    const path = args[0] ?? await editor.completingRead("Load plugin: ", { completion: "file", history: "file", initialValue: "plugins/demo-plugin.ts" })
-    if (!path) return
-    try {
-      await evaluator.loadPlugin(path)
-      editor.message(`Loaded plugin ${path}`)
-    } catch (err) {
-      const e = err as Error
-      editor.scratch("*Backtrace*", e.stack ?? String(e), "text")
-      editor.message(`Load error: ${e.message}`)
-    }
-  }, "Load a plugin module exporting install(editor).")
-
-  editor.command("reload-current-file", async ({ buffer, editor }) => {
-    if (!buffer.path) {
-      editor.message("Current buffer is not visiting a file")
-      return
-    }
-    revertAllDefinitions(editor)
-    if (buffer.dirty) {
-      try {
-        await buffer.save({
-          confirm: async (p: string) => (await readKey(editor, `${p} (y or n) `)) === "y",
-          ...saveContextOptions(),
-        })
-      } catch (err) { editor.message((err as Error).message); return }
-    }
-    const display = editor.bufferDisplayName(buffer)
-    const mod = await evaluator.loadModule(buffer.path)
-    if (typeof mod.install === "function") {
-      await evaluator.loadPlugin(buffer.path)
-      editor.message(`Reloaded ${display} via install(editor, ctx)`)
-      return
-    }
-    if (typeof mod.installDefaultConfig === "function") {
-      mod.installDefaultConfig(editor)
-      editor.message(`Reloaded ${display} via installDefaultConfig(editor)`)
-      return
-    }
-    if (typeof mod.installDefaultCommands === "function") {
-      mod.installDefaultCommands(editor)
-      editor.message(`Reloaded ${display} via installDefaultCommands(editor)`)
-      return
-    }
-    editor.message(`Reloaded ${display}; no installer export found`)
-  }, "Save and reload the current TypeScript/JavaScript file into the live editor.")
-
-  editor.command("i-bind-key", async ({ editor, args }) => {
-    const sequence = args[0] ?? await editor.prompt("Key sequence to bind: ", "", "keybind")
-    if (!sequence) return
-    const command = args[1] ?? await editor.completingRead(`Command to bind to ${sequence}: `, { collection: editor.commands.names(), history: "command" })
-    if (!command) return
-    if (!editor.commands.get(command)) throw new Error(`Not an interactive command: ${command}`)
-    editor.key(sequence, command)
-    const file = resolve(process.env.JEMACS_KEYBINDS_FILE ?? `${homedir()}/.jemacs/keybinds.js`)
-    await mkdir(dirname(file), { recursive: true })
-    await appendFile(file, `// Added on ${new Date().toISOString()}\neditor.key(${JSON.stringify(sequence)}, ${JSON.stringify(command)})\n`)
-    editor.message(`Bound ${sequence} to ${command} and saved it to ${file}`)
-  }, "Interactively bind a key and persist it to the Jemacs keybinds file.")
-
   // ---- keyboard macros ---------------------------------------------------
 
   editor.command("start-kbd-macro", ({ editor }) => {
@@ -404,8 +339,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.key("C-x l", "count-lines-page")
   editor.key("C-x C-e", "eval-last-sexp")
   editor.key("M-:", "eval-expression")
-  editor.key("C-c C-l", "load-plugin")
-  editor.key("C-c C-r", "reload-current-file")
+  editor.key("C-c C-r", "revert-buffer")
   editor.key("C-x (", "start-kbd-macro")
   editor.key("C-x )", "end-kbd-macro")
   editor.key("C-x e", "call-last-kbd-macro")

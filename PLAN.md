@@ -55,6 +55,8 @@ Current branch for this work: `main`.
   - `revert-all-definitions` -> `jemacs-revert-all-definitions`
   - `org-next-heading` / `org-previous-heading` -> `org-next-visible-heading` / `org-previous-visible-heading`
   - `term-interrupt` / `term-kill` -> `term-interrupt-subjob` / `term-kill-subjob`
+  - Removed non-GNU `load-plugin` and `reload-current-file`; use GNU `load-file` for module loading and GNU `revert-buffer` for file reload.
+  - Removed core `i-bind-key`; Stephen's personal config now owns `my/i-bind-key`.
 
 ## Missing Or Incomplete Parity Work
 

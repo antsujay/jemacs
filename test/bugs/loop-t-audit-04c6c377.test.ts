@@ -8,10 +8,6 @@ import { getTextScaleAmount } from "../../lisp/misc"
 // (a) leaked across Editor instances and (b) violated the no-module-let-in-lisp
 // rule (DESIGN.md §Hot-reload fix 2). State is now WeakMap<Editor,_>-keyed.
 //
-// t-audit-49fa6b23 (merged): load-plugin called evaluator.loadPlugin without a
-// try/catch, so a bad path threw past editor.run instead of surfacing via
-// editor.message + *Backtrace* like eval-region/eval-expression do.
-
 test("text-scale-adjust repeat state is per-editor, not module-shared", async () => {
   const a = makeEditor()
   const b = makeEditor()
@@ -30,14 +26,4 @@ test("lisp/misc.ts has no module-level `let` (DESIGN.md fix-2 lint)", () => {
   const src = readFileSync(new URL("../../lisp/misc.ts", import.meta.url), "utf8")
   const offenders = src.split("\n").filter(l => /^let\s/.test(l))
   expect(offenders).toEqual([])
-})
-
-test("load-plugin surfaces errors via editor.message, not throw", async () => {
-  const editor = makeEditor()
-  let msg = ""
-  editor.events.on("message", ({ text }) => { msg = text })
-  await editor.run("load-plugin", ["/nonexistent/jemacs-plugin.ts"])
-  expect(msg).toMatch(/^Load error:/)
-  const names = [...editor.buffers.values()].map(b => b.name)
-  expect(names).toContain("*Backtrace*")
 })

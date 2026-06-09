@@ -1010,12 +1010,12 @@ test("help keybindings keep C-h as a prefix", () => {
   expect(editor.keymap.get("C-h b")).toBe("describe-bindings")
 })
 
-test("live reload keybinding is registered", () => {
+test("C-c C-r uses revert-buffer", () => {
   const editor = new Editor()
   installDefaultCommands(editor)
 
   expect(editor.keymaps.feed({ name: "c", ctrl: true }).status).toBe("pending")
-  expect(editor.keymaps.feed({ name: "r", ctrl: true })).toMatchObject({ status: "matched", command: "reload-current-file" })
+  expect(editor.keymaps.feed({ name: "r", ctrl: true })).toMatchObject({ status: "matched", command: "revert-buffer" })
 })
 
 test("kernel handles printable, command, prefix, and minibuffer keys through one dispatcher", async () => {
@@ -1220,7 +1220,7 @@ test("keymap stack gives minibuffer bindings precedence over global bindings", a
   const editor = new Editor()
   installDefaultCommands(editor)
   editor.key("tab", "save-buffers-kill-terminal")
-  const prompt = editor.completingRead("M-x ", { collection: ["reload-current-file", "revert-buffer"], history: "command", initialValue: "r" })
+  const prompt = editor.completingRead("M-x ", { collection: ["replace-string", "revert-buffer"], history: "command", initialValue: "r" })
 
   await editor.handleKey({ name: "tab" })
   expect(editor.running).toBe(true)

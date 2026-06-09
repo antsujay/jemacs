@@ -78,7 +78,7 @@ export function installLiveSourceCommands(editor: Editor, evaluator: Evaluator):
 
   editor.command("eval-buffer", async ({ buffer, editor }) => {
     if (buffer.path) {
-      await editor.run("reload-current-file")
+      await editor.run("load-file", [buffer.path])
       return
     }
     const result = await evaluator.eval(buffer.text, buffer.name)

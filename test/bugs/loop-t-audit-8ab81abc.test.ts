@@ -7,9 +7,8 @@ import { getTextScaleAmount } from "../../lisp/misc"
 // JS drops the extra positional silently, so doc still landed; this test pins
 // the contract so a future shuffle (object-as-3rd-arg) is caught.
 //
-// t-audit-04c6c377 (module-level let → WeakMap) and t-audit-49fa6b23
-// (load-plugin try/catch) were fixed in the same sweep — behavioral coverage
-// lives in loop-t-audit-74741fd3.test.ts.
+// t-audit-04c6c377 (module-level let → WeakMap) was fixed in the same sweep;
+// behavioral coverage lives in loop-t-audit-74741fd3.test.ts.
 
 test("text-scale commands register with a string description (3-ary editor.command)", () => {
   const editor = makeEditor()

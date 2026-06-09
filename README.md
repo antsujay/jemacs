@@ -69,8 +69,7 @@ Commands use **GNU Emacs function names** (`find-file`, `kill-region`, `execute-
 | Meta-G G | `goto-line` |
 | Ctrl-X 2 / Ctrl-X 3 | `split-window-below` / `split-window-right` |
 | Ctrl-X K | `kill-buffer` |
-| Ctrl-C Ctrl-L | `load-plugin` |
-| Ctrl-C Ctrl-R | `reload-current-file` |
+| Ctrl-C Ctrl-R | `revert-buffer` |
 | Ctrl-X Ctrl-C or Ctrl-C Ctrl-Q | `save-buffers-kill-terminal` |
 
 ## Self-modifying Jemacs (Emacs-style)
@@ -88,7 +87,7 @@ Everything registered through the public extension API is live, source-tracked, 
 
 Help buffers use **help mode**: put point on a `Source:` line (or the described name) and press **RET** (`help-follow`) to jump to the definition. `M-x jemacs-find-definition` covers any registered kind.
 
-**Temporary** changes: `C-M-x` on a definition form (or `C-x C-e` on a region). **Permanent**: edit the file, `C-x C-s`, then `C-c C-r` (`reload-current-file`) or `M-x load-file`. Reload clears all temporary patches first, then re-imports the module.
+**Temporary** changes: `C-M-x` on a definition form (or `C-x C-e` on a region). **Permanent**: edit the file, `C-x C-s`, then `M-x load-file`. Loading clears all temporary patches first, then re-imports the module.
 
 Eval and plugins receive the full runtime (`src/runtime/jemacs-runtime.ts`): `defcustom`, `defineMode`, `addHook`, `addAdvice`, `Editor`, and more. You can also patch `Editor.prototype` in a scratch buffer for kernel-level experiments (advanced; restart Jemacs to fully reset class state).
 
@@ -99,7 +98,7 @@ bun run src/main.ts path/to/file.ts
 
 Startup config modules can be loaded with `--config <path>`. `~/.jemacs/init.ts` is auto-loaded when present. Config modules should export `install(editor)` or `installDefaultConfig(editor)`.
 
-Module plugins: `C-c C-l` (`load-plugin`). File buffers: `C-c C-r` (`reload-current-file`) when the file exports `install(editor)` or `installDefaultConfig(editor)`.
+Module and config files: `M-x load-file` when the file exports `install(editor)` or `installDefaultConfig(editor)`.
 
 On macOS, some terminals send Option-key characters instead of Meta events, for example Option-X as `≈`, Option-v as `√`, and Option-. as `≥`. Jemacs maps the common Option encodings (including `M-v` from `√`); the Electron GUI uses the physical key (`KeyboardEvent.code`) for Option chords. `Esc` plus the key (e.g. `Esc .` for xref) works as a terminal-portable Meta fallback.
 

@@ -90,8 +90,7 @@ function bindGlobalKeys(editor: Editor): void {
   editor.key("s-{", "tab-bar-switch-to-prev-tab")
   editor.key("s-t", "tab-bar-new-tab")
   editor.key("s-w", "tab-bar-close-tab")
-  editor.key("C-c C-l", "load-plugin")
-  editor.key("C-c C-r", "reload-current-file")
+  editor.key("C-c C-r", "revert-buffer")
   editor.key("C-c C-q", "save-buffers-kill-terminal")
 
   editor.key("C-/", "undo")
