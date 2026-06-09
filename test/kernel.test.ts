@@ -806,6 +806,8 @@ test("clipboard kill commands use Emacs names and region semantics", async () =>
   expect(editor.commands.get("clipboard-kill-ring-save")).toBeDefined()
   expect(editor.commands.get("clipboard-kill-region")).toBeDefined()
   expect(editor.commands.get("clipboard-yank")).toBeDefined()
+  expect(editor.commands.get("copy-region-to-clipboard-mac")).toBeUndefined()
+  expect(editor.commands.get("jemacs-copy-region-to-clipboard-mac")).toBeDefined()
 
   buffer.mark = 0
   buffer.markActive = true

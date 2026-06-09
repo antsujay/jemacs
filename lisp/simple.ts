@@ -637,12 +637,12 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     editor.message("Yanked rectangle")
   }, "Insert the last killed rectangle.")
 
-  editor.command("copy-region-to-clipboard-mac", async ({ buffer, editor }) => {
+  editor.command("jemacs-copy-region-to-clipboard-mac", async ({ buffer, editor }) => {
     const text = buffer.selectedText() || buffer.lineBoundsAt().text
     const copied = await copyToClipboard(text)
     pushKill(text)
     editor.message(copied ? "Copied text to clipboard" : "Copied text")
-  }, "Copy region or current line to the macOS clipboard.")
+  }, "Jemacs extension command that copies region or current line to the macOS clipboard.")
 
   editor.command("downcase-region", ({ buffer, editor }) => {
     if (buffer.mark == null) {

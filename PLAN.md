@@ -46,6 +46,7 @@ Current branch for this work: `main`.
   - `dired-toggle-mark` -> `jemacs-dired-toggle-mark`
   - `buffer-list-select` -> GNU `Buffer-menu-select`
   - `toggle-window-dedicated` -> `jemacs-toggle-window-dedicated`
+  - `copy-region-to-clipboard-mac` -> `jemacs-copy-region-to-clipboard-mac`
 
 ## Missing Or Incomplete Parity Work
 
