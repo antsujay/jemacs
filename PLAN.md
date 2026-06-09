@@ -40,6 +40,7 @@ Current branch for this work: `main`.
   - `python-beginning-of-defun` / `python-end-of-defun` -> `jemacs-python-beginning-of-defun` / `jemacs-python-end-of-defun`
   - `dired-unmark-all` -> `jemacs-dired-unmark-all`
   - `bookmark-list` -> `jemacs-bookmark-list`
+  - `lsp-find-references` -> `jemacs-lsp-find-references`
 
 ## Missing Or Incomplete Parity Work
 

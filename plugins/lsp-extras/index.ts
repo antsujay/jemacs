@@ -236,7 +236,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     await lspFindReferences(editor, buffer)
   }
   editor.command("xref-find-references", findReferences, "Find references to the identifier at point.")
-  editor.command("lsp-find-references", findReferences, "Compatibility alias for xref-find-references.")
+  editor.command("jemacs-lsp-find-references", findReferences, "Jemacs extension alias for xref-find-references.")
 
   editor.command("lsp-install-server", async ({ editor, buffer, args }) => {
     await lspInstallServer(editor, buffer, args[0])

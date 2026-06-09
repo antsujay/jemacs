@@ -61,7 +61,8 @@ test("install registers commands and C-c r binding", () => {
   expect(editor.commands.get("lsp-hover")).toBeDefined()
   expect(editor.commands.get("lsp-rename")).toBeDefined()
   expect(editor.commands.get("xref-find-references")).toBeDefined()
-  expect(editor.commands.get("lsp-find-references")).toBeDefined()
+  expect(editor.commands.get("lsp-find-references")).toBeUndefined()
+  expect(editor.commands.get("jemacs-lsp-find-references")).toBeDefined()
   expect(editor.describeKey("C-c r")).toContain("lsp-rename")
   expect(editor.describeKey("M-?")).toContain("xref-find-references")
 })
@@ -147,7 +148,7 @@ test("applyWorkspaceEdit prefers documentChanges over changes", async () => {
   expect(buf.text).toBe("z y\n")
 })
 
-test("lsp-find-references with single result jumps directly", async () => {
+test("xref-find-references with single result jumps directly", async () => {
   const pathA = resolve("/proj/a.ts")
   const { editor, buffer } = setup(method => {
     if (method !== "textDocument/references") return null
@@ -159,7 +160,7 @@ test("lsp-find-references with single result jumps directly", async () => {
   expect(buffer.point).toBe(buffer.text.indexOf("foo", 10))
 })
 
-test("lsp-find-references with multiple results lists them in *xref*", async () => {
+test("xref-find-references with multiple results lists them in *xref*", async () => {
   const pathA = resolve("/proj/a.ts")
   const uriA = pathToUri(pathA)
   const { editor, buffer, calls } = setup(method => {
@@ -170,7 +171,7 @@ test("lsp-find-references with multiple results lists them in *xref*", async () 
     ]
   })
   buffer.point = 6
-  const pending = editor.run("lsp-find-references")
+  const pending = editor.run("jemacs-lsp-find-references")
   await new Promise(r => setTimeout(r, 0))
   const refCall = calls.find(c => c.method === "textDocument/references")
   expect((refCall!.params as { context: { includeDeclaration: boolean } }).context.includeDeclaration).toBe(true)
@@ -185,11 +186,11 @@ test("lsp-find-references with multiple results lists them in *xref*", async () 
   await pending
 })
 
-test("lsp-find-references messages when no results", async () => {
+test("xref-find-references messages when no results", async () => {
   const { editor } = setup(method => (method === "textDocument/references" ? [] : null))
   let msg = ""
   editor.events.on("message", e => { msg = e.text })
-  await editor.run("lsp-find-references")
+  await editor.run("xref-find-references")
   expect(msg).toBe("No references found")
 })
 
