@@ -42,8 +42,8 @@ class TermRawMap extends Keymap {
   }
 }
 export const termRawMap = new TermRawMap("term-raw-map")
-termRawMap.bind("C-c C-c", "term-interrupt")
-termRawMap.bind("C-c C-k", "term-kill")
+termRawMap.bind("C-c C-c", "term-interrupt-subjob")
+termRawMap.bind("C-c C-k", "term-kill-subjob")
 termRawMap.bind("C-c C-s", "term-send-string")
 termRawMap.bind("C-c C-j", "term-line-mode")
 
@@ -316,11 +316,11 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (str != null) writeRaw(s, str + "\r")
   })
 
-  editor.command("term-interrupt", ({ buffer }) => {
+  editor.command("term-interrupt-subjob", ({ buffer }) => {
     const s = sessions.get(buffer)
     if (s) writeRaw(s, "\x03")
   })
-  editor.command("term-kill", ({ buffer }) => sessions.get(buffer)?.pty.kill())
+  editor.command("term-kill-subjob", ({ buffer }) => sessions.get(buffer)?.pty.kill())
 
   // Keep the pty's winsize in sync with the displaying window. The display
   // layer stashes the leaf's body geometry on the buffer before firing the
@@ -341,8 +341,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
                    "space", "enter", "backspace", "tab", "up", "down", "left", "right"]) {
     editor.defineKey("term-map", k, "term-send-raw")
   }
-  editor.defineKey("term-map", "C-c C-c", "term-interrupt")
-  editor.defineKey("term-map", "C-c C-k", "term-kill")
+  editor.defineKey("term-map", "C-c C-c", "term-interrupt-subjob")
+  editor.defineKey("term-map", "C-c C-k", "term-kill-subjob")
   editor.defineKey("term-map", "C-c C-s", "term-send-string")
   editor.defineKey("term-map", "C-c C-j", "term-line-mode")
 }

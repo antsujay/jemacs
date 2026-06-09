@@ -38,5 +38,5 @@ test("term char-mode: C-c <unbound printable> reaches pty, not self-insert", asy
   expect(termRawMap.get("C-c o")).toBe("term-send-raw")
   // ...but the explicit C-c escape bindings still win over it.
   expect(editor.keymaps.lookup("C-c C-j")).toMatchObject({ status: "matched", command: "term-line-mode" })
-  expect(editor.keymaps.lookup("C-c C-c")).toMatchObject({ status: "matched", command: "term-interrupt" })
+  expect(editor.keymaps.lookup("C-c C-c")).toMatchObject({ status: "matched", command: "term-interrupt-subjob" })
 })

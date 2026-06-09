@@ -54,6 +54,7 @@ Current branch for this work: `main`.
   - `revert-definition` -> `jemacs-revert-definition`
   - `revert-all-definitions` -> `jemacs-revert-all-definitions`
   - `org-next-heading` / `org-previous-heading` -> `org-next-visible-heading` / `org-previous-visible-heading`
+  - `term-interrupt` / `term-kill` -> `term-interrupt-subjob` / `term-kill-subjob`
 
 ## Missing Or Incomplete Parity Work
 
