@@ -1,8 +1,11 @@
 import type { Editor } from "../kernel/editor"
 import { BufferModel } from "../kernel/buffer"
+import { getPlatformRuntime, setPlatformRuntime, type PlatformRuntime } from "../platform/runtime"
 import { applyRemoteOp, type ShadowLink } from "./link"
+import type { FsLike } from "./manifest"
 import { advancePast, transformPast, type Cmd, type Point, type Seq, type ShadowOp, type Splice } from "./ops"
 import { chunkText, diffText, FileCas, sha256, type Cas } from "./cas"
+import { createAuthorityFs, type AuthorityFs, type FsWatcher, type RemoteRuntime } from "./remote-runtime"
 
 export type { ShadowLink } from "./link"
 export type { ShadowOp, Splice, Seq } from "./ops"
@@ -12,6 +15,16 @@ export type { ShadowOp, Splice, Seq } from "./ops"
 export type AttachOpts = {
   onDispose?(fn: () => void): void
   cas?: Cas
+  /** S-side: install this as the process `PlatformRuntime` so `find-file` /
+   *  `save-buffer` / `dired` route through manifest+CAS instead of node:fs.
+   *  Process-global by design — one S per process; A serves via `fs` below. */
+  runtime?: Partial<PlatformRuntime>
+  /** A-side: serve `manifest-req` / `want` from this instead of node:fs. */
+  fs?: FsLike
+  /** A-side: subscribe for change events → push `ManifestDelta` to S. */
+  watcher?: FsWatcher
+  /** A-side: root for `watcher`'s manifest rebuild. */
+  fsRoot?: string
   /** A-side: debounce-flush externals this many ms after the last S op (or the
    *  ext itself). ≤0 disables the timer — DST sim drives flushExternal directly. */
   flushMs?: number
@@ -31,6 +44,8 @@ type SentSplice = Splice & { bufSeq: number }
 export type ShadowState = {
   link: ShadowLink
   cas: Cas
+  /** Set when `opts.runtime` is a `RemoteRuntime` — manifest/chunk ops forward here. */
+  runtime?: RemoteRuntime
   nextSeq: Seq
   /** Ops sent to A, not yet ack'd. Each list is also mirrored to buffer.locals["shadow-pending"] for display. */
   pending: Map<string, Splice[]>
@@ -47,6 +62,8 @@ export type ShadowState = {
 export type AuthorityState = {
   link: ShadowLink
   cas: Cas
+  /** Set when `opts.fs` was given — manifest-req / non-buffer want forward here. */
+  fs?: AuthorityFs
   /** Reliability layer: highest contiguous seq received from S (global, dedup hwm). */
   recvSeq: Seq
   /** Reliability layer: out-of-order ops parked until their predecessor arrives. */
@@ -84,6 +101,13 @@ function withoutEmit<T>(buf: BufferModel, fn: () => T): T {
   try { return fn() } finally { buf.onSplice = prev }
 }
 
+/** Duck-type check for `RemoteRuntime` — `opts.runtime` is typed as the base
+ *  `PlatformRuntime` so a plain stub (browser phase-5) also fits. */
+function isRemoteRuntime(rt: Partial<PlatformRuntime>): rt is RemoteRuntime {
+  return typeof (rt as RemoteRuntime).onOp === "function"
+    && typeof (rt as RemoteRuntime).bindSeq === "function"
+}
+
 function setPending(editor: Editor, state: ShadowState, bufferId: string, list: Splice[]): void {
   state.pending.set(bufferId, list)
   editor.buffers.get(bufferId)?.locals.set(PENDING_KEY, list)
@@ -96,6 +120,18 @@ export function attachShadow(editor: Editor, link: ShadowLink, opts?: AttachOpts
   editor.locals.set(SHADOW_KEY, state)
 
   const restore: Array<() => void> = []
+  if (opts?.runtime) {
+    const rt = opts.runtime
+    if (isRemoteRuntime(rt)) {
+      state.runtime = rt
+      // Share the seq counter so runtime-issued Cmds interleave with splices
+      // under A's single in-order reliability buffer.
+      rt.bindSeq(() => state.nextSeq++)
+    }
+    const prev = getPlatformRuntime()
+    setPlatformRuntime(rt)
+    restore.push(() => setPlatformRuntime(prev))
+  }
   const hookBuffer = (buf: BufferModel) => {
     const prev = buf.onSplice
     buf.link = link
@@ -221,7 +257,17 @@ function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, op: Sh
       link.send(cachedSha ? { kind: "have", id: op.id, sha: cachedSha } : { kind: "want", id: op.id })
       break
     }
+    case "manifest-tree":
+    case "manifest-delta":
+      state.runtime?.onOp(op)
+      break
+    case "manifest-req":
+      // S→A only; never honored on S.
+      break
     case "chunk": {
+      // Runtime-issued Wants (id = path) are reassembled there; buffer-sync
+      // chunks (id = bufferId) fall through to the partial map below.
+      if (state.runtime?.onOp(op)) break
       const buf = editor.buffers.get(op.id)
       if (!buf) break
       let p = state.partial.get(op.id)
@@ -270,6 +316,10 @@ export function attachAuthority(editor: Editor, link: ShadowLink, opts?: AttachO
   editor.locals.set(AUTHORITY_KEY, state)
 
   const restore: Array<() => void> = []
+  if (opts?.fs) {
+    state.fs = createAuthorityFs(link, opts.fs, opts.fsRoot)
+    if (opts.watcher) restore.push(state.fs.watch(opts.watcher))
+  }
   const hookAuthorityBuffer = (buf: BufferModel) => {
     const prev = buf.onSplice
     // Any splice that fires while onSplice is installed is, by construction, *not*
@@ -362,10 +412,13 @@ function onAuthorityOp(editor: Editor, link: ShadowLink, state: AuthorityState, 
     }
     case "want": {
       const buf = editor.buffers.get(op.id)
-      if (!buf) return
-      for (const c of chunkText(op.id, buf.text)) link.send(c)
+      if (buf) { for (const c of chunkText(op.id, buf.text)) link.send(c); return }
+      state.fs?.onOp(op)
       return
     }
+    case "manifest-req":
+      state.fs?.onOp(op)
+      return
     case "splice":
     case "point":
     case "command": {

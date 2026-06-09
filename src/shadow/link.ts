@@ -75,7 +75,10 @@ export function applyRemoteOp(editor: Editor, link: ShadowLink, op: ShadowOp): b
     case "have":
     case "want":
     case "chunk":
-      // Reconciliation / CAS-sync / plugin-stub ops — consumed by the shadow layer, not the kernel.
+    case "manifest-tree":
+    case "manifest-delta":
+    case "manifest-req":
+      // Reconciliation / CAS-sync / manifest / plugin-stub ops — consumed by the shadow layer, not the kernel.
       return true
   }
 }

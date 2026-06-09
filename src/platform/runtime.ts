@@ -4,6 +4,37 @@ import { access, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Readable } from "node:stream"
 
+export type StatLike = { mode: number; size: number; mtime: number }
+
+/** Swappable backend for the functions below. The browser shadow bundle
+ *  installs a stub that throws (phase-5); phase-6 installs the manifest+CAS
+ *  backed impl (shadow/DESIGN.md §Filesystem replica). When unset, the
+ *  Bun/Node implementations in this file are used.
+ *
+ *  `stat`/`readdir` are optional: the Node default doesn't provide them (dired
+ *  etc. import `node:fs/promises` directly), but the remote runtime does so
+ *  navigation can be served from the manifest without a node:fs dependency. */
+export type PlatformRuntime = {
+  readFileText(path: string): Promise<string>
+  writeFileText(path: string, text: string): Promise<void>
+  fileExists(path: string): Promise<boolean>
+  spawnProcess(options: SpawnOptions): SpawnHandle
+  whichExecutable(name: string): string | null
+  stat?(path: string): Promise<StatLike | null>
+  readdir?(dir: string): Promise<string[]>
+}
+
+let override: Partial<PlatformRuntime> | undefined
+
+export function setPlatformRuntime(impl: Partial<PlatformRuntime> | undefined): void {
+  override = impl
+}
+
+/** Current override, for save/restore around a scoped install (attachShadow). */
+export function getPlatformRuntime(): Partial<PlatformRuntime> | undefined {
+  return override
+}
+
 export type SpawnOptions = {
   cmd: string[]
   cwd?: string
@@ -37,6 +68,7 @@ function nodeReadableToWeb(stream: Readable): ReadableStream<Uint8Array> {
 }
 
 export function whichExecutable(name: string): string | null {
+  if (override?.whichExecutable) return override.whichExecutable(name)
   if (name.includes("/")) return existsSync(name) ? name : null
   const pathEnv = process.env.PATH ?? ""
   for (const dir of pathEnv.split(":")) {
@@ -48,6 +80,7 @@ export function whichExecutable(name: string): string | null {
 }
 
 export async function fileExists(path: string): Promise<boolean> {
+  if (override?.fileExists) return override.fileExists(path)
   try {
     await access(path, constants.F_OK)
     return true
@@ -57,6 +90,7 @@ export async function fileExists(path: string): Promise<boolean> {
 }
 
 export async function readFileText(path: string): Promise<string> {
+  if (override?.readFileText) return override.readFileText(path)
   try {
     return await readFile(path, "utf8")
   } catch (error) {
@@ -66,11 +100,13 @@ export async function readFileText(path: string): Promise<string> {
 }
 
 export async function writeFileText(path: string, text: string): Promise<void> {
+  if (override?.writeFileText) return override.writeFileText(path, text)
   await writeFile(path, text, "utf8")
 }
 
 /** Spawn a subprocess in Bun or Node (Electron main uses Node). */
 export function spawnProcess(options: SpawnOptions): SpawnHandle {
+  if (override?.spawnProcess) return override.spawnProcess(options)
   if (typeof Bun !== "undefined") {
     const proc = Bun.spawn({
       cmd: options.cmd,
