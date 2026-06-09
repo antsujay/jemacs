@@ -47,6 +47,7 @@ Current branch for this work: `main`.
   - `buffer-list-select` -> GNU `Buffer-menu-select`
   - `toggle-window-dedicated` -> `jemacs-toggle-window-dedicated`
   - `copy-region-to-clipboard-mac` -> `jemacs-copy-region-to-clipboard-mac`
+  - `bookmark-import-from-emacs` -> `jemacs-bookmark-import-from-emacs`
 
 ## Missing Or Incomplete Parity Work
 

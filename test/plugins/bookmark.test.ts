@@ -72,7 +72,7 @@ test("bookmark-set and bookmark-jump round-trip", async () => {
   expect(editor.currentBuffer.point).toBe(6)
 })
 
-test("bookmark-import-from-emacs writes bookmark-file", async () => {
+test("jemacs-bookmark-import-from-emacs writes bookmark-file", async () => {
   const editor = makeEditor()
   const emacsFile = join(dir, "emacs-bookmarks")
   const outFile = join(dir, "bookmarks.json")
@@ -97,6 +97,8 @@ test("bookmark commands use Emacs names and keys", async () => {
   expect(editor.commands.get("list-bookmarks")).toBeDefined()
   expect(editor.commands.get("bookmark-list")).toBeUndefined()
   expect(editor.commands.get("jemacs-bookmark-list")).toBeDefined()
+  expect(editor.commands.get("bookmark-import-from-emacs")).toBeUndefined()
+  expect(editor.commands.get("jemacs-bookmark-import-from-emacs")).toBeDefined()
   expect(editor.commands.get("bookmark-write")?.description).toContain("file")
   expect(editor.commands.get("bookmark-rename")?.description).toContain("OLD-NAME")
   expect(editor.commands.get("bookmark-jump-other-window")?.description).toContain("another window")

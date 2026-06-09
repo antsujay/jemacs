@@ -102,7 +102,7 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
   defcustom("bookmark-file", "string", join(homedir(), ".jemacs", "bookmarks.json"),
     "File where bookmarks are persisted.")
   defcustom("bookmark-emacs-file", "string", defaultEmacsBookmarkFile(),
-    "Emacs bookmark file to import from (bookmark-import-from-emacs).")
+    "Emacs bookmark file to import from (jemacs-bookmark-import-from-emacs).")
 
   ctx.minorMode({ name: "bookmark-mode", global: true, lighter: "" })
 
@@ -390,7 +390,7 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
     editor.message(`Loaded ${bookmarkNames(table).length} bookmark(s) from ${bookmarkFile()}`)
   }, "Reload bookmarks from bookmark-file.")
 
-  editor.command("bookmark-import-from-emacs", async ({ editor, args }) => {
+  editor.command("jemacs-bookmark-import-from-emacs", async ({ editor, args }) => {
     const source = (args[0] as string | undefined) ?? getCustom<string>("bookmark-emacs-file") ?? defaultEmacsBookmarkFile()
     const count = await bookmarkImportFromEmacs(editor, source, true)
     editor.message(count ? `Imported ${count} bookmark(s) from ${source}` : `No bookmarks imported from ${source}`)
