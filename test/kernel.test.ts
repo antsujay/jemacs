@@ -627,11 +627,13 @@ test("default commands support buffer listing, switching, newline, and regions",
   expect(editor.currentBuffer.mode).toBe("buffer-list")
   expect(editor.currentBuffer.readOnly).toBe(true)
   expect(editor.currentBuffer.text).toContain("notes")
-  expect(getMode("buffer-list")?.keymap?.get("enter")).toBe("buffer-list-select")
+  expect(getMode("buffer-list")?.keymap?.get("enter")).toBe("Buffer-menu-select")
+  expect(editor.commands.get("buffer-list-select")).toBeUndefined()
+  expect(editor.commands.get("Buffer-menu-select")).toBeDefined()
 
   const notesOffset = editor.currentBuffer.text.indexOf("notes")
   editor.currentBuffer.point = notesOffset
-  await editor.run("buffer-list-select")
+  await editor.run("Buffer-menu-select")
   expect(editor.currentBuffer.name).toBe("notes")
 
   await editor.run("list-buffers")

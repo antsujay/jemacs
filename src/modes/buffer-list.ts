@@ -10,9 +10,9 @@ const bufferListIds = new WeakMap<BufferModel, string[]>()
 
 export function installBufferListMode(): void {
   const keymap = new Keymap("buffer-list-map")
-  keymap.bind("enter", "buffer-list-select")
-  keymap.bind("return", "buffer-list-select")
-  keymap.bind("C-m", "buffer-list-select")
+  keymap.bind("enter", "Buffer-menu-select")
+  keymap.bind("return", "Buffer-menu-select")
+  keymap.bind("C-m", "Buffer-menu-select")
   defineMode({ name: "buffer-list", parent: "text", keymap })
 }
 

@@ -210,14 +210,14 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     showBufferList(editor, { filesOnly: prefixArgument != null })
   }, "Display the buffer list.")
 
-  editor.command("buffer-list-select", ({ buffer, editor }) => {
+  editor.command("Buffer-menu-select", ({ buffer, editor }) => {
     const bufferId = bufferListEntryAtPoint(buffer)
     if (!bufferId) return
     const target = editor.buffers.get(bufferId)
     if (!target) return
     editor.switchToBuffer(target.id)
     editor.message(`Switched to ${editor.bufferDisplayName(target)}`)
-  }, "Switch to the buffer on the current buffer-list line.")
+  }, "Select this line's buffer in Buffer Menu.")
 
   editor.key("C-x 0", "delete-window")
   editor.key("C-x 1", "delete-other-windows")
