@@ -24,7 +24,20 @@ export type Want = { kind: "want"; id: string }
 /** A→S: one slice of buffer text. Last chunk carries eof. */
 export type Chunk = { kind: "chunk"; id: string; offset: number; data: string; eof?: true }
 
-export type ShadowOp = Splice | Point | Buffer | Layout | Cmd | Ack | Rebase | Lsp | BufferRef | Have | Want | Chunk
+// Filesystem manifest (DESIGN.md §Filesystem replica). A→S: ManifestTree, ManifestDelta. S→A: ManifestReq.
+/** One file's manifest row. `sha` keys the CAS; `mode/size/mtime` for dired. */
+export type ManifestEntry = { path: string; sha: string; mode: number; size: number; mtime: number }
+/** A→S: full listing of one directory. `root` is the project root hash; `dir` the subtree this answers. */
+export type ManifestTree = { kind: "manifest-tree"; root: string; dir: string; entries: ManifestEntry[] }
+/** A→S: watcher-driven incremental update. `old` absent ⇒ create; `new` absent ⇒ delete. */
+export type ManifestDelta = { kind: "manifest-delta"; changes: Array<{ path: string; old?: string; new?: ManifestEntry }> }
+/** S→A: send me the manifest subtree at `dir` (lazy — only dirs S has visited). */
+export type ManifestReq = { kind: "manifest-req"; dir: string }
+
+export type ShadowOp =
+  | Splice | Point | Buffer | Layout | Cmd | Ack | Rebase | Lsp
+  | BufferRef | Have | Want | Chunk
+  | ManifestTree | ManifestDelta | ManifestReq
 
 /**
  * Rebase a not-yet-ack'd splice over one that the authority already applied.
@@ -97,6 +110,12 @@ export function opKey(op: ShadowOp): string {
       return `want:${op.id}`
     case "chunk":
       return `chunk:${op.id}:${op.offset}`
+    case "manifest-tree":
+      return `manifest-tree:${op.dir}:${op.root}`
+    case "manifest-delta":
+      return `manifest-delta:${op.changes.map(c => `${c.path}@${c.new?.sha ?? "-"}`).join(",")}`
+    case "manifest-req":
+      return `manifest-req:${op.dir}`
     case "layout":
     case "lsp":
       return `${op.kind}:${JSON.stringify(op)}`

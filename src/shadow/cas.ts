@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { Chunk, Splice } from "./ops"
@@ -29,20 +29,41 @@ export interface Cas {
   write(text: string): string
 }
 
-/** In-memory Cas for DST and tests. */
-export class MemCas implements Cas {
-  private store = new Map<string, string>()
-  lookup(sha: string): string | undefined { return this.store.get(sha) }
+/** A Cas that can enumerate and drop entries — what `evictCas` needs. */
+export interface EvictableCas {
+  entries(): Iterable<{ sha: string; size: number; atime: number }>
+  delete(sha: string): void
+}
+
+/** In-memory Cas for DST and tests. Tracks a logical atime per entry so
+ *  `evictCas` behaves the same here as on disk. */
+export class MemCas implements Cas, EvictableCas {
+  private store = new Map<string, { text: string; atime: number }>()
+  private clock = 0
+  lookup(sha: string): string | undefined {
+    const e = this.store.get(sha)
+    if (!e) return undefined
+    e.atime = ++this.clock
+    return e.text
+  }
   write(text: string): string {
     const sha = sha256(text)
-    this.store.set(sha, text)
+    this.store.set(sha, { text, atime: ++this.clock })
     return sha
   }
+  *entries(): IterableIterator<{ sha: string; size: number; atime: number }> {
+    for (const [sha, e] of this.store) yield { sha, size: e.text.length, atime: e.atime }
+  }
+  delete(sha: string): void { this.store.delete(sha) }
 }
 
 /** Disk-backed Cas at `~/.jemacs/cas/`. Sync IO — entries are small and the
- *  attach path is already sync. Prune-by-atime is a separate maintenance task. */
-export class FileCas implements Cas {
+ *  attach path is already sync. */
+export class FileCas implements Cas, EvictableCas {
+  /** Approximate running total; lazily seeded from a dir scan on first write
+   *  so the common path (no cap) pays nothing. */
+  private bytes?: number
+  constructor(private readonly maxBytes?: number) {}
   lookup(sha: string): string | undefined {
     const p = casPath(sha)
     return existsSync(p) ? readFileSync(p, "utf8") : undefined
@@ -51,17 +72,65 @@ export class FileCas implements Cas {
     const sha = sha256(text)
     const p = casPath(sha)
     if (!existsSync(p)) {
-      mkdirSync(join(homedir(), ".jemacs", "cas"), { recursive: true })
+      if (this.maxBytes !== undefined) this.bytes ??= scanCasBytes()
+      mkdirSync(casDir(), { recursive: true })
       writeFileSync(p, text)
+      if (this.maxBytes !== undefined) {
+        this.bytes! += text.length
+        if (this.bytes! > this.maxBytes) this.bytes! -= evictCas(this, this.maxBytes)
+      }
     }
     return sha
   }
+  *entries(): IterableIterator<{ sha: string; size: number; atime: number }> {
+    if (!existsSync(casDir())) return
+    for (const sha of readdirSync(casDir())) {
+      if (!SHA256_HEX.test(sha)) continue
+      const st = statSync(casPath(sha))
+      yield { sha, size: st.size, atime: st.atimeMs }
+    }
+  }
+  delete(sha: string): void {
+    const p = casPath(sha)
+    if (existsSync(p)) unlinkSync(p)
+  }
+}
+
+function casDir(): string { return join(homedir(), ".jemacs", "cas") }
+function scanCasBytes(): number {
+  let n = 0
+  if (!existsSync(casDir())) return 0
+  for (const name of readdirSync(casDir())) if (SHA256_HEX.test(name)) n += statSync(join(casDir(), name)).size
+  return n
+}
+
+/** When total bytes exceed `maxBytes`, delete oldest-atime entries until at or
+ *  under `0.8 × maxBytes`. Returns bytes freed. The 0.8 hysteresis stops every
+ *  write from triggering a fresh scan once at the cap. */
+export function evictCas(cas: EvictableCas, maxBytes: number): number {
+  const all = [...cas.entries()]
+  let total = all.reduce((n, e) => n + e.size, 0)
+  if (total <= maxBytes) return 0
+  all.sort((a, b) => a.atime - b.atime)
+  const target = Math.floor(maxBytes * 0.8)
+  let freed = 0
+  for (const e of all) {
+    if (total <= target) break
+    cas.delete(e.sha)
+    total -= e.size
+    freed += e.size
+  }
+  return freed
 }
 
 /** Module-level convenience matching the task's casLookup/casWrite shape. */
 const fileCas = new FileCas()
 export function casLookup(sha: string): string | undefined { return fileCas.lookup(sha) }
-export function casWrite(text: string): string { return fileCas.write(text) }
+export function casWrite(text: string, maxBytes?: number): string {
+  const sha = fileCas.write(text)
+  if (maxBytes !== undefined) evictCas(fileCas, maxBytes)
+  return sha
+}
 
 // ── Diff ────────────────────────────────────────────────────────────────────
 
