@@ -294,7 +294,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message("Unmarked all")
   }
   editor.command("dired-unmark-all-marks", diredUnmarkAllMarks, "Remove all marks and deletion flags in Dired.")
-  editor.command("dired-unmark-all", diredUnmarkAllMarks, "Compatibility alias for dired-unmark-all-marks.")
+  editor.command("jemacs-dired-unmark-all", diredUnmarkAllMarks, "Jemacs extension alias for dired-unmark-all-marks.")
   editor.command("dired-unmark-all-files", async ({ buffer, editor, args, prefixArgument }) => {
     const input = args[0] ?? await editor.prompt("Remove marks (RET means all): ", "", "dired-unmark")
     if (input == null) return

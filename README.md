@@ -105,7 +105,7 @@ On macOS, some terminals send Option-key characters instead of Meta events, for 
 
 ### Kitty and Ctrl+Tab
 
-`C-tab` / `C-S-tab` run GNU `other-window` and `other-window-backward` (cycle Emacs windows). Jemacs enables Kitty’s keyboard protocol when OpenTUI supports it.
+`C-tab` / `C-S-tab` run GNU `other-window` and `previous-window-any-frame` (cycle Emacs windows). Jemacs enables Kitty’s keyboard protocol when OpenTUI supports it.
 
 **Kitty binds Ctrl+Tab to its own tab bar by default**, so the keys may never reach Jemacs. Add to `~/.config/kitty/kitty.conf`:
 

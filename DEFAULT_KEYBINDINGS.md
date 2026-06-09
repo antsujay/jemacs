@@ -47,7 +47,7 @@ GNU Emacs **interactive function names** are the canonical identity of each bind
 | `C-x k` | `kill-buffer` | bound |
 | `C-x 0` | `delete-window` | bound |
 | `C-x 1` | `delete-other-windows` | bound |
-| `C-tab` / `C-S-tab` | `other-window` / `other-window-backward` | bound (`C-S-iso-lefttab` too) |
+| `C-tab` / `C-S-tab` | `other-window` / `previous-window-any-frame` | bound (`C-S-iso-lefttab` too) |
 | `C-x o` | `other-window` | bound |
 | `C-x 2` | `split-window-below` | bound |
 | `C-x 3` | `split-window-right` | bound |
@@ -78,7 +78,7 @@ Package chords (`git-link`, `lsp-*`, `gptel`, …) remain **stub**.
 | `d` | `dired-flag-file-deletion` |
 | `S-d` | `dired-do-delete` |
 | `u` | `dired-unmark` |
-| `S-u` | `dired-unmark-all` |
+| `S-u` | `dired-unmark-all-marks` |
 | `S-c` / `S-r` | `dired-do-copy` / `dired-do-rename` |
 
 ## Still missing or partial

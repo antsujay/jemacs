@@ -63,7 +63,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
 
   const previousWindow = ({ editor }: { editor: Editor }) => otherWindow(editor, -1)
   editor.command("other-window", ({ editor, prefixArgument }) => otherWindow(editor, prefixArgument ?? 1), "Select another window.")
-  editor.command("other-window-backward", previousWindow, "Compatibility alias for previous-window-any-frame.")
+  editor.command("jemacs-other-window-backward", previousWindow, "Jemacs extension alias for previous-window-any-frame.")
   editor.command("next-window-any-frame", ({ editor }) => otherWindow(editor, 1), "Select the next window.")
   editor.command("previous-window-any-frame", previousWindow, "Select the previous window.")
 

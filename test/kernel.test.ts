@@ -57,6 +57,8 @@ test("tab key encodings map to Emacs-style window cycle bindings", () => {
 
   expect(editor.keymap.get("C-tab")).toBe("other-window")
   expect(editor.keymap.get("C-S-tab")).toBe("previous-window-any-frame")
+  expect(editor.commands.get("other-window-backward")).toBeUndefined()
+  expect(editor.commands.get("jemacs-other-window-backward")).toBeDefined()
 
   const fed = editor.keymaps.feed({ name: "tab", ctrl: true })
   expect(fed.status).toBe("matched")
@@ -1260,8 +1262,12 @@ test("python mode supports indentation, defun navigation, font-lock, and TAB com
   expect(buffer.point).toBe(0)
   await editor.run("end-of-defun")
   expect(buffer.point).toBe(buffer.text.length)
-  expect(editor.commands.get("python-beginning-of-defun")).toBeDefined()
-  expect(editor.commands.get("python-end-of-defun")).toBeDefined()
+  expect(editor.commands.get("python-beginning-of-defun")).toBeUndefined()
+  expect(editor.commands.get("python-end-of-defun")).toBeUndefined()
+  expect(editor.commands.get("jemacs-python-beginning-of-defun")).toBeDefined()
+  expect(editor.commands.get("jemacs-python-end-of-defun")).toBeDefined()
+  expect(editor.commands.get("redo")).toBeUndefined()
+  expect(editor.commands.get("jemacs-redo")).toBeDefined()
 
   const spans = editor.fontLock(buffer)
   expect(spans.some(span => span.face === "keyword" && buffer.text.slice(span.start, span.end) === "def")).toBe(true)

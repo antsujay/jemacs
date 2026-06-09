@@ -322,7 +322,7 @@ export async function install(editor: Editor, ctx: PluginContext = createPluginC
   }
   editor.command("bookmark-bmenu-list", listBookmarks, "Display a list of all bookmarks.")
   editor.command("list-bookmarks", listBookmarks, "Display a list of all bookmarks.")
-  editor.command("bookmark-list", listBookmarks, "Compatibility alias for bookmark-bmenu-list.")
+  editor.command("jemacs-bookmark-list", listBookmarks, "Jemacs extension alias for bookmark-bmenu-list.")
 
   editor.command("bookmark-delete", async ({ editor, args }) => {
     const table = tableFor(editor)

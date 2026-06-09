@@ -23,6 +23,7 @@ Current branch for this work: `main`.
 - Buffer/window/tab prefix parity:
   - `next-buffer`, `previous-buffer`
   - `other-window`
+  - `previous-window-any-frame`; non-GNU `other-window-backward` renamed to `jemacs-other-window-backward`
   - `recenter-top-bottom`
   - `scroll-other-window`, `scroll-other-window-down`
   - `quit-window`
@@ -34,6 +35,11 @@ Current branch for this work: `main`.
   - `transpose-chars`, `transpose-lines`, `transpose-words`
   - `mark-whole-buffer`, `mark-paragraph`
   - kill/copy/yank basics and active-region deletion
+- Non-GNU convenience aliases renamed under `jemacs-*`:
+  - `redo` -> `jemacs-redo`
+  - `python-beginning-of-defun` / `python-end-of-defun` -> `jemacs-python-beginning-of-defun` / `jemacs-python-end-of-defun`
+  - `dired-unmark-all` -> `jemacs-dired-unmark-all`
+  - `bookmark-list` -> `jemacs-bookmark-list`
 
 ## Missing Or Incomplete Parity Work
 
