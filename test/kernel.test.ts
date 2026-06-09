@@ -732,6 +732,64 @@ test("kill-ring-save deactivates mark and yank marks inserted text like Emacs", 
   expect(buffer.selectedText()).toBe("hello")
 })
 
+test("yank-pop honors numeric and negative prefix arguments", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.currentBuffer
+  const pushKill = async (text: string) => {
+    buffer.setText(text, false)
+    buffer.mark = 0
+    buffer.markActive = true
+    buffer.point = text.length
+    await editor.run("kill-region")
+  }
+  await pushKill("older")
+  await pushKill("old")
+  await pushKill("new")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  await editor.run("yank")
+  expect(buffer.text).toBe("new")
+
+  editor.prefixArg.addDigit(2)
+  await editor.run("yank-pop")
+  expect(buffer.text).toBe("older")
+
+  editor.prefixArg.toggleNegative()
+  editor.prefixArg.addDigit(1)
+  await editor.run("yank-pop")
+  expect(buffer.text).toBe("old")
+})
+
+test("yank-pop does not replace a stale yank after another command", async () => {
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.currentBuffer
+  buffer.setText("old", false)
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 3
+  await editor.run("kill-region")
+  buffer.setText("new", false)
+  buffer.mark = 0
+  buffer.markActive = true
+  buffer.point = 3
+  await editor.run("kill-region")
+
+  buffer.setText("", false)
+  buffer.point = 0
+  await editor.run("yank")
+  expect(buffer.text).toBe("new")
+
+  await editor.run("backward-char")
+  await editor.run("yank-pop")
+  expect(buffer.text).toBe("new")
+  expect(messages.at(-1)).toBe("Previous command was not a yank")
+})
+
 test("downcase-region converts region text and preserves point and mark", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)

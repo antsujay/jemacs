@@ -167,10 +167,16 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   let lastCommandName: string | null = null
 
   const offChanged = editor.events.on("changed", ({ reason }) => {
-    if (reason.startsWith("command:")) lastCommandName = reason.slice("command:".length)
+    if (!reason.startsWith("command:")) return
+    lastCommandName = reason.slice("command:".length)
+    if (!["yank", "yank-pop", "clipboard-yank"].includes(lastCommandName)) {
+      lastYankStart = null
+      lastYankEnd = null
+    }
   })
   ctx?.onDispose(offChanged)
   const lastCommandWasKill = () => lastCommandName != null && KILL_COMMANDS.has(lastCommandName)
+  const lastCommandWasYank = () => lastCommandName === "yank" || lastCommandName === "yank-pop" || lastCommandName === "clipboard-yank"
 
   const pushKill = (text: string, append = false, before = false) => {
     if (!text) return
@@ -192,22 +198,16 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     yankRingIndex = 0
   }
 
-  const yankPop = (buffer: BufferModel) => {
-    if (!killRing.length) return
-    yankRingIndex = (yankRingIndex + 1) % killRing.length
+  const yankPop = (buffer: BufferModel, delta: number): boolean => {
+    if (!killRing.length) return false
+    if (!lastCommandWasYank() || lastYankStart == null || lastYankEnd == null) return false
+    yankRingIndex = ((yankRingIndex + delta) % killRing.length + killRing.length) % killRing.length
     const text = killRing[yankRingIndex]!
-    if (lastYankStart != null && lastYankEnd != null) {
-      buffer.replaceRange(lastYankStart, lastYankEnd, text)
-      lastYankEnd = lastYankStart + text.length
-      buffer.mark = lastYankStart
-      buffer.markActive = false
-    } else {
-      buffer.insert(text)
-      lastYankStart = buffer.point - text.length
-      lastYankEnd = buffer.point
-      buffer.mark = lastYankStart
-      buffer.markActive = false
-    }
+    buffer.replaceRange(lastYankStart, lastYankEnd, text)
+    lastYankEnd = lastYankStart + text.length
+    buffer.mark = lastYankStart
+    buffer.markActive = false
+    return true
   }
 
   const killWords = (buffer: CommandContext["buffer"], n: number) => {
@@ -422,8 +422,11 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     recordYank(buffer, text)
   }, "Insert the clipboard contents, or the last stretch of killed text.")
 
-  editor.command("yank-pop", ({ buffer, editor }) => {
-    yankPop(buffer)
+  editor.command("yank-pop", ({ buffer, editor, prefixArgument }) => {
+    if (!yankPop(buffer, prefixArgument ?? 1)) {
+      editor.message("Previous command was not a yank")
+      return
+    }
     editor.message("Yank pop")
   }, "Replace the last yank with the next item on the kill ring.")
 
