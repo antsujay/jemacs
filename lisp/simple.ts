@@ -190,18 +190,20 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     yankRingIndex = 0
   }
 
-  const recordYank = (buffer: BufferModel, text: string) => {
+  const killRingIndex = (delta: number) => ((delta % killRing.length) + killRing.length) % killRing.length
+
+  const recordYank = (buffer: BufferModel, text: string, ringIndex = 0) => {
     lastYankStart = buffer.point - text.length
     lastYankEnd = buffer.point
     buffer.mark = lastYankStart
     buffer.markActive = false
-    yankRingIndex = 0
+    yankRingIndex = ringIndex
   }
 
   const yankPop = (buffer: BufferModel, delta: number): boolean => {
     if (!killRing.length) return false
     if (!lastCommandWasYank() || lastYankStart == null || lastYankEnd == null) return false
-    yankRingIndex = ((yankRingIndex + delta) % killRing.length + killRing.length) % killRing.length
+    yankRingIndex = killRingIndex(yankRingIndex + delta)
     const text = killRing[yankRingIndex]!
     buffer.replaceRange(lastYankStart, lastYankEnd, text)
     lastYankEnd = lastYankStart + text.length
@@ -408,11 +410,13 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     editor.message(copied ? "Killed region to clipboard" : "Killed region")
   }, "Kill the region and save it to the system clipboard.")
 
-  editor.command("yank", ({ buffer }) => {
-    const text = killRing[yankRingIndex]
+  editor.command("yank", ({ buffer, prefixArgument }) => {
+    if (!killRing.length) return
+    const ringIndex = killRingIndex((prefixArgument ?? 1) - 1)
+    const text = killRing[ringIndex]
     if (!text) return
     buffer.insert(text)
-    recordYank(buffer, text)
+    recordYank(buffer, text, ringIndex)
   }, "Insert the last killed text at point.")
 
   editor.command("clipboard-yank", async ({ buffer }) => {

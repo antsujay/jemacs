@@ -15,6 +15,7 @@ Current branch for this work: `emacs-parity-goal`.
   - `self-insert-command`
   - `goto-line`
   - `set-mark-command` double-universal prefix and repeat-pop local/global mark behavior
+  - `yank` numeric/zero/negative prefix kill-ring selection
   - `yank-pop` numeric/negative prefix rotation and stale-yank guard
 - Buffer/window/tab prefix parity:
   - `next-buffer`, `previous-buffer`
@@ -65,8 +66,9 @@ Current branch for this work: `emacs-parity-goal`.
 - `kill-word`, `backward-kill-word`
   - Unicode-aware behavior exists, but exact syntax-table and subword interactions are incomplete.
 - `yank`, `yank-pop`
+  - `yank` now honors numeric, zero, and negative prefix kill-ring selection.
   - `yank-pop` now honors numeric and negative prefix rotation and no longer replaces stale yank ranges after unrelated commands.
-  - Remaining audit: full `yank-from-kill-ring` prompt behavior after non-yank commands, `yank` prefix variants, rotation messages, and text property/yank-handler behavior.
+  - Remaining audit: plain `C-u C-y` behavior blocked by raw-prefix representation, full `yank-from-kill-ring` prompt behavior after non-yank commands, rotation messages, and text property/yank-handler behavior.
 - Rectangle commands
   - Implemented commands need complete audit for prefix args, register behavior, padding, tabs, and error cases.
 - Region case commands such as `downcase-region`
