@@ -102,6 +102,10 @@ export function installDiffCommands(editor: Editor): void {
     moveToFile(buffer, prefixCount(prefixArgument), -1)
   }, "Move to the previous file in the diff.")
 
+  editor.command("diff-next-complex-hunk", ({ buffer, editor }) => {
+    if (!moveToNextComplexHunk(buffer)) editor.message("No next complex hunk")
+  }, "Jump to the next unified hunk that changes the number of lines.")
+
   editor.command("diff-hunk-kill", ({ buffer, editor }) => {
     const hunk = diffHunkAtPoint(buffer)
     if (!hunk) return editor.message("No hunk at point")
@@ -431,6 +435,17 @@ function moveToHunk(buffer: BufferModel, count: number, dir: 1 | -1): void {
   if (idx < 0) idx = dir > 0 ? hunks.length - 1 : 0
   idx = Math.max(0, Math.min(hunks.length - 1, idx + dir * (Math.max(1, count) - 1)))
   buffer.point = lineInfo(buffer)[hunks[idx]!.startLine]?.start ?? buffer.point
+}
+
+function moveToNextComplexHunk(buffer: BufferModel): boolean {
+  const line = buffer.lineAt(buffer.point)
+  const hunk = parseDiffBuffer(buffer)
+    .flatMap(file => file.hunks)
+    .filter(h => h.style === "unified" && h.startLine > line && (h.oldCount ?? 0) !== (h.newCount ?? 0))
+    .sort((a, b) => a.startLine - b.startLine)[0]
+  if (!hunk) return false
+  buffer.point = lineInfo(buffer)[hunk.startLine]?.start ?? buffer.point
+  return true
 }
 
 function moveToFile(buffer: BufferModel, count: number, dir: 1 | -1): void {

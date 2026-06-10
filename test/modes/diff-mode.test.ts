@@ -81,6 +81,26 @@ test("navigation and deletion commands operate on hunks and files", async () => 
   expect(buffer.text).toContain("+TWO")
 })
 
+test("diff-next-complex-hunk skips unified hunks with unchanged line counts", async () => {
+  const editor = makeEditor()
+  const text = [
+    "diff --git a/a.txt b/a.txt",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "@@ -10,1 +10,2 @@",
+    " context",
+    "+added",
+    "",
+  ].join("\n")
+  const buffer = editor.scratch("*diff*", text, "diff-mode")
+  buffer.point = 0
+  await editor.run("diff-next-complex-hunk")
+  expect(buffer.text.slice(buffer.point).startsWith("@@ -10,1 +10,2 @@")).toBe(true)
+})
+
 test("diff-kill-creations-deletions removes created and deleted file diffs", async () => {
   const editor = makeEditor()
   const text = [
