@@ -613,10 +613,38 @@ test("diff-ediff-patch opens a read-only patched preview beside source", async (
     buffer.locals.set("diff-default-directory", dir)
     buffer.point = buffer.text.indexOf("+TWO")
     await editor.run("diff-ediff-patch")
-    const preview = [...editor.buffers.values()].find(b => b.name === "*diff-ediff-patch: a.txt*")
+    const preview = [...editor.buffers.values()].find(b => b.locals.get("diff-ediff-source") === resolve(dir, "a.txt"))
     expect(preview?.text).toBe("one\nTWO\nthree\n")
     expect(preview?.readOnly).toBe(true)
     expect([...editor.buffers.values()].find(b => b.path === join(dir, "a.txt"))?.text).toBe("one\ntwo\n")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-ediff-patch resolves prefixed source paths", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-ediff-prefix-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\ntwo\n")
+    const text = [
+      "diff --git a/src/a.txt b/src/a.txt",
+      "--- a/src/a.txt",
+      "+++ b/src/a.txt",
+      "@@ -1,2 +1,3 @@",
+      " one",
+      "-two",
+      "+TWO",
+      "+three",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = buffer.text.indexOf("+TWO")
+    await editor.run("diff-ediff-patch")
+    const preview = [...editor.buffers.values()].find(b => b.locals.get("diff-ediff-source") === resolve(dir, "a.txt"))
+    expect(preview?.text).toBe("one\nTWO\nthree\n")
+    expect([...editor.buffers.values()].find(b => b.path === resolve(dir, "a.txt"))?.text).toBe("one\ntwo\n")
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

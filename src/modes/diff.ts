@@ -900,7 +900,8 @@ async function previewPatchedHunk(editor: Editor, buffer: BufferModel): Promise<
   const oldStart = hunk.oldStart ?? hunk.newStart
   if (oldStart == null) return false
 
-  const source = await editor.openFile(resolve(diffDefaultDirectory(buffer), sourceFile))
+  const sourcePath = await diffFindFileName(buffer, true) ?? await resolveDiffFileName(buffer, sourceFile)
+  const source = await editor.openFile(sourcePath)
   const patchedText = replaceSourceTextRange(source.text, oldStart, hunk.oldCount ?? 0, hunkAppliedText(buffer, hunk, true))
   const preview = editor.scratch(`*diff-ediff-patch: ${sourceFile}*`, patchedText, source.mode)
   preview.readOnly = true
