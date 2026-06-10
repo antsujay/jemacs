@@ -292,6 +292,28 @@ async function refreshDiffBuffer(editor: Editor, buffer: BufferModel, context: n
   return true
 }
 
+async function showCommitDiff(editor: Editor, commitBuffer: BufferModel): Promise<boolean> {
+  const root = magitRoot(commitBuffer)
+  if (!root || commitBuffer.mode !== "magit-commit") return false
+  const context = magitDiffContext(commitBuffer)
+  const { out: diff } = await git(["diff", "--cached", ...magitDiffContextArgs(context)], root)
+  const diffBuf = editor.scratch("*magit-diff: staged*", diff || "(nothing staged)\n", "magit-diff-mode")
+  diffBuf.readOnly = true
+  diffBuf.locals.set("magit-root", root)
+  diffBuf.locals.set("magit-diff-args", ["diff", "--cached"])
+  diffBuf.locals.set("magit-diff-title", "staged")
+  diffBuf.locals.set("magit-diff-context", context)
+  diffBuf.point = 0
+  editor.switchToBuffer(commitBuffer.id)
+  editor.displayBufferInOtherWindow(diffBuf.id, { select: false })
+  editor.message("Showing staged diff for commit")
+  return true
+}
+
+function commitMessageBuffer(editor: Editor): BufferModel | null {
+  return [...editor.buffers.values()].find(buffer => buffer.mode === "magit-commit") ?? null
+}
+
 function prefixCount(prefix: unknown): number {
   if (typeof prefix === "number" && Number.isFinite(prefix)) return Math.max(1, Math.trunc(Math.abs(prefix)))
   return 1
@@ -667,6 +689,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
 
   const commitMap = new Keymap("magit-commit-map")
   commitMap.bind("C-c C-c", "magit-commit-finish")
+  commitMap.bind("C-c C-d", "magit-diff-while-committing")
   commitMap.bind("C-c C-k", "magit-commit-abort")
   defineMode({ name: "magit-commit", parent: "text", keymap: commitMap })
 
@@ -708,8 +731,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     if (!(await refreshDiffBuffer(editor, buffer, DEFAULT_DIFF_CONTEXT))) editor.message("Cannot change diff context in this buffer")
   }, "Reset context for diff hunks to the default height.")
 
+  editor.command("magit-diff-while-committing", async ({ editor }) => {
+    const commitBuffer = commitMessageBuffer(editor)
+    if (!commitBuffer) return editor.message("No commit in progress")
+    await showCommitDiff(editor, commitBuffer)
+  }, "While committing, show the changes that are about to be committed.")
+
   for (const [name, message] of [
-    ["magit-diff-while-committing", "Diff while committing is not implemented yet"],
     ["magit-go-backward", "Magit history navigation is not implemented yet"],
     ["magit-go-forward", "Magit history navigation is not implemented yet"],
   ] as const) {
@@ -822,20 +850,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       return
     }
     const winconf = editor.currentWindowConfiguration()
-    const { out: diff } = await git(["diff", "--cached"], root)
     const buf = editor.scratch("*COMMIT_EDITMSG*", "", "magit-commit")
     buf.locals.set("magit-root", root)
     buf.locals.set("magit-winconf", winconf)
     buf.locals.set("magit-commit-args", args)
     buf.point = 0
     // Show what's being committed in a split, like real magit.
-    const msgWindow = editor.selectedWindowId
-    editor.splitWindowBelow()
-    editor.selectWindow(nextWindowId(editor.windowLayout, editor.selectedWindowId, 1))
-    const diffBuf = editor.scratch("*magit-diff: staged*", diff || "(nothing staged)\n", "magit-diff-mode")
-    diffBuf.readOnly = true
-    diffBuf.point = 0
-    editor.selectWindow(msgWindow)
+    await showCommitDiff(editor, buf)
     editor.message("Type C-c C-c to finish, C-c C-k to abort")
   }, "Open a buffer to write a commit message for staged changes.")
 

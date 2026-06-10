@@ -57,6 +57,7 @@ test("install registers v2 commands, modes and bindings", () => {
     "magit-branch-create", "magit-stash", "magit-stash-pop", "magit-discard",
     "magit-reset", "magit-toggle-fold", "magit-commit-abort",
     "magit-diff-more-context", "magit-diff-less-context", "magit-diff-default-context",
+    "magit-diff-while-committing",
   ]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
@@ -72,6 +73,7 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(status?.keymap?.get("tab")).toBe("magit-section-toggle")
 
   expect(getMode("magit-commit")?.keymap?.get("C-c C-k")).toBe("magit-commit-abort")
+  expect(getMode("magit-commit")?.keymap?.get("C-c C-d")).toBe("magit-diff-while-committing")
 
   const log = getMode("magit-log")
   expect(log).toBeDefined()
@@ -373,4 +375,47 @@ test("C-c C-k aborts the commit message buffer without committing", async () => 
   expect(stillOpen).toBe(false)
   expect((await git(["log", "--pretty=%s"])).trim()).toBe("initial")
   expect((await git(["diff", "--cached", "--name-only"])).trim()).toBe("a.txt")
+})
+
+test("magit-diff-while-committing refreshes the staged diff from the commit buffer", async () => {
+  const editor = ed()
+  await writeFile(join(repo, "a.txt"), "one\nchanged\n")
+  await git(["add", "a.txt"])
+  await editor.run("magit-status", [repo])
+  await editor.run("magit-commit")
+
+  const message = editor.currentBuffer
+  let diffBuf = [...editor.buffers.values()].find(b => b.name === "*magit-diff: staged*")
+  expect(diffBuf?.text).toContain("+changed")
+
+  await writeFile(join(repo, "a.txt"), "one\nagain\n")
+  await git(["add", "a.txt"])
+  await keySeq(editor, "C-c", "C-d")
+
+  expect(editor.currentBuffer).toBe(message)
+  diffBuf = [...editor.buffers.values()].find(b => b.name === "*magit-diff: staged*")
+  expect(diffBuf?.text).toContain("+again")
+  expect(diffBuf?.text).not.toContain("+changed")
+})
+
+test("magit-diff-while-committing can be invoked from the commit diff buffer", async () => {
+  const editor = ed()
+  await writeFile(join(repo, "a.txt"), "one\nchanged\n")
+  await git(["add", "a.txt"])
+  await editor.run("magit-status", [repo])
+  await editor.run("magit-commit")
+
+  let diffBuf = [...editor.buffers.values()].find(b => b.name === "*magit-diff: staged*")
+  expect(diffBuf).toBeDefined()
+  if (!diffBuf) throw new Error("staged diff buffer was not opened")
+  editor.switchToBuffer(diffBuf.id)
+
+  await writeFile(join(repo, "a.txt"), "one\nfrom diff\n")
+  await git(["add", "a.txt"])
+  await editor.run("magit-diff-while-committing")
+
+  expect(editor.currentBuffer.name).toBe("*COMMIT_EDITMSG*")
+  diffBuf = [...editor.buffers.values()].find(b => b.name === "*magit-diff: staged*")
+  expect(diffBuf?.text).toContain("+from diff")
+  expect(diffBuf?.text).not.toContain("+changed")
 })
