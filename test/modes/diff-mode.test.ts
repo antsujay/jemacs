@@ -111,6 +111,32 @@ test("diff-kill-creations-deletions removes created and deleted file diffs", asy
   expect(buffer.text).not.toContain("+created")
 })
 
+test("diff-kill-junk removes empty Index blocks and junk before file headers", async () => {
+  const editor = makeEditor()
+  const text = [
+    "Index: empty.txt",
+    "===================================================================",
+    "metadata with no hunk",
+    "Index: keep.txt",
+    "===================================================================",
+    "stray metadata",
+    "--- a/keep.txt",
+    "+++ b/keep.txt",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n")
+  const buffer = editor.scratch("*diff*", text, "diff-mode")
+  await editor.run("diff-kill-junk")
+  expect(buffer.text).not.toContain("empty.txt")
+  expect(buffer.text).not.toContain("metadata with no hunk")
+  expect(buffer.text).toContain("Index: keep.txt")
+  expect(buffer.text).not.toContain("stray metadata")
+  expect(buffer.text).toContain("--- a/keep.txt")
+  expect(buffer.text).toContain("+new")
+})
+
 test("diff-reverse-direction swaps headers, hunk ranges, and line polarity", async () => {
   const editor = makeEditor()
   const buffer = editor.scratch("*diff*", sample, "diff-mode")

@@ -119,6 +119,11 @@ export function installDiffCommands(editor: Editor): void {
     editor.message(count ? `Killed ${count} creation/deletion file diff${count === 1 ? "" : "s"}` : "No creation/deletion file diffs")
   }, "Kill all hunks for file creations and deletions.")
 
+  editor.command("diff-kill-junk", ({ buffer, editor }) => {
+    const count = killJunk(buffer)
+    editor.message(count ? `Killed ${count} junk block${count === 1 ? "" : "s"}` : "No junk blocks")
+  }, "Kill spurious empty diffs.")
+
   editor.command("diff-delete-other-hunks", ({ buffer, editor }) => {
     const keep = diffHunkAtPoint(buffer)
     if (!keep) return editor.message("No hunk at point")
@@ -863,6 +868,22 @@ function killCreationsDeletions(buffer: BufferModel): number {
   return matches.length
 }
 
+function killJunk(buffer: BufferModel): number {
+  const lines = lineInfo(buffer)
+  const ranges: Array<{ startLine: number; endLine: number }> = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i]?.text.startsWith("Index: ")) continue
+    let j = i + 1
+    while (j < lines.length && !isJunkTerminator(lines[j]!.text)) j++
+    if (j >= lines.length) continue
+    if (lines[j]!.text.startsWith("Index: ")) ranges.push({ startLine: i, endLine: j - 1 })
+    else if (j > i + 1) ranges.push({ startLine: i + 1, endLine: j - 1 })
+  }
+  for (const range of ranges.sort((a, b) => b.startLine - a.startLine)) deleteLines(buffer, range.startLine, range.endLine)
+  if (ranges.length) buffer.point = Math.min(buffer.point, buffer.text.length)
+  return ranges.length
+}
+
 function diffDefaultDirectory(buffer: BufferModel): string {
   const local = buffer.locals.get("diff-default-directory") as string | undefined
   return local ?? buffer.directory() ?? process.cwd()
@@ -878,6 +899,14 @@ function isHunkBodyLine(text: string, style: DiffHunkStyle): boolean {
   if (style === "unified") return isUnifiedBodyLine(text)
   if (style === "normal") return /^[<>] /.test(text) || /^---$/.test(text)
   return /^(  |! |\+ |- |--- )/.test(text)
+}
+
+function isJunkTerminator(text: string): boolean {
+  return text.startsWith("Index: ")
+    || text.startsWith("diff --git ")
+    || /^(---|\+\+\+|\*\*\*) /.test(text)
+    || /^Only in /.test(text)
+    || /^Binary files .* differ$/.test(text)
 }
 
 function lineInfo(buffer: BufferModel): Line[] {
