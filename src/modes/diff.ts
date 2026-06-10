@@ -114,6 +114,11 @@ export function installDiffCommands(editor: Editor): void {
     deleteLines(buffer, file.startLine, file.endLine)
   }, "Kill the current file's diff.")
 
+  editor.command("diff-kill-creations-deletions", ({ buffer, editor }) => {
+    const count = killCreationsDeletions(buffer)
+    editor.message(count ? `Killed ${count} creation/deletion file diff${count === 1 ? "" : "s"}` : "No creation/deletion file diffs")
+  }, "Kill all hunks for file creations and deletions.")
+
   editor.command("diff-delete-other-hunks", ({ buffer, editor }) => {
     const keep = diffHunkAtPoint(buffer)
     if (!keep) return editor.message("No hunk at point")
@@ -849,6 +854,13 @@ function deleteLines(buffer: BufferModel, startLine: number, endLine: number): v
   const start = lines[startLine]?.start ?? 0
   const end = endLine + 1 < lines.length ? lines[endLine + 1]!.start : buffer.text.length
   buffer.deleteRange(start, end)
+}
+
+function killCreationsDeletions(buffer: BufferModel): number {
+  const matches = parseDiffBuffer(buffer).filter(file => file.oldFile === "/dev/null" || file.newFile === "/dev/null")
+  for (const file of matches.sort((a, b) => b.startLine - a.startLine)) deleteLines(buffer, file.startLine, file.endLine)
+  if (matches.length) buffer.point = Math.min(buffer.point, buffer.text.length)
+  return matches.length
 }
 
 function diffDefaultDirectory(buffer: BufferModel): string {

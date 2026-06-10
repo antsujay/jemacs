@@ -81,6 +81,36 @@ test("navigation and deletion commands operate on hunks and files", async () => 
   expect(buffer.text).toContain("+TWO")
 })
 
+test("diff-kill-creations-deletions removes created and deleted file diffs", async () => {
+  const editor = makeEditor()
+  const text = [
+    "diff --git a/keep.txt b/keep.txt",
+    "--- a/keep.txt",
+    "+++ b/keep.txt",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "diff --git a/deleted.txt b/deleted.txt",
+    "--- a/deleted.txt",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-gone",
+    "diff --git a/new.txt b/new.txt",
+    "--- /dev/null",
+    "+++ b/new.txt",
+    "@@ -0,0 +1 @@",
+    "+created",
+    "",
+  ].join("\n")
+  const buffer = editor.scratch("*diff*", text, "diff-mode")
+  await editor.run("diff-kill-creations-deletions")
+  expect(buffer.text).toContain("diff --git a/keep.txt b/keep.txt")
+  expect(buffer.text).toContain("+new")
+  expect(buffer.text).not.toContain("deleted.txt")
+  expect(buffer.text).not.toContain("new.txt")
+  expect(buffer.text).not.toContain("+created")
+})
+
 test("diff-reverse-direction swaps headers, hunk ranges, and line polarity", async () => {
   const editor = makeEditor()
   const buffer = editor.scratch("*diff*", sample, "diff-mode")
