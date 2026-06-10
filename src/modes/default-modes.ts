@@ -9,6 +9,7 @@ import { installPythonMode } from "./python"
 import { installShellScriptMode } from "./shell-script"
 import { installConfigModes } from "./generic"
 import { installEmacsLispMode } from "./emacs-lisp"
+import { installDiffMode } from "./diff"
 
 export function installDefaultModes(): void {
   installLinumMode()
@@ -21,6 +22,7 @@ export function installDefaultModes(): void {
   installEmacsLispMode()
   installPythonMode()
   installShellScriptMode()
+  installDiffMode()
   installBufferListMode()
   installDiredMode()
 }

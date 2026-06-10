@@ -1,0 +1,109 @@
+import { expect, test } from "bun:test"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { BufferModel, inferMode } from "../../src/kernel/buffer"
+import { getMode } from "../../src/modes/mode"
+import { diffFileAtPoint, diffFontLock, diffHunkAtPoint, parseDiffBuffer } from "../../src/modes/diff"
+import { makeEditor } from "../plugins/helper"
+
+const sample = [
+  "diff --git a/a.txt b/a.txt",
+  "index 1111111..2222222 100644",
+  "--- a/a.txt",
+  "+++ b/a.txt",
+  "@@ -1,2 +1,3 @@ function name",
+  " one",
+  "-two",
+  "+TWO",
+  "+three",
+  "",
+  "diff --git a/b.txt b/b.txt",
+  "--- a/b.txt",
+  "+++ b/b.txt",
+  "@@ -1 +1 @@",
+  "-old",
+  "+new",
+  "",
+].join("\n")
+
+test("diff-mode is installed as a core mode and inferred for patches", () => {
+  const editor = makeEditor()
+  const mode = getMode("diff-mode")
+  expect(mode?.parent).toBe("text")
+  expect(mode?.keymap?.get("n")).toBe("diff-hunk-next")
+  expect(mode?.keymap?.get("C-c C-a")).toBe("diff-apply-hunk")
+  expect(editor.commands.get("diff-hunk-next")).toBeDefined()
+  expect(inferMode("change.patch")).toBe("diff-mode")
+  expect(inferMode("change.diff")).toBe("diff-mode")
+})
+
+test("parseDiffBuffer tracks unified files and hunks", () => {
+  const buffer = new BufferModel({ name: "x.diff", text: sample, mode: "diff-mode" })
+  const files = parseDiffBuffer(buffer)
+  expect(files).toHaveLength(2)
+  expect(files[0]?.oldFile).toBe("a.txt")
+  expect(files[0]?.newFile).toBe("a.txt")
+  expect(files[0]?.hunks[0]).toMatchObject({ style: "unified", oldStart: 1, oldCount: 2, newStart: 1, newCount: 3 })
+  expect(files[1]?.oldFile).toBe("b.txt")
+  buffer.point = sample.indexOf("+TWO")
+  expect(diffFileAtPoint(buffer)?.newFile).toBe("a.txt")
+  expect(diffHunkAtPoint(buffer)?.newCount).toBe(3)
+})
+
+test("diffFontLock uses GNU-style diff faces", () => {
+  const buffer = new BufferModel({ name: "x.diff", text: sample, mode: "diff-mode" })
+  const spans = diffFontLock(buffer)
+  const faceAt = (needle: string) => spans.find(s => s.start === sample.indexOf(needle))?.face
+  expect(faceAt("diff --git")).toBe("diffHeader")
+  expect(faceAt("index ")).toBe("diffIndex")
+  expect(faceAt("--- a/a.txt")).toBe("diffFileHeader")
+  expect(faceAt("@@ -1")).toBe("diffHunkHeader")
+  expect(faceAt(" function name")).toBe("diffFunction")
+  expect(faceAt("-two")).toBe("diffRemoved")
+  expect(faceAt("+TWO")).toBe("diffAdded")
+  expect(faceAt(" one")).toBe("diffContext")
+})
+
+test("navigation and deletion commands operate on hunks and files", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  await editor.run("diff-hunk-next")
+  expect(buffer.text.slice(buffer.point).startsWith("@@ -1,2")).toBe(true)
+  await editor.run("diff-hunk-next")
+  expect(buffer.text.slice(buffer.point).startsWith("@@ -1 +1")).toBe(true)
+  await editor.run("diff-file-prev")
+  expect(buffer.text.slice(buffer.point).startsWith("diff --git a/a.txt")).toBe(true)
+  buffer.point = buffer.text.indexOf("@@ -1 +1")
+  await editor.run("diff-hunk-kill")
+  expect(buffer.text).not.toContain("+new")
+  expect(buffer.text).toContain("+TWO")
+})
+
+test("diff-reverse-direction swaps headers, hunk ranges, and line polarity", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  await editor.run("diff-reverse-direction")
+  expect(buffer.text).toContain("diff --git a/a.txt b/a.txt")
+  expect(buffer.text).toContain("--- b/a.txt")
+  expect(buffer.text).toContain("+++ a/a.txt")
+  expect(buffer.text).toContain("@@ -1,3 +1,2 @@ function name")
+  expect(buffer.text).toContain("+two")
+  expect(buffer.text).toContain("-TWO")
+})
+
+test("diff-apply-hunk applies the current hunk with git apply", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-mode-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\ntwo\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", sample, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = buffer.text.indexOf("@@ -1,2")
+    await editor.run("diff-test-hunk")
+    await editor.run("diff-apply-hunk")
+    expect(await readFile(join(dir, "a.txt"), "utf8")).toBe("one\nTWO\nthree\n")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -15,6 +15,7 @@ import { installDefaultCustomVariables } from "./custom-init"
 import { installDefaultFaces } from "./faces-init"
 import { install as installWindowPlugin } from "../../plugins/window"
 import { installFillCommands } from "../core/fill"
+import { installDiffCommands } from "../modes/diff"
 
 export { installDefaultHooks, installLspDeferredHooks } from "./install-hooks"
 export { LSP_AUTO_MODES, LSP_AUTO_EXTENSIONS, shouldAutoStartLsp } from "./lsp-auto-modes"
@@ -26,6 +27,7 @@ export function installDefaultConfig(editor: Editor): Evaluator {
   addToLoadPath(join(homedir(), ".jemacs"))
   const evaluator = installLisp(editor)
   installFillCommands(editor)
+  installDiffCommands(editor)
   installLinumMode()
   installTextScaleMode()
   installMinorModeCommands(editor)

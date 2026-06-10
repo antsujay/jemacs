@@ -435,6 +435,7 @@ export function inferMode(path: string, text = ""): string {
   if (/\.el$/.test(path)) return "emacs-lisp-mode"
   if (/\.rs$/.test(path)) return "rust"
   if (/\.go$/.test(path)) return "go"
+  if (/\.(diff|patch)$/i.test(path) || /(^|\/)(COMMIT_EDITMSG|MERGE_MSG)$/.test(path) && /^diff --git /m.test(text)) return "diff-mode"
   if (/\.proto$/.test(path)) return "protobuf"
   if (/\.http$/.test(path)) return "restclient"
   if (/\.tf$/.test(path)) return "terraform"

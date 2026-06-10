@@ -74,6 +74,7 @@ test("magit-commit: shows staged diff in a split window alongside COMMIT_EDITMSG
   expect(leaves.length).toBeGreaterThanOrEqual(2)
   const diffBuf = [...editor.buffers.values()].find(b => b.name === "*magit-diff: staged*")
   expect(diffBuf).toBeDefined()
+  expect(diffBuf!.mode).toBe("magit-diff-mode")
   expect(diffBuf!.readOnly).toBe(true)
   expect(diffBuf!.text).toContain("+changed")
   expect(leaves.some(l => l.bufferId === diffBuf!.id)).toBe(true)

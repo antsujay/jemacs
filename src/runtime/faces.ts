@@ -77,6 +77,9 @@ export function listKnownFaceNames(): string[] {
     "number", "constant", "directory", "region", "isearch", "lazyHighlight",
     "modeLine", "modeLineInactive", "minibuffer", "minibufferPrompt", "title",
     "error", "lineNumber", "lineNumberCurrent",
+    "diffHeader", "diffFileHeader", "diffIndex", "diffHunkHeader",
+    "diffRemoved", "diffAdded", "diffChanged", "diffContext",
+    "diffFunction", "diffNonexistent",
   ])
   for (const face of faces.keys()) names.add(face)
   return [...names].sort()

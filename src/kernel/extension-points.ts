@@ -34,6 +34,16 @@ export type FaceName =
   | "error"
   | "lineNumber"
   | "lineNumberCurrent"
+  | "diffHeader"
+  | "diffFileHeader"
+  | "diffIndex"
+  | "diffHunkHeader"
+  | "diffRemoved"
+  | "diffAdded"
+  | "diffChanged"
+  | "diffContext"
+  | "diffFunction"
+  | "diffNonexistent"
 
 export type TextSpan = {
   start: number

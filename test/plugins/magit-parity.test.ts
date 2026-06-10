@@ -176,6 +176,7 @@ test("d s opens a staged-diff buffer", async () => {
   await keySeq(editor, "d", "s")
   const buf = editor.currentBuffer
   expect(buf.name).toBe("*magit-diff: staged*")
+  expect(buf.mode).toBe("magit-diff-mode")
   expect(buf.readOnly).toBe(true)
   expect(buf.text).toContain("+two")
 })

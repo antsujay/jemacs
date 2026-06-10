@@ -6,6 +6,7 @@ import { defineMode, type TextSpan } from "../../src/modes/mode"
 import { Keymap } from "../../src/kernel/keymap"
 import { nextWindowId } from "../../src/kernel/window"
 import { spawnProcess } from "../../src/platform/runtime"
+import { diffFontLockText } from "../../src/modes/diff"
 import { projectRoot } from "../project"
 
 /** A file-level section in the status buffer; line ranges let s/u act on the diff body too. */
@@ -244,20 +245,16 @@ function magitRoot(buffer: BufferModel): string | null {
   return (buffer.locals.get("magit-root") as string | undefined) ?? null
 }
 
-/** Line-based diff highlighting for status/revision buffers; repurposes existing faces (string=added, error=removed). */
+/** Diff-mode highlighting plus Magit section headers for status/revision buffers. */
 export function magitDiffFontLock(buffer: BufferModel): TextSpan[] {
-  const spans: TextSpan[] = []
+  const sectionSpans: TextSpan[] = []
   let offset = 0
   for (const line of buffer.text.split("\n")) {
     const end = offset + line.length
-    if (line.startsWith("@@")) spans.push({ start: offset, end, face: "builtin" })
-    else if (line.startsWith("+++") || line.startsWith("---")) spans.push({ start: offset, end, face: "comment" })
-    else if (line.startsWith("+")) spans.push({ start: offset, end, face: "string" })
-    else if (line.startsWith("-")) spans.push({ start: offset, end, face: "error" })
-    else if (/^(Head|Merge|Unstaged|Staged|Stashes|Recent)\b/.test(line)) spans.push({ start: offset, end, face: "keyword" })
+    if (/^(Head|Merge|Unstaged|Staged|Stashes|Recent)\b/.test(line)) sectionSpans.push({ start: offset, end, face: "keyword" })
     offset = end + 1
   }
-  return spans
+  return [...sectionSpans, ...diffFontLockText(buffer.text)]
 }
 
 /** Extract the 7+ hex sha at point from a `--graph --oneline` line. */
@@ -493,11 +490,39 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   // reachable — KeymapStack.lookup checks the child's hasPrefix before
   // descending. This is the moral equivalent of Emacs special-mode's
   // suppress-keymap.
-  const suppressMap = new Keymap("magit-special-map")
+  const suppressMap = new Keymap("magit-section-mode-map")
   suppressMap.bind("space", "magit-undefined")
   for (let c = 0x21; c <= 0x7e; c++) suppressMap.bind(String.fromCharCode(c), "magit-undefined")
   for (let c = 0x61; c <= 0x7a; c++) suppressMap.bind(`S-${String.fromCharCode(c)}`, "magit-undefined")
-  defineMode({ name: "magit-special", keymap: suppressMap })
+  defineMode({ name: "magit-section-mode", keymap: suppressMap })
+
+  const magitModeMap = new Keymap("magit-mode-map")
+  magitModeMap.bind("return", "magit-visit-thing")
+  magitModeMap.bind("RET", "magit-visit-thing")
+  magitModeMap.bind("space", "magit-diff-show-or-scroll-up")
+  magitModeMap.bind("S-space", "magit-diff-show-or-scroll-down")
+  magitModeMap.bind("backspace", "magit-diff-show-or-scroll-down")
+  magitModeMap.bind("+", "magit-diff-more-context")
+  magitModeMap.bind("-", "magit-diff-less-context")
+  magitModeMap.bind("0", "magit-diff-default-context")
+  magitModeMap.bind("g", "magit-refresh")
+  magitModeMap.bind("S-g", "magit-refresh-all")
+  magitModeMap.bind("h", "magit-dispatch")
+  magitModeMap.bind("?", "magit-dispatch")
+  magitModeMap.bind("q", "magit-bury-buffer")
+  magitModeMap.bind(":", "magit-git-command")
+  magitModeMap.bind("tab", "magit-section-toggle")
+  defineMode({ name: "magit-mode", parent: "magit-section-mode", keymap: magitModeMap })
+
+  const magitDiffModeMap = new Keymap("magit-diff-mode-map")
+  magitDiffModeMap.bind("C-c C-d", "magit-diff-while-committing")
+  magitDiffModeMap.bind("C-c C-b", "magit-go-backward")
+  magitDiffModeMap.bind("C-c C-f", "magit-go-forward")
+  magitDiffModeMap.bind("space", "scroll-up-command")
+  magitDiffModeMap.bind("S-space", "scroll-down-command")
+  magitDiffModeMap.bind("backspace", "scroll-down-command")
+  magitDiffModeMap.bind("j", "magit-jump-to-diffstat-or-diff")
+  defineMode({ name: "magit-diff-mode", parent: "magit-mode", keymap: magitDiffModeMap, fontLock: magitDiffFontLock })
 
   const statusMap = new Keymap("magit-status-map")
   // magit-mode-map parity: single keys + transient prefix sequences (c c, P p, …).
@@ -586,7 +611,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   statusMap.bind("S-v", "magit-revert-popup")
   statusMap.bind("t", "magit-tag-popup")
   statusMap.bind("S-m", "magit-remote-popup")
-  defineMode({ name: "magit-status", parent: "magit-special", keymap: statusMap, fontLock: magitDiffFontLock })
+  defineMode({ name: "magit-status", parent: "magit-mode", keymap: statusMap, fontLock: magitDiffFontLock })
 
   const commitMap = new Keymap("magit-commit-map")
   commitMap.bind("C-c C-c", "magit-commit-finish")
@@ -598,15 +623,47 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   logMap.bind("RET", "magit-log-show-commit")
   logMap.bind("g", "magit-log")
   logMap.bind("q", "magit-bury-buffer")
-  defineMode({ name: "magit-log", parent: "magit-special", keymap: logMap, fontLock: magitDiffFontLock })
+  defineMode({ name: "magit-log", parent: "magit-mode", keymap: logMap, fontLock: magitDiffFontLock })
 
-  const revisionMap = new Keymap("magit-revision-map")
+  const revisionMap = new Keymap("magit-revision-mode-map")
+  revisionMap.bind("j", "magit-revision-jump")
   revisionMap.bind("q", "magit-bury-buffer")
-  defineMode({ name: "magit-revision", parent: "magit-special", keymap: revisionMap, fontLock: magitDiffFontLock })
+  defineMode({ name: "magit-revision-mode", parent: "magit-diff-mode", keymap: revisionMap, fontLock: magitDiffFontLock })
 
   editor.command("magit-undefined", ({ editor }) => {
     editor.message("Buffer is read-only")
   }, "No-op for unbound printable keys in read-only Magit buffers.")
+
+  editor.command("magit-diff-show-or-scroll-up", async ({ editor }) => {
+    await editor.run("scroll-up-command")
+  }, "Show the section at point or scroll up.")
+
+  editor.command("magit-diff-show-or-scroll-down", async ({ editor }) => {
+    await editor.run("scroll-down-command")
+  }, "Show the section at point or scroll down.")
+
+  for (const [name, message] of [
+    ["magit-diff-more-context", "Diff context expansion is not implemented yet"],
+    ["magit-diff-less-context", "Diff context reduction is not implemented yet"],
+    ["magit-diff-default-context", "Diff context reset is not implemented yet"],
+    ["magit-diff-while-committing", "Diff while committing is not implemented yet"],
+    ["magit-go-backward", "Magit history navigation is not implemented yet"],
+    ["magit-go-forward", "Magit history navigation is not implemented yet"],
+  ] as const) {
+    editor.command(name, ({ editor }) => editor.message(message))
+  }
+
+  editor.command("magit-jump-to-diffstat-or-diff", ({ buffer }) => {
+    const diff = buffer.text.indexOf("diff --git ")
+    const hunk = buffer.text.indexOf("@@")
+    const target = diff >= 0 ? diff : hunk
+    if (target >= 0) buffer.point = target
+  }, "Jump to the diffstat or diff in the current Magit diff buffer.")
+
+  editor.command("magit-revision-jump", ({ buffer }) => {
+    const diff = buffer.text.indexOf("diff --git ")
+    if (diff >= 0) buffer.point = diff
+  }, "Jump within the current Magit revision buffer.")
 
   defineTransientCommand(editor, "magit-dispatch", magitDispatchTransient, "Show the Magit dispatch popup.")
   defineTransientCommand(editor, "magit-commit-popup", magitCommitTransient, "Show the Magit commit popup.")
@@ -712,7 +769,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const msgWindow = editor.selectedWindowId
     editor.splitWindowBelow()
     editor.selectWindow(nextWindowId(editor.windowLayout, editor.selectedWindowId, 1))
-    const diffBuf = editor.scratch("*magit-diff: staged*", diff || "(nothing staged)\n", "magit-revision")
+    const diffBuf = editor.scratch("*magit-diff: staged*", diff || "(nothing staged)\n", "magit-diff-mode")
     diffBuf.readOnly = true
     diffBuf.point = 0
     editor.selectWindow(msgWindow)
@@ -801,7 +858,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const logWindow = editor.selectedWindowId
     editor.splitWindowBelow()
     editor.selectWindow(nextWindowId(editor.windowLayout, editor.selectedWindowId, 1))
-    const buf = editor.scratch(`*magit-commit: ${sha}*`, out, "magit-revision")
+    const buf = editor.scratch(`*magit-commit: ${sha}*`, out, "magit-revision-mode")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
     buf.point = 0
@@ -1131,7 +1188,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
     ])
     const code = await proc.exited
-    const buf = editor.scratch("*magit-process*", (out + err) || `(exit ${code})\n`, "magit-revision")
+    const buf = editor.scratch("*magit-process*", (out + err) || `(exit ${code})\n`, "magit-revision-mode")
     buf.readOnly = true
     buf.point = 0
     editor.message(code === 0 ? "Command finished" : `Command failed (${code})`)
@@ -1332,7 +1389,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const root = magitRoot(buffer)
     if (!root) return editor.message("Not in a Magit buffer")
     const { out } = await git(["stash", "list"], root)
-    const buf = editor.scratch("*magit-stash-list*", out || "(no stashes)\n", "magit-revision")
+    const buf = editor.scratch("*magit-stash-list*", out || "(no stashes)\n", "magit-revision-mode")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
     buf.point = 0
@@ -1355,7 +1412,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const root = magitRoot(buffer)
     if (!root) return editor.message("Not in a Magit buffer")
     const { out } = await git(gitArgs, root)
-    const buf = editor.scratch(`*magit-diff: ${title}*`, out || "(no changes)\n", "magit-revision")
+    const buf = editor.scratch(`*magit-diff: ${title}*`, out || "(no changes)\n", "magit-diff-mode")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
     buf.point = 0

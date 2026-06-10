@@ -79,10 +79,12 @@ test("install registers v2 commands, modes and bindings", () => {
 
   expect(getMode("magit-status")?.fontLock).toBe(magitDiffFontLock)
   expect(getMode("magit-log")?.fontLock).toBe(magitDiffFontLock)
-  const revision = getMode("magit-revision")
-  expect(revision?.parent).toBe("magit-special")
+  expect(getMode("magit-diff-mode")?.parent).toBe("magit-mode")
+  const revision = getMode("magit-revision-mode")
+  expect(revision?.parent).toBe("magit-diff-mode")
   expect(revision?.fontLock).toBe(magitDiffFontLock)
   expect(revision?.keymap?.get("q")).toBe("magit-bury-buffer")
+  expect(revision?.keymap?.get("j")).toBe("magit-revision-jump")
 })
 
 test("magitDiffFontLock colors @@/+/- and section headers", () => {
@@ -104,11 +106,11 @@ test("magitDiffFontLock colors @@/+/- and section headers", () => {
   expect(faceAt("Head:")).toBe("keyword")
   expect(faceAt("Unstaged changes")).toBe("keyword")
   expect(faceAt("Recent commits")).toBe("keyword")
-  expect(faceAt("@@ -1")).toBe("builtin")
-  expect(faceAt("+two")).toBe("string")
-  expect(faceAt("-three")).toBe("error")
-  expect(faceAt("modified   a.txt")).toBeUndefined()
-  expect(faceAt(" one")).toBeUndefined()
+  expect(faceAt("@@ -1")).toBe("diffHunkHeader")
+  expect(faceAt("+two")).toBe("diffAdded")
+  expect(faceAt("-three")).toBe("diffRemoved")
+  expect(faceAt("modified   a.txt")).toBe("diffContext")
+  expect(faceAt(" one")).toBe("diffContext")
 })
 
 test("magit-status buffer reaches diff font-lock through editor.fontLock", async () => {
@@ -118,9 +120,9 @@ test("magit-status buffer reaches diff font-lock through editor.fontLock", async
   const buf = editor.currentBuffer
   const spans = editor.fontLock(buf)
   const added = buf.text.indexOf("+two")
-  expect(spans.some(s => s.start === added && s.face === "string")).toBe(true)
+  expect(spans.some(s => s.start === added && s.face === "diffAdded")).toBe(true)
   const hunk = buf.text.indexOf("@@")
-  expect(spans.some(s => s.start === hunk && s.face === "builtin")).toBe(true)
+  expect(spans.some(s => s.start === hunk && s.face === "diffHunkHeader")).toBe(true)
 })
 
 test("P p pushes to a bare remote with prompted defaults (origin, current branch)", async () => {
@@ -176,7 +178,7 @@ test("l l opens *magit-log* in magit-log mode; RET shows the commit", async () =
   expect(editor.currentBuffer.name).toBe("*magit-log*")
   expect(listWindowLeaves(editor.windowLayout)).toHaveLength(2)
   const rev = [...editor.buffers.values()].find(b => b.name === `*magit-commit: ${sha}*`)!
-  expect(rev.mode).toBe("magit-revision")
+  expect(rev.mode).toBe("magit-revision-mode")
   expect(rev.readOnly).toBe(true)
   expect(rev.text).toContain("initial")
   expect(rev.text).toContain("a.txt")
