@@ -83,6 +83,8 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(getMode("magit-status")?.fontLock).toBe(magitDiffFontLock)
   expect(getMode("magit-log")?.fontLock).toBe(magitDiffFontLock)
   expect(getMode("magit-diff-mode")?.parent).toBe("magit-mode")
+  expect(getMode("magit-diff-mode")?.keymap?.get("C-c C-b")).toBe("magit-go-backward")
+  expect(getMode("magit-diff-mode")?.keymap?.get("C-c C-f")).toBe("magit-go-forward")
   const revision = getMode("magit-revision-mode")
   expect(revision?.parent).toBe("magit-diff-mode")
   expect(revision?.fontLock).toBe(magitDiffFontLock)
@@ -136,6 +138,26 @@ test("magit diff context commands refresh dedicated diff buffers", async () => {
   await editor.run("magit-diff-more-context")
   expect(editor.currentBuffer.locals.get("magit-diff-context")).toBe(1)
   expect(editor.currentBuffer.text).toContain(" l3")
+})
+
+test("magit-go-backward and magit-go-forward navigate dedicated diff history", async () => {
+  const editor = ed()
+  await writeFile(join(repo, "a.txt"), "one\nchanged\n")
+  await editor.run("magit-status", [repo])
+  const status = editor.currentBuffer
+  const point = pointAtLine(status.text, "modified   a.txt")
+  status.point = point
+
+  await editor.run("magit-diff-unstaged")
+  const diff = editor.currentBuffer
+  expect(diff.name).toBe("*magit-diff: unstaged*")
+
+  await editor.run("magit-go-backward")
+  expect(editor.currentBuffer).toBe(status)
+  expect(editor.currentBuffer.point).toBe(point)
+
+  await editor.run("magit-go-forward")
+  expect(editor.currentBuffer).toBe(diff)
 })
 
 test("magitDiffFontLock colors @@/+/- and section headers", () => {
@@ -233,6 +255,12 @@ test("l l opens *magit-log* in magit-log mode; RET shows the commit", async () =
   expect(rev.readOnly).toBe(true)
   expect(rev.text).toContain("initial")
   expect(rev.text).toContain("a.txt")
+
+  editor.switchToBuffer(rev.id)
+  await editor.run("magit-go-backward")
+  expect(editor.currentBuffer.name).toBe("*magit-log*")
+  await editor.run("magit-go-forward")
+  expect(editor.currentBuffer).toBe(rev)
 })
 
 test("b c creates and checks out; b b checks out an existing branch", async () => {

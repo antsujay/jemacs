@@ -26,6 +26,8 @@ export type MagitHunk = {
   patch: string
 }
 
+type MagitHistoryMark = { bufferId: string; point: number }
+
 /** Reject names that would be parsed as a flag by git. */
 function refname(s: string): string {
   if (s.startsWith("-")) throw new Error(`invalid ref/remote name: ${s}`)
@@ -250,6 +252,39 @@ function magitRoot(buffer: BufferModel): string | null {
   return (buffer.locals.get("magit-root") as string | undefined) ?? null
 }
 
+function magitHistory(buffer: BufferModel, direction: "backward" | "forward"): MagitHistoryMark[] {
+  const key = direction === "backward" ? "magit-history-backward" : "magit-history-forward"
+  let stack = buffer.locals.get(key) as MagitHistoryMark[] | undefined
+  if (!stack) {
+    stack = []
+    buffer.locals.set(key, stack)
+  }
+  return stack
+}
+
+function magitHistoryMark(buffer: BufferModel): MagitHistoryMark {
+  return { bufferId: buffer.id, point: buffer.point }
+}
+
+function pushMagitHistory(target: BufferModel, source: BufferModel): void {
+  magitHistory(target, "backward").push(magitHistoryMark(source))
+  target.locals.set("magit-history-forward", [])
+}
+
+function magitGo(editor: Editor, buffer: BufferModel, direction: "backward" | "forward"): boolean {
+  const stack = magitHistory(buffer, direction)
+  const mark = stack.pop()
+  if (!mark) return false
+  const target = editor.buffers.get(mark.bufferId)
+  if (!target) return false
+  magitHistory(target, direction === "backward" ? "forward" : "backward").push(magitHistoryMark(buffer))
+  editor.switchToBuffer(target.id)
+  target.point = Math.max(0, Math.min(mark.point, target.text.length))
+  editor.setSelectedWindowPoint(target.point)
+  void editor.changed(direction === "backward" ? "magit-go-backward" : "magit-go-forward")
+  return true
+}
+
 function magitDiffContext(buffer: BufferModel | undefined): number {
   const value = buffer?.locals.get("magit-diff-context")
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : DEFAULT_DIFF_CONTEXT
@@ -338,12 +373,13 @@ export function logShaAtPoint(buffer: BufferModel): string | null {
   return /\b([0-9a-f]{7,40})\b/.exec(text)?.[1] ?? null
 }
 
-async function openLog(editor: Editor, root: string): Promise<BufferModel> {
+async function openLog(editor: Editor, root: string, source?: BufferModel): Promise<BufferModel> {
   const { out } = await git(["log", "--oneline", "--graph", "-50"], root)
   const buf = editor.scratch("*magit-log*", out || "(no commits)\n", "magit-log")
   buf.readOnly = true
   buf.path = root
   buf.locals.set("magit-root", root)
+  if (source) pushMagitHistory(buf, source)
   buf.point = 0
   return buf
 }
@@ -737,12 +773,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     await showCommitDiff(editor, commitBuffer)
   }, "While committing, show the changes that are about to be committed.")
 
-  for (const [name, message] of [
-    ["magit-go-backward", "Magit history navigation is not implemented yet"],
-    ["magit-go-forward", "Magit history navigation is not implemented yet"],
-  ] as const) {
-    editor.command(name, ({ editor }) => editor.message(message))
-  }
+  editor.command("magit-go-backward", ({ editor, buffer }) => {
+    if (!magitGo(editor, buffer, "backward")) editor.message("No previous entry in buffer's history")
+  }, "Move backward in current buffer's history.")
+
+  editor.command("magit-go-forward", ({ editor, buffer }) => {
+    if (!magitGo(editor, buffer, "forward")) editor.message("No next entry in buffer's history")
+  }, "Move forward in current buffer's history.")
 
   editor.command("magit-jump-to-diffstat-or-diff", ({ buffer }) => {
     const diff = buffer.text.indexOf("diff --git ")
@@ -928,7 +965,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       editor.message("Not in a Magit buffer")
       return
     }
-    await openLog(editor, root)
+    await openLog(editor, root, buffer)
   }, "Show recent history in a *magit-log* buffer.")
 
   editor.command("magit-log-show-commit", async ({ editor, buffer }) => {
@@ -945,6 +982,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const buf = editor.scratch(`*magit-commit: ${sha}*`, out, "magit-revision-mode")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
+    pushMagitHistory(buf, buffer)
     buf.point = 0
     editor.selectWindow(logWindow)
   }, "Show the commit at point in a split below, keeping the log selected.")
@@ -1274,6 +1312,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const code = await proc.exited
     const buf = editor.scratch("*magit-process*", (out + err) || `(exit ${code})\n`, "magit-revision-mode")
     buf.readOnly = true
+    buf.locals.set("magit-root", root)
+    pushMagitHistory(buf, buffer)
     buf.point = 0
     editor.message(code === 0 ? "Command finished" : `Command failed (${code})`)
   }, "Run an arbitrary git/shell command.")
@@ -1476,6 +1516,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const buf = editor.scratch("*magit-stash-list*", out || "(no stashes)\n", "magit-revision-mode")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
+    pushMagitHistory(buf, buffer)
     buf.point = 0
   }, "List stashes in a buffer.")
 
@@ -1503,6 +1544,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     buf.locals.set("magit-diff-args", gitArgs)
     buf.locals.set("magit-diff-title", title)
     buf.locals.set("magit-diff-context", context)
+    pushMagitHistory(buf, buffer)
     buf.point = 0
   }
 
