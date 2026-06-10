@@ -189,8 +189,8 @@ test("customize displays user options and updates values", async () => {
   await editor.run("customize-variable", ["jemacs-customize-test-flag"])
   expect(editor.currentBuffer.name).toBe("*Customize*")
   expect(editor.currentBuffer.mode).toBe("customize-mode")
-  expect(getMode("customize-mode")?.keymap?.get("s")).toBe("customize-set-variable")
-  expect(getMode("customize-mode")?.keymap?.get("S-s")).toBe("customize-save-variable")
+  expect(getMode("customize-mode")?.keymap?.get("s")).toBe("Custom-set")
+  expect(getMode("customize-mode")?.keymap?.get("S-s")).toBe("Custom-save")
   expect(editor.currentBuffer.text).toContain("Variable: jemacs-customize-test-flag")
   expect(editor.currentBuffer.text).toContain("State: STANDARD")
 
@@ -240,18 +240,10 @@ test("customize registers Emacs customize.el command surface", () => {
     "customize-set-variable",
     "customize-save-variable",
     "customize-set-value",
+    "customize-customized",
     "customize-save-customized",
     "customize-create-theme",
     "custom-theme-visit-theme",
-    "widget-browse",
-    "widget-browse-at",
-    "widget-browse-other-window",
-    "widget-minor-mode",
-  ]) {
-    expect(editor.commands.get(name), name).toBeDefined()
-  }
-
-  for (const name of [
     "Custom-set",
     "Custom-save",
     "Custom-buffer-done",
@@ -264,21 +256,37 @@ test("customize registers Emacs customize.el command surface", () => {
     "Custom-reset-current",
     "Custom-reset-saved",
     "Custom-reset-standard",
-    "customize-customized",
     "custom-toggle-hide-all-widgets",
+    "widget-browse",
+    "widget-browse-at",
+    "widget-browse-other-window",
+    "widget-minor-mode",
     "widget-forward",
     "widget-backward",
     "widget-button-press",
     "widget-complete",
     "widget-describe",
   ]) {
+    expect(editor.commands.get(name), name).toBeDefined()
+  }
+
+  for (const name of [
+    "custom-new-theme-mode",
+    "custom-theme-add-face",
+    "custom-theme-add-variable",
+    "custom-theme-save",
+    "custom-theme-write",
+    "widget-field-activate",
+    "widget-button-click",
+  ]) {
     expect(editor.commands.get(name), name).toBeUndefined()
   }
 
-  expect(getMode("customize-mode")?.keymap?.get("C-c C-c")).toBe("customize-set-variable")
-  expect(getMode("customize-mode")?.keymap?.get("C-x C-s")).toBe("customize-save-variable")
-  expect(getMode("customize-mode")?.keymap?.get("return")).toBe("customize-set-variable")
-  expect(getMode("customize-mode")?.keymap?.get("tab")).toBe("next-line")
+  expect(getMode("customize-mode")?.keymap?.get("C-c C-c")).toBe("Custom-set")
+  expect(getMode("customize-mode")?.keymap?.get("C-x C-s")).toBe("Custom-save")
+  expect(getMode("customize-mode")?.keymap?.get("return")).toBe("Custom-newline")
+  expect(getMode("customize-mode")?.keymap?.get("tab")).toBe("widget-forward")
+  expect(getMode("customize-mode")?.keymap?.get("S-tab")).toBe("widget-backward")
   expect(getMode("custom-theme-choose-mode")?.keymap?.get("return")).toBe("enable-theme")
 })
 
@@ -328,6 +336,32 @@ test("customize-set-variable from a Value: line walks back to the enclosing vari
   await setPromise
   expect(getCustom<boolean>("jemacs-backwalk-b")).toBe(true)
   expect(getCustom<boolean>("jemacs-backwalk-a")).toBe(false)
+})
+
+test("GNU Custom commands operate on the customize buffer entry at point", async () => {
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  defcustom("jemacs-custom-command-a", "boolean", false, "first GNU Custom command option")
+  defcustom("jemacs-custom-command-b", "boolean", false, "second GNU Custom command option")
+
+  await editor.run("customize-apropos-options", ["jemacs-custom-command"])
+  const text = editor.currentBuffer.text
+  editor.currentBuffer.point = text.indexOf("Variable: jemacs-custom-command-b")
+
+  const setPromise = editor.run("Custom-set")
+  editor.activeBuffer.setText("true", true)
+  editor.minibufferSubmit()
+  await setPromise
+  expect(getCustom<boolean>("jemacs-custom-command-b")).toBe(true)
+  expect(getCustom<boolean>("jemacs-custom-command-a")).toBe(false)
+
+  await editor.run("Custom-reset-standard")
+  expect(getCustom<boolean>("jemacs-custom-command-b")).toBe(false)
+
+  await editor.run("widget-backward")
+  expect(editor.currentBuffer.lineBoundsAt().text).toBe("Variable: jemacs-custom-command-a")
+  await editor.run("widget-forward")
+  expect(editor.currentBuffer.lineBoundsAt().text).toBe("Variable: jemacs-custom-command-b")
 })
 
 test("parseCustomValue accepts boolean false aliases and rejects non-numeric numbers", async () => {

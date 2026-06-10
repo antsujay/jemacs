@@ -42,20 +42,22 @@ const FACE_ATTRIBUTES: FaceAttribute[] = ["family", "height", "fg", "bg", "bold"
 
 export function installCustomizeMode(): void {
   const keymap = new Keymap("customize-mode-map")
-  for (const key of ["return", "enter", "RET"]) keymap.bind(key, "customize-set-variable")
-  keymap.bind("tab", "next-line")
-  keymap.bind("C-i", "next-line")
-  keymap.bind("s", "customize-set-variable")
-  keymap.bind("S-s", "customize-save-variable")
-  keymap.bind("C-c C-c", "customize-set-variable")
-  keymap.bind("C-x C-s", "customize-save-variable")
-  keymap.bind("r", "customize-reset-variable")
-  keymap.bind("u", "customize-reset-variable-to-saved")
-  keymap.bind("d", "customize-describe-variable")
-  keymap.bind("g", "customize-refresh")
-  keymap.bind("n", "next-line")
-  keymap.bind("p", "previous-line")
-  keymap.bind("q", "quit-window")
+  for (const key of ["return", "enter", "RET"]) keymap.bind(key, "Custom-newline")
+  keymap.bind("tab", "widget-forward")
+  keymap.bind("C-i", "widget-forward")
+  keymap.bind("S-tab", "widget-backward")
+  keymap.bind("backtab", "widget-backward")
+  keymap.bind("s", "Custom-set")
+  keymap.bind("S-s", "Custom-save")
+  keymap.bind("C-c C-c", "Custom-set")
+  keymap.bind("C-x C-s", "Custom-save")
+  keymap.bind("r", "Custom-reset-standard")
+  keymap.bind("u", "Custom-reset-saved")
+  keymap.bind("d", "widget-describe")
+  keymap.bind("g", "Custom-reset-current")
+  keymap.bind("n", "widget-forward")
+  keymap.bind("p", "widget-backward")
+  keymap.bind("q", "Custom-buffer-done")
   defineMode({ name: "customize-mode", parent: "text", keymap })
 
   const themeKeymap = new Keymap("custom-theme-choose-mode-map")
@@ -65,23 +67,23 @@ export function installCustomizeMode(): void {
   themeKeymap.bind("S-s", "customize-save-customized")
   themeKeymap.bind("C-x C-s", "customize-save-customized")
   themeKeymap.bind("g", "customize-refresh")
-  themeKeymap.bind("n", "next-line")
-  themeKeymap.bind("p", "previous-line")
-  themeKeymap.bind("q", "quit-window")
+  themeKeymap.bind("n", "widget-forward")
+  themeKeymap.bind("p", "widget-backward")
+  themeKeymap.bind("q", "Custom-buffer-done")
   defineMode({ name: "custom-theme-choose-mode", parent: "text", keymap: themeKeymap })
 
   const faceKeymap = new Keymap("customize-face-mode-map")
-  for (const key of ["return", "enter", "RET"]) faceKeymap.bind(key, "customize-set-face")
-  faceKeymap.bind("s", "customize-set-face")
-  faceKeymap.bind("S-s", "customize-save-face")
-  faceKeymap.bind("C-c C-c", "customize-set-face")
-  faceKeymap.bind("C-x C-s", "customize-save-face")
-  faceKeymap.bind("r", "customize-reset-face")
-  faceKeymap.bind("u", "customize-reset-face-to-saved")
+  for (const key of ["return", "enter", "RET"]) faceKeymap.bind(key, "Custom-newline")
+  faceKeymap.bind("s", "Custom-set")
+  faceKeymap.bind("S-s", "Custom-save")
+  faceKeymap.bind("C-c C-c", "Custom-set")
+  faceKeymap.bind("C-x C-s", "Custom-save")
+  faceKeymap.bind("r", "Custom-reset-standard")
+  faceKeymap.bind("u", "Custom-reset-saved")
   faceKeymap.bind("g", "customize-refresh")
-  faceKeymap.bind("n", "next-line")
-  faceKeymap.bind("p", "previous-line")
-  faceKeymap.bind("q", "quit-window")
+  faceKeymap.bind("n", "widget-forward")
+  faceKeymap.bind("p", "widget-backward")
+  faceKeymap.bind("q", "Custom-buffer-done")
   defineMode({ name: "customize-face-mode", parent: "text", keymap: faceKeymap })
 }
 
@@ -151,7 +153,7 @@ export function installCustomizeCommands(editor: Editor): void {
     if (!name) return editor.message("No customizable option at point")
     if (!resetCustom(name)) return editor.message(`Cannot reset ${name}`)
     editor.message(`Reset ${name} to standard value`)
-    refreshCustomizeBuffer(editor)
+    refreshCustomizeBuffer(editor, name)
   }, "Reset VARIABLE to its standard value, erasing any customization.")
 
   editor.command("customize-reset-variable-to-saved", ({ editor, args }) => {
@@ -159,7 +161,7 @@ export function installCustomizeCommands(editor: Editor): void {
     if (!name) return editor.message("No customizable option at point")
     if (!resetCustomToSaved(name)) return editor.message(`No saved value for ${name}`)
     editor.message(`Reset ${name} to saved value`)
-    refreshCustomizeBuffer(editor)
+    refreshCustomizeBuffer(editor, name)
   }, "Reset VARIABLE to its saved value.")
 
   editor.command("customize-describe-variable", async ({ editor, args }) => {
@@ -182,6 +184,139 @@ export function installCustomizeCommands(editor: Editor): void {
     refreshCustomizeBuffer(editor)
   }, "Save all user options which have been set in this session.")
 
+  editor.command("customize-customized", ({ editor }) => {
+    showCustomizeBuffer(editor, listCustomVariables().filter(variable => variable.customized), "Customize Customized Options")
+  }, "Customize all options and faces set in this session but not saved.")
+
+  editor.command("Custom-set", async ({ editor }) => {
+    if (customizeFaceAtPoint(editor)) await customizeSetFace(editor, [], false)
+    else await customizeSetVariable(editor, [], false)
+  }, "Set the current value of all edited settings in the buffer.")
+
+  editor.command("Custom-save", async ({ editor }) => {
+    if (customizeFaceAtPoint(editor)) await customizeSetFace(editor, [], true)
+    else await customizeSetVariable(editor, [], true)
+  }, "Set all edited settings, then save all settings that have been set.")
+
+  editor.command("Custom-buffer-done", async ({ editor }) => {
+    await editor.run("quit-window")
+  }, "Exit current Custom buffer.")
+
+  editor.command("Custom-goto-parent", ({ editor }) => {
+    editor.run("customize")
+  }, "Go to the parent group listed at the top of this buffer.")
+
+  editor.command("Custom-help", ({ editor }) => {
+    editor.scratch("*Help*", [
+      "Easy Customization",
+      "",
+      "Use Customize buffers to inspect, set, save, and reset options, faces, and themes.",
+    ].join("\n"), "help")
+  }, "Read the node on Easy Customization in the Emacs manual.")
+
+  editor.command("Custom-mode", ({ editor, buffer }) => {
+    editor.enterMode(buffer, "customize-mode")
+  }, "Major mode for editing customization buffers.")
+
+  editor.command("Custom-mode-menu", ({ editor }) => {
+    editor.message("Customize menu is represented by Customize keymaps")
+  }, "Menu used in customization buffers.")
+
+  editor.command("Custom-newline", async ({ editor }) => {
+    if (customizeFaceAtPoint(editor)) await customizeSetFace(editor, [], false)
+    else if (customizeThemeAtPoint(editor)) await editor.run("enable-theme")
+    else await customizeSetVariable(editor, [], false)
+  }, "Invoke button at point, or refuse to allow editing of Custom buffer.")
+
+  editor.command("Custom-no-edit", async ({ editor }) => {
+    await editor.run("Custom-newline")
+  }, "Invoke button at point, or refuse to allow editing of Custom buffer.")
+
+  editor.command("Custom-reset-current", ({ editor }) => {
+    refreshCustomizeBuffer(editor)
+  }, "Reset all edited settings in the buffer to show their current values.")
+
+  editor.command("Custom-reset-saved", ({ editor }) => {
+    const face = customizeFaceAtPoint(editor)
+    if (face) {
+      if (!resetFaceToSaved(face.name)) editor.message(`No saved value for face ${face.name}`)
+      else {
+        editor.refreshComposedTheme()
+        editor.message(`Reset face ${face.name} to saved value`)
+      }
+      refreshCustomizeBuffer(editor, face.name)
+      return
+    }
+    const variable = customizeVariableAtPoint(editor)
+    if (!variable) {
+      editor.message("No customizable option at point")
+      return
+    }
+    if (!resetCustomToSaved(variable.name)) editor.message(`No saved value for ${variable.name}`)
+    else editor.message(`Reset ${variable.name} to saved value`)
+    refreshCustomizeBuffer(editor, variable.name)
+  }, "Reset all edited or set settings in the buffer to their saved value.")
+
+  editor.command("Custom-reset-standard", ({ editor }) => {
+    const face = customizeFaceAtPoint(editor)
+    if (face) {
+      if (!resetFace(face.name)) editor.message(`Unknown face: ${face.name}`)
+      else {
+        editor.refreshComposedTheme()
+        editor.message(`Reset face ${face.name}`)
+      }
+      refreshCustomizeBuffer(editor, face.name)
+      return
+    }
+    const variable = customizeVariableAtPoint(editor)
+    if (!variable) {
+      editor.message("No customizable option at point")
+      return
+    }
+    if (!resetCustom(variable.name)) editor.message(`Cannot reset ${variable.name}`)
+    else editor.message(`Reset ${variable.name} to standard value`)
+    refreshCustomizeBuffer(editor, variable.name)
+  }, "Erase all customizations in current buffer.")
+
+  editor.command("custom-toggle-hide-all-widgets", ({ editor }) => {
+    editor.message("Customize widget hiding is not implemented")
+  }, "Hide or show details of all customizable settings in a Custom buffer.")
+
+  editor.command("widget-forward", ({ buffer, prefixArgument }) => {
+    moveCustomizeItem(buffer, prefixArgument ?? 1)
+  }, "Move point to the next field or button.")
+
+  editor.command("widget-backward", ({ buffer, prefixArgument }) => {
+    moveCustomizeItem(buffer, -(prefixArgument ?? 1))
+  }, "Move point to the previous field or button.")
+
+  editor.command("widget-button-press", async ({ editor }) => {
+    await editor.run("Custom-newline")
+  }, "Invoke button at point.")
+
+  editor.command("widget-complete", ({ editor }) => {
+    editor.message("No widget completion available")
+  }, "Complete content of editable field from point.")
+
+  editor.command("widget-describe", async ({ editor }) => {
+    const variable = customizeVariableAtPoint(editor)
+    if (variable) {
+      await editor.run("describe-variable", [variable.name])
+      return
+    }
+    const theme = customizeThemeAtPoint(editor)
+    if (theme) {
+      await editor.run("describe-theme", [theme])
+      return
+    }
+    const face = customizeFaceAtPoint(editor)
+    if (face) {
+      await showCustomizeFaces(editor, face.name)
+      return
+    }
+    editor.message("No widget at point")
+  }, "Describe the widget at point.")
+
   editor.command("customize-set-face", async ({ editor, args }) => {
     await customizeSetFace(editor, args, false)
   }, "Set a face attribute for the current session.")
@@ -202,7 +337,7 @@ export function installCustomizeCommands(editor: Editor): void {
     }
     editor.refreshComposedTheme()
     editor.message(`Reset face ${name}`)
-    refreshCustomizeBuffer(editor)
+    refreshCustomizeBuffer(editor, name)
   }, "Reset FACE to its standard definition.")
 
   editor.command("customize-reset-face-to-saved", ({ editor, args }) => {
@@ -217,7 +352,7 @@ export function installCustomizeCommands(editor: Editor): void {
     }
     editor.refreshComposedTheme()
     editor.message(`Reset face ${name} to saved value`)
-    refreshCustomizeBuffer(editor)
+    refreshCustomizeBuffer(editor, name)
   }, "Reset FACE to its saved customization.")
 
   editor.command("customize-unsaved", ({ editor }) => {
@@ -333,6 +468,21 @@ export function installCustomizeCommands(editor: Editor): void {
   }, "Minor mode for traversing widgets.")
 }
 
+function moveCustomizeItem(buffer: { text: string; point: number }, count: number): void {
+  if (count === 0) return
+  const positions = [...buffer.text.matchAll(/^(?:Variable|Theme|Face|Group):\s+/gm)].map(match => match.index ?? 0)
+  if (!positions.length) return
+  if (count > 0) {
+    for (let i = 0; i < count; i++) {
+      buffer.point = positions.find(position => position > buffer.point) ?? positions.at(-1)!
+    }
+  } else {
+    for (let i = 0; i < -count; i++) {
+      buffer.point = [...positions].reverse().find(position => position < buffer.point) ?? positions[0]!
+    }
+  }
+}
+
 function showCustomizeBuffer(editor: Editor, variables: CustomVariable[], title: string): void {
   const body = formatCustomizeBuffer(title, variables)
   const buffer = editor.scratch("*Customize*", body, "customize-mode")
@@ -343,17 +493,19 @@ function showCustomizeBuffer(editor: Editor, variables: CustomVariable[], title:
   if (buffer.point < 0) buffer.point = 0
 }
 
-function refreshCustomizeBuffer(editor: Editor): void {
+function refreshCustomizeBuffer(editor: Editor, focusName?: string): void {
   const faces = editor.currentBuffer.locals.get(CUSTOMIZE_FACE_KEY) as string[] | undefined
   if (faces) {
     const title = editor.currentBuffer.text.split("\n", 1)[0] || "Customize Faces"
     showCustomizeFacesBuffer(editor, faces, title)
+    focusCustomizeEntry(editor, focusName)
     return
   }
   const themes = editor.currentBuffer.locals.get(CUSTOMIZE_THEME_KEY) as string[] | undefined
   if (themes) {
     const title = editor.currentBuffer.text.split("\n", 1)[0] || "Custom Themes"
     showCustomizeThemesBuffer(editor, themes, title)
+    focusCustomizeEntry(editor, focusName)
     return
   }
   const names = editor.currentBuffer.locals.get(CUSTOMIZE_VARIABLE_KEY) as string[] | undefined
@@ -361,6 +513,18 @@ function refreshCustomizeBuffer(editor: Editor): void {
   const variables = names?.map(name => getCustomVariable(name)).filter((v): v is CustomVariable => Boolean(v))
     ?? listCustomVariables()
   showCustomizeBuffer(editor, variables, title)
+  focusCustomizeEntry(editor, focusName)
+}
+
+function focusCustomizeEntry(editor: Editor, name?: string): void {
+  if (!name) return
+  for (const prefix of ["Variable", "Face", "Theme", "Group"]) {
+    const index = editor.currentBuffer.text.indexOf(`${prefix}: ${name}`)
+    if (index >= 0) {
+      editor.currentBuffer.point = index
+      return
+    }
+  }
 }
 
 function formatCustomizeBuffer(title: string, variables: CustomVariable[]): string {
@@ -474,7 +638,7 @@ async function customizeSetVariable(editor: Editor, args: string[], save: boolea
     setCustom(name, value)
     editor.message(`Set ${name}`)
   }
-  refreshCustomizeBuffer(editor)
+  refreshCustomizeBuffer(editor, name)
 }
 
 async function customizeApropos(editor: Editor, args: string[], type: "all" | "options" | "groups" | "faces"): Promise<void> {
@@ -580,7 +744,7 @@ async function customizeSetFace(editor: Editor, args: string[], save: boolean): 
     editor.message(`Set ${name} ${attribute}`)
   }
   editor.refreshComposedTheme()
-  refreshCustomizeBuffer(editor)
+  refreshCustomizeBuffer(editor, name)
 }
 
 function parseFaceAttribute(attribute: FaceAttribute, text: string): unknown {
