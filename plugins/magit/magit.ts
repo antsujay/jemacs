@@ -1,5 +1,5 @@
 import { basename, join } from "node:path"
-import type { Editor } from "../../src/kernel/editor"
+import type { Editor, TransientDefinition } from "../../src/kernel/editor"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 import type { BufferModel } from "../../src/kernel/buffer"
 import { defineMode, type TextSpan } from "../../src/modes/mode"
@@ -277,6 +277,214 @@ async function openLog(editor: Editor, root: string): Promise<BufferModel> {
   return buf
 }
 
+const magitDispatchTransient: TransientDefinition = {
+  name: "magit-dispatch",
+  title: "Magit",
+  groups: [
+    { title: "Core", suffixes: [
+      { key: "g", label: "refresh", command: "magit-refresh" },
+      { key: "s", label: "stage", command: "magit-stage" },
+      { key: "u", label: "unstage", command: "magit-unstage" },
+      { key: "k", label: "discard", command: "magit-discard" },
+      { key: "tab", label: "toggle section", command: "magit-section-toggle" },
+    ] },
+    { title: "Prefixes", suffixes: [
+      { key: "c", label: "commit", command: "magit-commit-popup" },
+      { key: "b", label: "branch", command: "magit-branch-popup" },
+      { key: "S-p", label: "push", command: "magit-push-popup" },
+      { key: "S-f", label: "pull", command: "magit-pull-popup" },
+      { key: "f", label: "fetch", command: "magit-fetch-popup" },
+      { key: "l", label: "log", command: "magit-log-popup" },
+      { key: "d", label: "diff", command: "magit-diff-popup" },
+      { key: "z", label: "stash", command: "magit-stash-popup" },
+      { key: "x", label: "reset", command: "magit-reset-popup" },
+      { key: "m", label: "merge", command: "magit-merge-popup" },
+      { key: "r", label: "rebase", command: "magit-rebase-popup" },
+      { key: "S-a", label: "cherry-pick", command: "magit-cherry-pick-popup" },
+      { key: "S-v", label: "revert", command: "magit-revert-popup" },
+      { key: "t", label: "tag", command: "magit-tag-popup" },
+      { key: "S-m", label: "remote", command: "magit-remote-popup" },
+    ] },
+  ],
+}
+
+const magitCommitTransient: TransientDefinition = {
+  name: "magit-commit",
+  title: "Commit",
+  groups: [
+    { title: "Arguments", infixes: [
+      { key: "- s", label: "signoff", argument: "--signoff" },
+    ] },
+    { title: "Actions", suffixes: [
+      { key: "c", label: "commit", command: "magit-commit" },
+      { key: "a", label: "amend", command: "magit-commit-amend" },
+      { key: "e", label: "extend", command: "magit-commit-extend" },
+      { key: "w", label: "reword", command: "magit-commit-reword" },
+    ] },
+  ],
+}
+
+const magitBranchTransient: TransientDefinition = {
+  name: "magit-branch",
+  title: "Branch",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "b", label: "checkout", command: "magit-branch-checkout" },
+    { key: "c", label: "create", command: "magit-branch-create" },
+    { key: "n", label: "create", command: "magit-branch-create" },
+    { key: "k", label: "delete", command: "magit-branch-delete" },
+    { key: "m", label: "rename", command: "magit-branch-rename" },
+  ] }],
+}
+
+const magitPushTransient: TransientDefinition = {
+  name: "magit-push",
+  title: "Push",
+  groups: [
+    { title: "Arguments", infixes: [{ key: "- u", label: "set upstream", argument: "--set-upstream" }] },
+    { title: "Actions", suffixes: [
+      { key: "p", label: "push", command: "magit-push" },
+      { key: "u", label: "push upstream", command: "magit-push-upstream" },
+    ] },
+  ],
+}
+
+const magitPullTransient: TransientDefinition = {
+  name: "magit-pull",
+  title: "Pull",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "u", label: "from upstream", command: "magit-pull-from-upstream" },
+    { key: "p", label: "from push-remote", command: "magit-pull-from-pushremote" },
+  ] }],
+}
+
+const magitFetchTransient: TransientDefinition = {
+  name: "magit-fetch",
+  title: "Fetch",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "p", label: "from push-remote", command: "magit-fetch-from-pushremote" },
+    { key: "u", label: "from upstream", command: "magit-fetch-from-upstream" },
+    { key: "a", label: "all remotes", command: "magit-fetch-all" },
+  ] }],
+}
+
+const magitLogTransient: TransientDefinition = {
+  name: "magit-log",
+  title: "Log",
+  groups: [
+    { title: "Arguments", infixes: [
+      { key: "- n", label: "limit", argument: "--max-count", kind: "value", defaultValue: "" },
+    ] },
+    { title: "Actions", suffixes: [
+      { key: "l", label: "log current", command: "magit-log" },
+    ] },
+  ],
+}
+
+const magitDiffTransient: TransientDefinition = {
+  name: "magit-diff",
+  title: "Diff",
+  groups: [
+    { title: "Arguments", infixes: [
+      { key: "r", label: "range", argument: "--range", kind: "value", defaultValue: "" },
+    ] },
+    { title: "Actions", suffixes: [
+      { key: "d", label: "working tree", command: "magit-diff-working" },
+      { key: "u", label: "unstaged", command: "magit-diff-unstaged" },
+      { key: "s", label: "staged", command: "magit-diff-staged" },
+    ] },
+  ],
+}
+
+const magitStashTransient: TransientDefinition = {
+  name: "magit-stash",
+  title: "Stash",
+  groups: [
+    { title: "Arguments", infixes: [{ key: "- u", label: "include untracked", argument: "--include-untracked" }] },
+    { title: "Actions", suffixes: [
+      { key: "z", label: "stash", command: "magit-stash" },
+      { key: "s", label: "stash with message", command: "magit-stash-save" },
+      { key: "p", label: "pop", command: "magit-stash-pop" },
+      { key: "a", label: "apply", command: "magit-stash-apply" },
+      { key: "k", label: "drop", command: "magit-stash-drop" },
+      { key: "l", label: "list", command: "magit-stash-list" },
+    ] },
+  ],
+}
+
+const magitResetTransient: TransientDefinition = {
+  name: "magit-reset",
+  title: "Reset",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "x", label: "reset index", command: "magit-reset" },
+    { key: "m", label: "mixed", command: "magit-reset-mixed" },
+    { key: "s", label: "soft", command: "magit-reset-soft" },
+    { key: "h", label: "hard", command: "magit-reset-hard" },
+  ] }],
+}
+
+const magitMergeTransient: TransientDefinition = {
+  name: "magit-merge",
+  title: "Merge",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "m", label: "merge", command: "magit-merge" },
+    { key: "a", label: "abort", command: "magit-merge-abort" },
+  ] }],
+}
+
+const magitRebaseTransient: TransientDefinition = {
+  name: "magit-rebase",
+  title: "Rebase",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "r", label: "continue", command: "magit-rebase-continue" },
+    { key: "c", label: "continue", command: "magit-rebase-continue" },
+    { key: "s", label: "skip", command: "magit-rebase-skip" },
+    { key: "a", label: "abort", command: "magit-rebase-abort" },
+    { key: "e", label: "rebase", command: "magit-rebase" },
+  ] }],
+}
+
+const magitCherryPickTransient: TransientDefinition = {
+  name: "magit-cherry-pick",
+  title: "Cherry-pick",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "a", label: "cherry-pick", command: "magit-cherry-pick" },
+    { key: "s", label: "skip", command: "magit-cherry-pick-skip" },
+    { key: "S-a", label: "abort", command: "magit-cherry-pick-abort" },
+  ] }],
+}
+
+const magitRevertTransient: TransientDefinition = {
+  name: "magit-revert",
+  title: "Revert",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "v", label: "revert", command: "magit-revert" },
+    { key: "a", label: "abort", command: "magit-revert-abort" },
+  ] }],
+}
+
+const magitTagTransient: TransientDefinition = {
+  name: "magit-tag",
+  title: "Tag",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "t", label: "create", command: "magit-tag" },
+    { key: "k", label: "delete", command: "magit-tag-delete" },
+  ] }],
+}
+
+const magitRemoteTransient: TransientDefinition = {
+  name: "magit-remote",
+  title: "Remote",
+  groups: [{ title: "Actions", suffixes: [
+    { key: "a", label: "add", command: "magit-remote-add" },
+    { key: "k", label: "remove", command: "magit-remote-remove" },
+    { key: "r", label: "rename", command: "magit-remote-rename" },
+  ] }],
+}
+
+function defineTransientCommand(editor: Editor, command: string, definition: TransientDefinition, description: string): void {
+  editor.command(command, ({ editor }) => editor.openTransient(definition), description)
+}
+
 export function install(editor: Editor, ctx: PluginContext = createPluginContext(editor)): void {
   // Read-only magit buffers must not fall through to self-insert on stray
   // printables (t-e061bdb3). The kernel's self-insert fallback is unconditional,
@@ -304,7 +512,6 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   statusMap.bind("g", "magit-refresh")
   statusMap.bind("S-g", "magit-refresh-all")
   statusMap.bind("k", "magit-discard")
-  statusMap.bind("x", "magit-reset")
   statusMap.bind("S-x m", "magit-reset-mixed")
   statusMap.bind("S-x s", "magit-reset-soft")
   statusMap.bind("S-x h", "magit-reset-hard")
@@ -363,6 +570,22 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   statusMap.bind(":", "magit-git-command")
   statusMap.bind("q", "magit-bury-buffer")
   statusMap.bind("tab", "magit-section-toggle")
+  statusMap.bind("c", "magit-commit-popup")
+  statusMap.bind("b", "magit-branch-popup")
+  statusMap.bind("S-p", "magit-push-popup")
+  statusMap.bind("S-f", "magit-pull-popup")
+  statusMap.bind("f", "magit-fetch-popup")
+  statusMap.bind("l", "magit-log-popup")
+  statusMap.bind("d", "magit-diff-popup")
+  statusMap.bind("z", "magit-stash-popup")
+  statusMap.bind("x", "magit-reset-popup")
+  statusMap.bind("S-x", "magit-reset-popup")
+  statusMap.bind("m", "magit-merge-popup")
+  statusMap.bind("r", "magit-rebase-popup")
+  statusMap.bind("S-a", "magit-cherry-pick-popup")
+  statusMap.bind("S-v", "magit-revert-popup")
+  statusMap.bind("t", "magit-tag-popup")
+  statusMap.bind("S-m", "magit-remote-popup")
   defineMode({ name: "magit-status", parent: "magit-special", keymap: statusMap, fontLock: magitDiffFontLock })
 
   const commitMap = new Keymap("magit-commit-map")
@@ -384,6 +607,23 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.command("magit-undefined", ({ editor }) => {
     editor.message("Buffer is read-only")
   }, "No-op for unbound printable keys in read-only Magit buffers.")
+
+  defineTransientCommand(editor, "magit-dispatch", magitDispatchTransient, "Show the Magit dispatch popup.")
+  defineTransientCommand(editor, "magit-commit-popup", magitCommitTransient, "Show the Magit commit popup.")
+  defineTransientCommand(editor, "magit-branch-popup", magitBranchTransient, "Show the Magit branch popup.")
+  defineTransientCommand(editor, "magit-push-popup", magitPushTransient, "Show the Magit push popup.")
+  defineTransientCommand(editor, "magit-pull-popup", magitPullTransient, "Show the Magit pull popup.")
+  defineTransientCommand(editor, "magit-fetch-popup", magitFetchTransient, "Show the Magit fetch popup.")
+  defineTransientCommand(editor, "magit-log-popup", magitLogTransient, "Show the Magit log popup.")
+  defineTransientCommand(editor, "magit-diff-popup", magitDiffTransient, "Show the Magit diff popup.")
+  defineTransientCommand(editor, "magit-stash-popup", magitStashTransient, "Show the Magit stash popup.")
+  defineTransientCommand(editor, "magit-reset-popup", magitResetTransient, "Show the Magit reset popup.")
+  defineTransientCommand(editor, "magit-merge-popup", magitMergeTransient, "Show the Magit merge popup.")
+  defineTransientCommand(editor, "magit-rebase-popup", magitRebaseTransient, "Show the Magit rebase popup.")
+  defineTransientCommand(editor, "magit-cherry-pick-popup", magitCherryPickTransient, "Show the Magit cherry-pick popup.")
+  defineTransientCommand(editor, "magit-revert-popup", magitRevertTransient, "Show the Magit revert popup.")
+  defineTransientCommand(editor, "magit-tag-popup", magitTagTransient, "Show the Magit tag popup.")
+  defineTransientCommand(editor, "magit-remote-popup", magitRemoteTransient, "Show the Magit remote popup.")
 
   editor.command("magit-status", async ({ editor, buffer, args }) => {
     const start = args[0] ?? buffer.directory() ?? process.cwd()
@@ -455,7 +695,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Unstaged ${entry.file}`)
   }, "Unstage the hunk or file at point.")
 
-  editor.command("magit-commit", async ({ editor, buffer }) => {
+  editor.command("magit-commit", async ({ editor, buffer, args }) => {
     const root = magitRoot(buffer)
     if (!root) {
       editor.message("Not in a Magit buffer")
@@ -466,6 +706,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const buf = editor.scratch("*COMMIT_EDITMSG*", "", "magit-commit")
     buf.locals.set("magit-root", root)
     buf.locals.set("magit-winconf", winconf)
+    buf.locals.set("magit-commit-args", args)
     buf.point = 0
     // Show what's being committed in a split, like real magit.
     const msgWindow = editor.selectedWindowId
@@ -489,7 +730,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       editor.message("Aborting commit due to empty message")
       return
     }
-    const { err, code } = await git(["commit", "-F", "-"], root, msg)
+    const extra = (buffer.locals.get("magit-commit-args") as string[] | undefined) ?? []
+    const { err, code } = await git(["commit", ...extra.filter(arg => arg === "--signoff"), "-F", "-"], root, msg)
     if (code !== 0) {
       editor.message(`git commit failed: ${err.trim()}`)
       return
@@ -524,11 +766,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     }
     const { out } = await git(["rev-parse", "--abbrev-ref", "HEAD"], root)
     const current = out.trim() || "HEAD"
-    const remote = args[0] ?? await editor.prompt("Push to remote: ", "origin", "magit-push-remote")
+    const setUpstream = args.includes("--set-upstream")
+    const explicit = args.filter(arg => arg !== "--set-upstream")
+    const remote = explicit[0] ?? await editor.prompt("Push to remote: ", "origin", "magit-push-remote")
     if (remote == null) return
-    const branch = args[1] ?? await editor.prompt("Push branch: ", current, "magit-push-branch")
+    const branch = explicit[1] ?? await editor.prompt("Push branch: ", current, "magit-push-branch")
     if (branch == null) return
-    const { err, code } = await git(["push", refname(remote), refname(branch)], root)
+    const { err, code } = await git(["push", ...(setUpstream ? ["--set-upstream"] : []), refname(remote), refname(branch)], root)
     if (code !== 0) {
       editor.message(`git push failed: ${err.trim()}`)
       return
@@ -600,13 +844,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Created and checked out ${name}`)
   }, "Create and checkout a new branch.")
 
-  editor.command("magit-stash", async ({ editor, buffer }) => {
+  editor.command("magit-stash", async ({ editor, buffer, args }) => {
     const root = magitRoot(buffer)
     if (!root) {
       editor.message("Not in a Magit buffer")
       return
     }
-    const { out, err, code } = await git(["stash", "push"], root)
+    const { out, err, code } = await git(["stash", "push", ...(args.includes("--include-untracked") ? ["--include-untracked"] : [])], root)
     if (code !== 0) {
       editor.message(`git stash failed: ${err.trim()}`)
       return
@@ -782,36 +1026,38 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Pulled ${branch} from ${remote}`)
   }, "Pull from push-remote.")
 
-  editor.command("magit-push-upstream", async ({ editor, buffer }) => {
+  editor.command("magit-push-upstream", async ({ editor, buffer, args }) => {
     const root = magitRoot(buffer)
     if (!root) return editor.message("Not in a Magit buffer")
     const remote = await remoteDefault(root, "upstream")
     const { out } = await git(["rev-parse", "--abbrev-ref", "HEAD"], root)
     const branch = out.trim()
-    const { err, code } = await git(["push", refname(remote), refname(branch)], root)
+    const { err, code } = await git(["push", ...(args.includes("--set-upstream") ? ["--set-upstream"] : []), refname(remote), refname(branch)], root)
     if (code !== 0) return editor.message(`git push failed: ${err.trim()}`)
     await refresh(editor, root)
     editor.message(`Pushed ${branch} to ${remote}`)
   }, "Push to upstream remote.")
 
-  editor.command("magit-commit-amend", async ({ editor, buffer }) => {
+  editor.command("magit-commit-amend", async ({ editor, buffer, args: commandArgs }) => {
     const root = magitRoot(buffer)
     if (!root) return editor.message("Not in a Magit buffer")
     const msg = await editor.prompt("Amend commit message: ", "", "magit-commit-amend")
     if (msg == null) return
-    const args = msg.trim() ? ["commit", "--amend", "-m", msg] : ["commit", "--amend", "--no-edit"]
+    const signoff = commandArgs.includes("--signoff") ? ["--signoff"] : []
+    const args = msg.trim() ? ["commit", "--amend", ...signoff, "-m", msg] : ["commit", "--amend", ...signoff, "--no-edit"]
     const { err, code } = await git(args, root)
     if (code !== 0) return editor.message(`git commit --amend failed: ${err.trim()}`)
     await refresh(editor, root, 0)
     editor.message("Amended commit")
   }, "Amend the last commit.")
 
-  editor.command("magit-stash-save", async ({ editor, buffer }) => {
+  editor.command("magit-stash-save", async ({ editor, buffer, args: commandArgs }) => {
     const root = magitRoot(buffer)
     if (!root) return editor.message("Not in a Magit buffer")
     const msg = await editor.prompt("Stash message: ", "", "magit-stash")
     if (msg == null) return
-    const args = msg.trim() ? ["stash", "push", "-m", msg] : ["stash", "push"]
+    const includeUntracked = commandArgs.includes("--include-untracked") ? ["--include-untracked"] : []
+    const args = msg.trim() ? ["stash", "push", ...includeUntracked, "-m", msg] : ["stash", "push", ...includeUntracked]
     const { err, code } = await git(args, root)
     if (code !== 0) return editor.message(`git stash failed: ${err.trim()}`)
     await refresh(editor, root, 0)
@@ -839,8 +1085,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   }, "Visit the file or commit at point.")
 
   editor.command("magit-dispatch", ({ editor }) => {
-    editor.message("Magit: g refresh  s/u stage  c c commit  c e extend  P p push  F u pull  f u fetch  l l log  d d diff  b b/c/k/m branch  m m merge  r e/a rebase  A a cherry-pick  V v revert  t t tag  M a remote  z z stash  k discard  x reset  RET visit  TAB fold  n/p move  q bury")
-  }, "Show Magit command summary.")
+    editor.openTransient(magitDispatchTransient)
+  }, "Show the Magit dispatch popup.")
 
   const jumpToSection = async (editor: Editor, buffer: BufferModel, title: string) => {
     const i = buffer.text.indexOf(title)

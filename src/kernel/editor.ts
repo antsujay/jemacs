@@ -3,7 +3,7 @@ import { basename, dirname, resolve, sep } from "node:path"
 import { BufferModel } from "./buffer"
 import { CommandRegistry, type CommandFn } from "./command"
 import { Emitter } from "./events"
-import { isPrintable, Keymap, KeymapStack, keyToken, type KeyEventLike } from "./keymap"
+import { isPrintable, Keymap, KeymapStack, keyToken, normalizeSequence, type KeyEventLike } from "./keymap"
 import { digitFromKey, PrefixArgumentState } from "./prefix-argument"
 import type {
   CompletionCandidate,
@@ -87,6 +87,40 @@ export type MinibufferCompletionDisplay = {
   selectedLine?: number
 }
 
+export type TransientInfix = {
+  key: string
+  label: string
+  argument: string
+  kind?: "toggle" | "value"
+  defaultValue?: boolean | string
+  prompt?: string
+}
+
+export type TransientSuffix = {
+  key: string
+  label: string
+  command: string
+  args?: string[]
+}
+
+export type TransientGroup = {
+  title: string
+  infixes?: TransientInfix[]
+  suffixes?: TransientSuffix[]
+}
+
+export type TransientDefinition = {
+  name: string
+  title: string
+  groups: TransientGroup[]
+}
+
+export type TransientState = {
+  definition: TransientDefinition
+  values: Map<string, boolean | string>
+  pending: string[]
+}
+
 export type CompletingReadFunction = (editor: Editor, prompt: string, options: CompletingReadOptions) => Promise<string | null>
 
 /** Pluggable completion delegate (e.g. fido flex matching). Returns candidates ordered best-first. */
@@ -127,6 +161,7 @@ export class Editor {
   private baseTheme: Theme = this.theme
   selectedTab = 0
   minibuffer: MinibufferRequest | null = null
+  transient: TransientState | null = null
   isearch: IsearchState | null = null
   /** Per-key dispatch while isearch is active; the UI loop is owned by lisp/isearch-ui (DESIGN.md). */
   isearchKeyHandler: ((key: KeyEventLike) => Promise<KeyDispatchResult | null>) | null = null
@@ -618,6 +653,11 @@ export class Editor {
       if (isearchResult) return isearchResult
     }
 
+    if (this.transient) {
+      const transientResult = await this.handleTransientKey(key)
+      if (transientResult) return transientResult
+    }
+
     if (this.quotedInsertNext && this.commands.get("self-insert-command")) {
       const result = await this.run("self-insert-command", key.sequence ? [key.sequence] : [], key)
       if (isRedispatchKeyResult(result)) return this.handleKey(result.redispatchKey)
@@ -725,6 +765,85 @@ export class Editor {
       completion: options.completion,
       defaultDirectory: options.defaultDirectory,
     })
+  }
+
+  openTransient(definition: TransientDefinition): void {
+    const values = new Map<string, boolean | string>()
+    for (const group of definition.groups) {
+      for (const infix of group.infixes ?? []) values.set(infix.argument, infix.defaultValue ?? false)
+    }
+    this.transient = { definition, values, pending: [] }
+    this.minibufferCompletionDisplay = { text: this.formatTransient(definition, values) }
+    void this.changed("transient-open")
+  }
+
+  cancelTransient(message = "Quit"): void {
+    if (!this.transient) return
+    this.transient = null
+    this.minibufferCompletionDisplay = null
+    this.message(message)
+    void this.changed("transient-cancel")
+  }
+
+  private async handleTransientKey(key: KeyEventLike): Promise<KeyDispatchResult | null> {
+    const state = this.transient
+    if (!state) return null
+    const token = keyToken(key)
+    const sequence = [...state.pending, token].join(" ")
+    if (!state.pending.length && (token === "C-g" || token === "esc" || token === "q")) {
+      this.transient = null
+      this.minibufferCompletionDisplay = null
+      await this.changed("transient-cancel")
+      return { status: "command", command: "transient-quit-one" }
+    }
+    const infix = transientInfix(state.definition, sequence)
+    if (infix) {
+      state.pending = []
+      if ((infix.kind ?? "toggle") === "value") {
+        const value = await this.prompt(`${infix.label}: `, String(state.values.get(infix.argument) ?? ""), `transient-${state.definition.name}-${infix.argument}`)
+        if (value != null) state.values.set(infix.argument, value)
+      } else {
+        state.values.set(infix.argument, !state.values.get(infix.argument))
+      }
+      this.minibufferCompletionDisplay = { text: this.formatTransient(state.definition, state.values) }
+      await this.changed("transient-infix")
+      return { status: "command", command: "transient-infix" }
+    }
+    const suffix = transientSuffix(state.definition, sequence)
+    if (suffix) {
+      state.pending = []
+      const args = [...transientArguments(state), ...(suffix.args ?? [])]
+      this.transient = null
+      this.minibufferCompletionDisplay = null
+      await this.run(suffix.command, args, key)
+      return { status: "command", command: suffix.command }
+    }
+    if (transientHasPrefix(state.definition, sequence)) {
+      state.pending.push(token)
+      await this.changed("transient-prefix")
+      return { status: "pending" }
+    }
+    state.pending = []
+    this.message(`No transient binding: ${token}`)
+    await this.changed("transient-unmatched")
+    return { status: "unmatched" }
+  }
+
+  private formatTransient(definition: TransientDefinition, values: ReadonlyMap<string, boolean | string>): string {
+    const lines = [definition.title]
+    for (const group of definition.groups) {
+      lines.push("")
+      lines.push(group.title)
+      for (const infix of group.infixes ?? []) {
+        const value = values.get(infix.argument)
+        const marker = value === true ? "*" : value ? String(value) : " "
+        lines.push(` ${infix.key.padEnd(8)} [${marker}] ${infix.label}`)
+      }
+      for (const suffix of group.suffixes ?? []) {
+        lines.push(` ${suffix.key.padEnd(8)} ${suffix.label}`)
+      }
+    }
+    return lines.join("\n")
   }
 
   indentLine(buffer = this.activeBuffer): void {
@@ -1241,4 +1360,41 @@ function commonPrefix(values: string[]): string {
     while (!value.startsWith(prefix)) prefix = prefix.slice(0, -1)
   }
   return prefix
+}
+
+function transientInfix(definition: TransientDefinition, key: string): TransientInfix | undefined {
+  for (const group of definition.groups) {
+    const found = group.infixes?.find(infix => normalizeSequence(infix.key) === normalizeSequence(key))
+    if (found) return found
+  }
+  return undefined
+}
+
+function transientSuffix(definition: TransientDefinition, key: string): TransientSuffix | undefined {
+  for (const group of definition.groups) {
+    const found = group.suffixes?.find(suffix => normalizeSequence(suffix.key) === normalizeSequence(key))
+    if (found) return found
+  }
+  return undefined
+}
+
+function transientHasPrefix(definition: TransientDefinition, key: string): boolean {
+  const prefix = `${normalizeSequence(key)} `
+  for (const group of definition.groups) {
+    if (group.infixes?.some(infix => normalizeSequence(infix.key).startsWith(prefix))) return true
+    if (group.suffixes?.some(suffix => normalizeSequence(suffix.key).startsWith(prefix))) return true
+  }
+  return false
+}
+
+function transientArguments(state: TransientState): string[] {
+  const args: string[] = []
+  for (const group of state.definition.groups) {
+    for (const infix of group.infixes ?? []) {
+      const value = state.values.get(infix.argument)
+      if (value === true) args.push(infix.argument)
+      else if (typeof value === "string" && value) args.push(infix.argument, value)
+    }
+  }
+  return args
 }

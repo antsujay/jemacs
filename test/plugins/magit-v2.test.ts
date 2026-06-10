@@ -67,7 +67,7 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(status?.keymap?.get("z z")).toBe("magit-stash")
   expect(status?.keymap?.get("z p")).toBe("magit-stash-pop")
   expect(status?.keymap?.get("k")).toBe("magit-discard")
-  expect(status?.keymap?.get("x")).toBe("magit-reset")
+  expect(status?.keymap?.get("x")).toBe("magit-reset-popup")
   expect(status?.keymap?.get("tab")).toBe("magit-section-toggle")
 
   expect(getMode("magit-commit")?.keymap?.get("C-c C-k")).toBe("magit-commit-abort")
@@ -139,6 +139,19 @@ test("P p pushes to a bare remote with prompted defaults (origin, current branch
   expect(remoteLog.trim()).toBe("initial")
 })
 
+test("prefix keys open transient popups before suffix dispatch", async () => {
+  const editor = ed()
+  await editor.run("magit-status", [repo])
+
+  await editor.handleKey({ name: "c", sequence: "c" })
+  expect(editor.transient?.definition.name).toBe("magit-commit")
+  expect(editor.minibufferCompletionDisplay?.text).toContain("Commit")
+  expect(editor.minibufferCompletionDisplay?.text).toContain("c        commit")
+
+  await editor.handleKey({ name: "g", ctrl: true })
+  expect(editor.transient).toBeNull()
+})
+
 test("l l opens *magit-log* in magit-log mode; RET shows the commit", async () => {
   const editor = ed()
   await writeFile(join(repo, "a.txt"), "one\nmore\n")
@@ -207,6 +220,20 @@ test("z z stashes worktree changes; z p pops them back", async () => {
   expect((await readFile(join(repo, "a.txt"), "utf8"))).toBe("one\nstashed\n")
 })
 
+test("z - u z stashes untracked files via transient infix", async () => {
+  const editor = ed()
+  await writeFile(join(repo, "new.txt"), "untracked\n")
+  await editor.run("magit-status", [repo])
+  expect(editor.currentBuffer.text).toContain("untracked  new.txt")
+
+  await keySeq(editor, "z", "-", "u", "z")
+  expect((await git(["status", "--porcelain"])).trim()).toBe("")
+  expect((await git(["stash", "list"])).trim()).toContain("stash@{0}")
+
+  await keySeq(editor, "z", "p")
+  expect((await git(["status", "--porcelain"])).trim()).toBe("?? new.txt")
+})
+
 test("k discards unstaged changes after confirming y; n leaves them", async () => {
   const editor = ed()
   await writeFile(join(repo, "a.txt"), "one\nchanged\n")
@@ -235,7 +262,7 @@ test("x resets the index, moving staged back to unstaged", async () => {
   await editor.run("magit-status", [repo])
   expect(editor.currentBuffer.text).toContain("Staged changes (1)")
 
-  await keySeq(editor, "x")
+  await keySeq(editor, "x", "x")
   expect((await git(["diff", "--cached", "--name-only"])).trim()).toBe("")
   expect(editor.currentBuffer.text).not.toContain("Staged changes")
   expect(editor.currentBuffer.text).toContain("Unstaged changes (1)")
