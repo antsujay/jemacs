@@ -57,7 +57,7 @@ test("install registers v2 commands, modes and bindings", () => {
     "magit-branch-create", "magit-stash", "magit-stash-pop", "magit-discard",
     "magit-reset", "magit-toggle-fold", "magit-commit-abort",
     "magit-diff-more-context", "magit-diff-less-context", "magit-diff-default-context",
-    "magit-diff-refresh", "magit-diff-while-committing",
+    "magit-diff-refresh", "magit-diff-while-committing", "magit-patch-save",
   ]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
@@ -87,8 +87,10 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(getMode("magit-diff-mode")?.parent).toBe("magit-mode")
   expect(getMode("magit-diff-mode")?.keymap?.get("C-c C-b")).toBe("magit-go-backward")
   expect(getMode("magit-diff-mode")?.keymap?.get("C-c C-f")).toBe("magit-go-forward")
+  expect(getMode("magit-diff-mode")?.keymap?.get("C-x C-w")).toBe("magit-patch-save")
   editor.scratch("*magit-diff*", "", "magit-diff-mode")
   expect(editor.keymaps.lookup("S-d")).toMatchObject({ status: "matched", command: "magit-diff-refresh" })
+  expect(editor.keymaps.lookup("C-x C-w")).toMatchObject({ status: "matched", command: "magit-patch-save" })
   const revision = getMode("magit-revision-mode")
   expect(revision?.parent).toBe("magit-diff-mode")
   expect(revision?.fontLock).toBe(magitDiffFontLock)
@@ -142,6 +144,22 @@ test("magit diff context commands refresh dedicated diff buffers", async () => {
   await editor.run("magit-diff-more-context")
   expect(editor.currentBuffer.locals.get("magit-diff-context")).toBe(1)
   expect(editor.currentBuffer.text).toContain(" l3")
+})
+
+test("magit-patch-save writes the current dedicated diff as a plain patch", async () => {
+  await writeFile(join(repo, "a.txt"), "one\nchanged\n")
+  const editor = ed()
+  await editor.run("magit-status", [repo])
+  await editor.run("magit-diff-unstaged")
+  const patchPath = join(repo, "unstaged.patch")
+
+  await editor.run("magit-patch-save", [patchPath])
+
+  const patch = await readFile(patchPath, "utf8")
+  expect(patch).toContain("diff --git a/a.txt b/a.txt")
+  expect(patch).toContain(" one")
+  expect(patch).toContain("+changed")
+  expect(patch).not.toContain("Unstaged changes")
 })
 
 test("magit-go-backward and magit-go-forward navigate dedicated diff history", async () => {
@@ -261,6 +279,13 @@ test("l l opens *magit-log* in magit-log mode; RET shows the commit", async () =
   expect(rev.text).toContain("a.txt")
 
   editor.switchToBuffer(rev.id)
+  const patchPath = join(repo, "revision.patch")
+  await editor.run("magit-patch-save", [patchPath])
+  const patch = await readFile(patchPath, "utf8")
+  expect(patch).toContain("diff --git a/a.txt b/a.txt")
+  expect(patch).not.toContain("commit ")
+  expect(patch).not.toContain("Author:")
+
   await editor.run("magit-go-backward")
   expect(editor.currentBuffer.name).toBe("*magit-log*")
   await editor.run("magit-go-forward")

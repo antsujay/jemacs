@@ -1,8 +1,9 @@
-import { basename, join } from "node:path"
+import { writeFile } from "node:fs/promises"
+import { basename, isAbsolute, join } from "node:path"
 import type { Editor, TransientDefinition } from "../../src/kernel/editor"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
 import type { BufferModel } from "../../src/kernel/buffer"
-import { defineMode, type TextSpan } from "../../src/modes/mode"
+import { defineMode, modeLineage, type TextSpan } from "../../src/modes/mode"
 import { Keymap } from "../../src/kernel/keymap"
 import { nextWindowId } from "../../src/kernel/window"
 import { spawnProcess } from "../../src/platform/runtime"
@@ -297,6 +298,10 @@ function magitDiffContextArgs(context: number): string[] {
 function magitDiffBaseArgs(buffer: BufferModel): string[] | null {
   const args = buffer.locals.get("magit-diff-args") as string[] | undefined
   return args ? [...args] : null
+}
+
+function modeDerivesFrom(mode: string, parent: string): boolean {
+  return modeLineage(mode).some(entry => entry.name === parent)
 }
 
 async function refreshDiffBuffer(editor: Editor, buffer: BufferModel, context: number): Promise<boolean> {
@@ -630,6 +635,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   magitDiffModeMap.bind("C-c C-d", "magit-diff-while-committing")
   magitDiffModeMap.bind("C-c C-b", "magit-go-backward")
   magitDiffModeMap.bind("C-c C-f", "magit-go-forward")
+  magitDiffModeMap.bind("C-x C-w", "magit-patch-save")
   magitDiffModeMap.bind("space", "scroll-up-command")
   magitDiffModeMap.bind("S-space", "scroll-down-command")
   magitDiffModeMap.bind("backspace", "scroll-down-command")
@@ -772,6 +778,19 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.command("magit-diff-refresh", ({ editor }) => {
     editor.openTransient(magitDiffTransient)
   }, "Change the diff arguments used for the current buffer.")
+
+  editor.command("magit-patch-save", async ({ editor, buffer, args }) => {
+    const root = magitRoot(buffer)
+    if (!root || !modeDerivesFrom(buffer.mode, "magit-diff-mode")) return editor.message("Only diff buffers can be saved as patches")
+    const file = args[0] ?? await editor.prompt("Write patch file: ", join(root, "magit.patch"), "magit-patch-save")
+    if (!file) return
+    const diffArgs = magitDiffBaseArgs(buffer)
+    const patch = diffArgs ? (await git([...diffArgs, ...magitDiffContextArgs(magitDiffContext(buffer)), "-p"], root)).out : buffer.text
+    const target = isAbsolute(file) ? file : join(root, file)
+    await writeFile(target, patch)
+    editor.message(`Wrote ${target}`)
+    await refreshDiffBuffer(editor, buffer, magitDiffContext(buffer))
+  }, "Write the current Magit diff into a patch file.")
 
   editor.command("magit-diff-while-committing", async ({ editor }) => {
     const commitBuffer = commitMessageBuffer(editor)
@@ -988,6 +1007,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const buf = editor.scratch(`*magit-commit: ${sha}*`, out, "magit-revision-mode")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
+    buf.locals.set("magit-diff-args", ["diff", `${sha}^!`])
     pushMagitHistory(buf, buffer)
     buf.point = 0
     editor.selectWindow(logWindow)
