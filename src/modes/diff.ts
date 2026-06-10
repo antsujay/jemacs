@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import type { Editor } from "../kernel/editor"
@@ -192,7 +192,7 @@ export function installDiffCommands(editor: Editor): void {
   editor.command("diff-goto-source", async ({ editor, buffer }) => {
     const loc = sourceLocationAtPoint(buffer)
     if (!loc) return editor.message("No source location at point")
-    const file = resolve(diffDefaultDirectory(buffer), loc.file)
+    const file = await resolveDiffFileName(buffer, loc.file)
     const source = await editor.openFile(file)
     const line = Math.max(0, loc.line - 1)
     source.point = source.lineBounds(Math.min(line, source.lineCount - 1))[0]
@@ -499,7 +499,7 @@ function sourceLocationAtPoint(buffer: BufferModel): { file: string; line: numbe
   let line = hunk.newStart ?? hunk.oldStart ?? 1
   const here = buffer.lineAt(buffer.point)
   const lines = lineInfo(buffer)
-  for (let i = hunk.startLine + 1; i <= Math.min(here, hunk.endLine); i++) {
+  for (let i = hunk.startLine + 1; i < Math.min(here, hunk.endLine + 1); i++) {
     const text = lines[i]?.text ?? ""
     if (hunk.style === "unified") {
       if (!text.startsWith("-")) line++
@@ -956,7 +956,7 @@ async function deleteTrailingWhitespaceFromDiff(editor: Editor, buffer: BufferMo
   const byFile = new Map<string, number[]>()
   for (const edit of edits) byFile.set(edit.file, [...(byFile.get(edit.file) ?? []), edit.sourceLine])
   for (const [file, sourceLines] of byFile) {
-    const source = await editor.openFile(resolve(diffDefaultDirectory(buffer), file))
+    const source = await editor.openFile(await resolveDiffFileName(buffer, file))
     trimTrailingWhitespaceAtLines(source, sourceLines)
   }
   return edits.length
@@ -1035,6 +1035,35 @@ function trimTrailingWhitespaceAtLines(buffer: BufferModel, lineNumbers: number[
 function diffDefaultDirectory(buffer: BufferModel): string {
   const local = buffer.locals.get("diff-default-directory") as string | undefined
   return local ?? buffer.directory() ?? process.cwd()
+}
+
+async function resolveDiffFileName(buffer: BufferModel, file: string): Promise<string> {
+  const dir = diffDefaultDirectory(buffer)
+  for (const candidate of diffPathCandidates(file)) {
+    const path = resolve(dir, candidate)
+    if (await isRegularFile(path)) return path
+  }
+  return resolve(dir, file)
+}
+
+function diffPathCandidates(file: string): string[] {
+  const out: string[] = []
+  let candidate = cleanDiffPath(file)
+  while (candidate && candidate !== "/dev/null") {
+    out.push(candidate)
+    const next = candidate.replace(/^[^/\\]+[/\\]/, "")
+    if (next === candidate) break
+    candidate = next
+  }
+  return out
+}
+
+async function isRegularFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
 }
 
 function cleanDiffPath(path: string): string {

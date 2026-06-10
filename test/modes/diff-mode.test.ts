@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { BufferModel, inferMode } from "../../src/kernel/buffer"
 import { getMode } from "../../src/modes/mode"
 import { getMinorMode } from "../../src/modes/minor-mode"
@@ -198,6 +198,32 @@ test("diff-delete-trailing-whitespace removes changed-line whitespace from diff 
   }
 })
 
+test("diff-goto-source resolves prefixed diff paths by dropping leading directories", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-source-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\nnew\n")
+    const text = [
+      "diff --git a/src/a.txt b/src/a.txt",
+      "--- a/src/a.txt",
+      "+++ b/src/a.txt",
+      "@@ -1,2 +1,2 @@",
+      " one",
+      "-old",
+      "+new",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = buffer.text.indexOf("+new")
+    await editor.run("diff-goto-source")
+    expect(editor.currentBuffer.path).toBe(resolve(dir, "a.txt"))
+    expect(editor.currentBuffer.point).toBe(editor.currentBuffer.lineBounds(1)[0])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("diff-delete-trailing-whitespace with prefix cleans the old side", async () => {
   const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-trailing-old-"))
   try {
@@ -220,6 +246,31 @@ test("diff-delete-trailing-whitespace with prefix cleans the old side", async ()
     expect(buffer.text).toContain("-old\n")
     expect(buffer.text).not.toContain("-old   ")
     expect(editor.currentBuffer.text).toBe("one\nold\n")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-delete-trailing-whitespace resolves prefixed source paths", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-trailing-prefix-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\nnew   \n")
+    const text = [
+      "diff --git a/src/a.txt b/src/a.txt",
+      "--- a/src/a.txt",
+      "+++ b/src/a.txt",
+      "@@ -1,2 +1,2 @@",
+      " one",
+      "-old",
+      "+new   ",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    await editor.run("diff-delete-trailing-whitespace")
+    expect(editor.currentBuffer.path).toBe(resolve(dir, "a.txt"))
+    expect(editor.currentBuffer.text).toBe("one\nnew\n")
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
