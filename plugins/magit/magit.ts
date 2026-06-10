@@ -128,16 +128,19 @@ export type MagitStatus = {
   hunks: MagitHunk[]
 }
 
+const DEFAULT_DIFF_CONTEXT = 3
+
 function foldKey(file: string, staged: boolean): string {
   return `${staged ? "S" : "U"}:${file}`
 }
 
-export async function buildStatus(root: string, folded: ReadonlySet<string> = new Set()): Promise<MagitStatus> {
+export async function buildStatus(root: string, folded: ReadonlySet<string> = new Set(), context = DEFAULT_DIFF_CONTEXT): Promise<MagitStatus> {
+  const diffContextArgs = magitDiffContextArgs(context)
   const [status, headMsg, unstagedDiff, stagedDiff, log, stashList] = await Promise.all([
     git(["status", "--porcelain=v2", "--branch"], root),
     git(["log", "-1", "--pretty=%s"], root),
-    git(["diff"], root),
-    git(["diff", "--cached"], root),
+    git(["diff", ...diffContextArgs], root),
+    git(["diff", "--cached", ...diffContextArgs], root),
     git(["log", "-n", "10", "--pretty=%h %s"], root),
     git(["stash", "list"], root),
   ])
@@ -225,7 +228,8 @@ async function refresh(editor: Editor, root: string, point?: number): Promise<Bu
   const name = `*magit: ${basename(root)}*`
   const prev = [...editor.buffers.values()].find(b => b.name === name)
   const folded = (prev?.locals.get("magit-folded") as Set<string> | undefined) ?? new Set<string>()
-  const status = await buildStatus(root, folded)
+  const context = magitDiffContext(prev)
+  const status = await buildStatus(root, folded, context)
   // Preserving the byte offset is only sound when the section layout is stable
   // (g/s/u). Callers that reshape the buffer — commit drops the whole Staged
   // section — pass an explicit point so we don't land mid-word (t-6bbb608e).
@@ -237,12 +241,60 @@ async function refresh(editor: Editor, root: string, point?: number): Promise<Bu
   buf.locals.set("magit-entries", status.entries)
   buf.locals.set("magit-hunks", status.hunks)
   buf.locals.set("magit-folded", folded)
+  buf.locals.set("magit-diff-context", context)
   buf.point = Math.min(keepPoint, buf.text.length)
   return buf
 }
 
 function magitRoot(buffer: BufferModel): string | null {
   return (buffer.locals.get("magit-root") as string | undefined) ?? null
+}
+
+function magitDiffContext(buffer: BufferModel | undefined): number {
+  const value = buffer?.locals.get("magit-diff-context")
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : DEFAULT_DIFF_CONTEXT
+}
+
+function magitDiffContextArgs(context: number): string[] {
+  return context === DEFAULT_DIFF_CONTEXT ? [] : [`-U${context}`]
+}
+
+function magitDiffBaseArgs(buffer: BufferModel): string[] | null {
+  const args = buffer.locals.get("magit-diff-args") as string[] | undefined
+  return args ? [...args] : null
+}
+
+async function refreshDiffBuffer(editor: Editor, buffer: BufferModel, context: number): Promise<boolean> {
+  const root = magitRoot(buffer)
+  if (!root) return false
+  if (buffer.mode === "magit-status") {
+    const folded = (buffer.locals.get("magit-folded") as Set<string> | undefined) ?? new Set<string>()
+    const point = buffer.point
+    const status = await buildStatus(root, folded, context)
+    buffer.setText(status.text, false)
+    buffer.locals.set("magit-entries", status.entries)
+    buffer.locals.set("magit-hunks", status.hunks)
+    buffer.locals.set("magit-diff-context", context)
+    buffer.point = Math.min(point, buffer.text.length)
+    editor.message(`Diff context is ${context}`)
+    return true
+  }
+  const baseArgs = magitDiffBaseArgs(buffer)
+  const title = buffer.locals.get("magit-diff-title") as string | undefined
+  if (!baseArgs || !title) return false
+  const { out } = await git([...baseArgs, ...magitDiffContextArgs(context)], root)
+  buffer.readOnly = false
+  buffer.setText(out || "(no changes)\n", false)
+  buffer.readOnly = true
+  buffer.locals.set("magit-diff-context", context)
+  buffer.point = 0
+  editor.message(`Diff context is ${context}`)
+  return true
+}
+
+function prefixCount(prefix: unknown): number {
+  if (typeof prefix === "number" && Number.isFinite(prefix)) return Math.max(1, Math.trunc(Math.abs(prefix)))
+  return 1
 }
 
 /** Diff-mode highlighting plus Magit section headers for status/revision buffers. */
@@ -642,10 +694,21 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     await editor.run("scroll-down-command")
   }, "Show the section at point or scroll down.")
 
+  editor.command("magit-diff-more-context", async ({ editor, buffer, prefixArgument }) => {
+    const next = magitDiffContext(buffer) + prefixCount(prefixArgument)
+    if (!(await refreshDiffBuffer(editor, buffer, next))) editor.message("Cannot change diff context in this buffer")
+  }, "Increase the context for diff hunks.")
+
+  editor.command("magit-diff-less-context", async ({ editor, buffer, prefixArgument }) => {
+    const next = Math.max(0, magitDiffContext(buffer) - prefixCount(prefixArgument))
+    if (!(await refreshDiffBuffer(editor, buffer, next))) editor.message("Cannot change diff context in this buffer")
+  }, "Decrease the context for diff hunks.")
+
+  editor.command("magit-diff-default-context", async ({ editor, buffer }) => {
+    if (!(await refreshDiffBuffer(editor, buffer, DEFAULT_DIFF_CONTEXT))) editor.message("Cannot change diff context in this buffer")
+  }, "Reset context for diff hunks to the default height.")
+
   for (const [name, message] of [
-    ["magit-diff-more-context", "Diff context expansion is not implemented yet"],
-    ["magit-diff-less-context", "Diff context reduction is not implemented yet"],
-    ["magit-diff-default-context", "Diff context reset is not implemented yet"],
     ["magit-diff-while-committing", "Diff while committing is not implemented yet"],
     ["magit-go-backward", "Magit history navigation is not implemented yet"],
     ["magit-go-forward", "Magit history navigation is not implemented yet"],
@@ -1411,10 +1474,14 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   const openDiff = async (editor: Editor, buffer: BufferModel, gitArgs: string[], title: string) => {
     const root = magitRoot(buffer)
     if (!root) return editor.message("Not in a Magit buffer")
-    const { out } = await git(gitArgs, root)
+    const context = magitDiffContext(buffer)
+    const { out } = await git([...gitArgs, ...magitDiffContextArgs(context)], root)
     const buf = editor.scratch(`*magit-diff: ${title}*`, out || "(no changes)\n", "magit-diff-mode")
     buf.readOnly = true
     buf.locals.set("magit-root", root)
+    buf.locals.set("magit-diff-args", gitArgs)
+    buf.locals.set("magit-diff-title", title)
+    buf.locals.set("magit-diff-context", context)
     buf.point = 0
   }
 

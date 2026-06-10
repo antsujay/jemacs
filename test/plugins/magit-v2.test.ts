@@ -56,6 +56,7 @@ test("install registers v2 commands, modes and bindings", () => {
     "magit-push", "magit-log", "magit-log-show-commit", "magit-branch-checkout",
     "magit-branch-create", "magit-stash", "magit-stash-pop", "magit-discard",
     "magit-reset", "magit-toggle-fold", "magit-commit-abort",
+    "magit-diff-more-context", "magit-diff-less-context", "magit-diff-default-context",
   ]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
@@ -85,6 +86,54 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(revision?.fontLock).toBe(magitDiffFontLock)
   expect(revision?.keymap?.get("q")).toBe("magit-bury-buffer")
   expect(revision?.keymap?.get("j")).toBe("magit-revision-jump")
+})
+
+test("magit diff context commands refresh status diffs", async () => {
+  await writeFile(join(repo, "a.txt"), "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n")
+  await git(["add", "a.txt"])
+  await git(["commit", "-q", "-m", "expand fixture"])
+  await writeFile(join(repo, "a.txt"), "l1\nl2\nl3\nL4\nl5\nl6\nl7\nl8\n")
+
+  const editor = ed()
+  await editor.run("magit-status", [repo])
+  expect(editor.currentBuffer.text).toContain(" l3")
+
+  await editor.run("magit-diff-less-context")
+  await editor.run("magit-diff-less-context")
+  await editor.run("magit-diff-less-context")
+  expect(editor.currentBuffer.locals.get("magit-diff-context")).toBe(0)
+  expect(editor.currentBuffer.text).toContain("-l4")
+  expect(editor.currentBuffer.text).toContain("+L4")
+  expect(editor.currentBuffer.text).not.toContain("\n l3")
+
+  await editor.run("magit-diff-default-context")
+  expect(editor.currentBuffer.locals.get("magit-diff-context")).toBe(3)
+  expect(editor.currentBuffer.text).toContain(" l3")
+})
+
+test("magit diff context commands refresh dedicated diff buffers", async () => {
+  await writeFile(join(repo, "a.txt"), "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n")
+  await git(["add", "a.txt"])
+  await git(["commit", "-q", "-m", "expand fixture"])
+  await writeFile(join(repo, "a.txt"), "l1\nl2\nl3\nL4\nl5\nl6\nl7\nl8\n")
+
+  const editor = ed()
+  await editor.run("magit-status", [repo])
+  await editor.run("magit-diff-unstaged")
+  expect(editor.currentBuffer.name).toBe("*magit-diff: unstaged*")
+  expect(editor.currentBuffer.text).toContain(" l3")
+
+  await editor.run("magit-diff-less-context")
+  await editor.run("magit-diff-less-context")
+  await editor.run("magit-diff-less-context")
+  expect(editor.currentBuffer.locals.get("magit-diff-context")).toBe(0)
+  expect(editor.currentBuffer.text).toContain("-l4")
+  expect(editor.currentBuffer.text).toContain("+L4")
+  expect(editor.currentBuffer.text).not.toContain("\n l3")
+
+  await editor.run("magit-diff-more-context")
+  expect(editor.currentBuffer.locals.get("magit-diff-context")).toBe(1)
+  expect(editor.currentBuffer.text).toContain(" l3")
 })
 
 test("magitDiffFontLock colors @@/+/- and section headers", () => {
