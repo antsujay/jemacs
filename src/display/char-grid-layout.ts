@@ -4,7 +4,7 @@ import type { HostCapabilities } from "./protocol"
 import { textWithCursor } from "../ui/text-display"
 import { windowClickState } from "./click-to-point"
 import { visibleStyledTextFromStart } from "./buffer-view"
-import type { DisplayModel, WindowDisplayNode, WindowPaneModel } from "./protocol"
+import type { ChildFrameModel, DisplayModel, WindowDisplayNode, WindowPaneModel } from "./protocol"
 import { bufferHighlightSpans } from "./buffer-highlights"
 import { applyTheme, type Theme } from "./theme"
 import { terminalSurfaceToThemedText, type TerminalSurfaceModel } from "./terminal-surface"
@@ -12,7 +12,7 @@ import { plainThemedText, type ThemedChunk, type ThemedText } from "./themed-tex
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
 import { paneWrapLayoutFor, wrapBodyRows } from "./display-wrap"
 import { computeLineVisualRows, syncViewportStartLine, visibleLineCountForBudget } from "./visual-line-height"
-import type { LogicalModel, LogicalPane, LogicalWindowNode } from "./logical"
+import type { LogicalChildFrame, LogicalModel, LogicalPane, LogicalWindowNode } from "./logical"
 import { pointLineCol } from "./logical"
 
 /** Project a `LogicalModel` onto a fixed character grid: split row/column
@@ -29,10 +29,12 @@ export function layoutCharGrid(
   // Minibuffer may carry a multi-line completion overlay (fido); steal those rows from the window stack.
   const areaLines = Math.max(2, contentAreaLines(viewport.rows) - completionLines - logical.overlayRows)
   const windows = layoutWindowTree(logical, logical.windows, areaLines, viewport.cols, hostCapabilities)
+  const childFrames = logical.childFrames.map(frame => layoutChildFrame(logical, frame, viewport, hostCapabilities))
 
   return {
     title: logical.title,
     windows,
+    childFrames,
     minibufferCompletions: themedCompletions(logical.completion, logical.theme),
     minibufferCompletionLines: completionLines,
     minibuffer: themedMinibuffer(logical, logical.theme),
@@ -41,6 +43,38 @@ export function layoutCharGrid(
     viewport,
     hostLabel: logical.hostLabel,
   }
+}
+
+function layoutChildFrame(
+  logical: LogicalModel,
+  frame: LogicalChildFrame,
+  viewport: ViewportSize,
+  hostCapabilities?: HostCapabilities,
+): ChildFrameModel {
+  const width = clampInt(numberParam(frame.parameters.width), 20, Math.max(20, viewport.cols ?? 80), Math.min(72, Math.max(20, (viewport.cols ?? 80) - 4)))
+  const height = clampInt(numberParam(frame.parameters.height), 3, Math.max(3, viewport.rows - 3), Math.min(12, Math.max(3, viewport.rows - 4)))
+  const maxLeft = Math.max(0, (viewport.cols ?? width) - width)
+  const maxTop = Math.max(1, viewport.rows - height - 1)
+  const left = clampInt(numberParam(frame.parameters.left), 0, maxLeft, Math.max(0, Math.min(maxLeft, (viewport.cols ?? width) - width - 2)))
+  const top = clampInt(numberParam(frame.parameters.top), 1, maxTop, Math.min(maxTop, 2))
+  const leaf = { kind: "leaf" as const, id: `${frame.id}:window`, pane: frame.pane, dedicated: true }
+  return {
+    id: frame.id,
+    parentFrameId: frame.parentFrameId,
+    pane: layoutLeafPane(logical, leaf, height, width, hostCapabilities),
+    top,
+    left,
+    width,
+    height,
+  }
+}
+
+function numberParam(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : undefined
+}
+
+function clampInt(value: number | undefined, min: number, max: number, fallback: number): number {
+  return Math.max(min, Math.min(max, value ?? fallback))
 }
 
 function layoutWindowTree(

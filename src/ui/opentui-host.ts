@@ -9,6 +9,7 @@ import {
 import { buildDisplayModel } from "../display/build-display-model"
 import type {
   DisplayModel,
+  ChildFrameModel,
   InputHandler,
   ResizeHandler,
   UiHost,
@@ -50,6 +51,7 @@ export class OpenTuiHost implements UiHost {
   private echo!: TextRenderable
   private splitPanes = new Map<string, BoxRenderable>()
   private leafPanes = new Map<string, { pane: BoxRenderable; body: BodyRenderable; modeline: TextRenderable }>()
+  private childFramePanes = new Map<string, { frame: BoxRenderable; body: TextRenderable }>()
   private inputHandlers: InputHandler[] = []
   private resizeHandlers: ResizeHandler[] = []
   private bodyWindowIds = new WeakMap<BodyRenderable, string>()
@@ -97,6 +99,7 @@ export class OpenTuiHost implements UiHost {
     this.applyThemeSurfaces(model.theme)
     this.title.content = themedTextToStyledText(model.title)
     this.renderWindows(model.windows, Math.max(2, contentAreaLines(model.viewport.rows) - model.minibufferCompletionLines), model.theme)
+    this.renderChildFrames(model.childFrames, model.theme)
     this.minibufferCompletions.content = themedTextToStyledText(model.minibufferCompletions)
     this.minibufferCompletions.height = model.minibufferCompletionLines
     this.minibuffer.content = themedTextToStyledText(model.minibuffer)
@@ -183,6 +186,10 @@ export class OpenTuiHost implements UiHost {
       fillBox(pane, themeFaceBackground(theme))
       this.applyTextBackground(body, theme)
     }
+    for (const { frame, body } of this.childFramePanes.values()) {
+      fillBox(frame, themeFaceBackground(theme))
+      this.applyTextBackground(body, theme)
+    }
   }
 
   private applyTextBackground(text: BodyRenderable, theme: Theme, face: FaceName = "default"): void {
@@ -204,6 +211,32 @@ export class OpenTuiHost implements UiHost {
       if (seenLeaves.has(id)) continue
       parts.pane.destroyRecursively()
       this.leafPanes.delete(id)
+    }
+  }
+
+  private renderChildFrames(frames: ChildFrameModel[], theme: Theme): void {
+    const seen = new Set<string>()
+    for (const frame of frames) {
+      seen.add(frame.id)
+      let parts = this.childFramePanes.get(frame.id)
+      if (!parts) {
+        parts = this.createChildFrame(frame.id)
+        this.childFramePanes.set(frame.id, parts)
+      }
+      parts.frame.top = frame.top
+      parts.frame.left = frame.left
+      parts.frame.width = frame.width
+      parts.frame.height = frame.height
+      parts.frame.visible = true
+      this.reparent(parts.frame, this.windowsRoot)
+      parts.body.content = themedTextToStyledText(frame.pane.body)
+      fillBox(parts.frame, themeFaceBackground(theme))
+      this.applyTextBackground(parts.body, theme)
+    }
+    for (const [id, parts] of this.childFramePanes) {
+      if (seen.has(id)) continue
+      parts.frame.destroyRecursively()
+      this.childFramePanes.delete(id)
     }
   }
 
@@ -337,6 +370,29 @@ export class OpenTuiHost implements UiHost {
     pane.add(body)
     pane.add(modeline)
     return { pane, body, modeline }
+  }
+
+  private createChildFrame(id: string) {
+    const frame = new BoxRenderable(this.renderer, {
+      id: `child-frame:${id}`,
+      position: "absolute",
+      zIndex: 50,
+      flexDirection: "column",
+      border: true,
+      padding: 1,
+      shouldFill: true,
+      overflow: "hidden",
+    })
+    const body = new TextRenderable(this.renderer, {
+      id: `child-frame-body:${id}`,
+      content: "",
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 0,
+      minHeight: 0,
+    })
+    frame.add(body)
+    return { frame, body }
   }
 
   private updateLeafBody(body: BodyRenderable, leaf: WindowPaneModel, theme: Theme): void {

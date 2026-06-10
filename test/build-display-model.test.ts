@@ -98,6 +98,22 @@ test("buildDisplayModel body chunks include customized default face font attrs",
   resetFace("default")
 })
 
+test("buildDisplayModel includes visible child frames", () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  const base = editor.scratch("base", "base", "text")
+  const doc = editor.scratch("*doc*", "hover docs", "text")
+  editor.switchToBuffer(base.id)
+  editor.displayBufferInChildFrame(doc.id, { childFrameParameters: { width: 30, height: 6, top: 2, left: 4 } })
+
+  const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24, cols: 80 } })
+
+  expect(model.childFrames).toHaveLength(1)
+  expect(model.childFrames[0]!).toMatchObject({ width: 30, height: 6, top: 2, left: 4 })
+  expect(themedTextPlain(model.childFrames[0]!.pane.body)).toContain("hover docs")
+})
+
 // t-fb6d4cdb: displayFilter is the only place a mode reshapes what reaches the
 // renderer; org.test.ts covers orgDisplayFilter in isolation but nothing drove
 // buildDisplayModel with one installed. Spans whose buffer range lies inside a

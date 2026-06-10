@@ -29,6 +29,16 @@ export type WindowPaneModel = {
   textScale: number
 }
 
+export type ChildFrameModel = {
+  id: string
+  parentFrameId: string
+  pane: WindowPaneModel
+  top: number
+  left: number
+  width: number
+  height: number
+}
+
 export type WindowSplitModel = {
   kind: "split"
   direction: "horizontal" | "vertical"
@@ -48,6 +58,7 @@ export type WindowDisplayNode = WindowLeafModel | WindowSplitModel
 export type DisplayModel = {
   title: DisplayChunk
   windows: WindowDisplayNode
+  childFrames: ChildFrameModel[]
   minibufferCompletions: DisplayChunk
   minibufferCompletionLines: number
   minibuffer: DisplayChunk

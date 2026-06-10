@@ -2,6 +2,7 @@ import type { LogicalModel, LogicalPane, LogicalWindowNode } from "../display/lo
 import { pointLineCol } from "../display/logical"
 import type {
   SerializedDisplayModel,
+  SerializedChildFrame,
   SerializedPane,
   SerializedThemedText,
   SerializedWindowNode,
@@ -20,6 +21,7 @@ export function webLayout(logical: LogicalModel, viewport: ViewportSize = { rows
   return {
     title: serializeThemedText(logical.title),
     windows: layoutNode(logical, logical.windows),
+    childFrames: logical.childFrames.map(frame => layoutChildFrame(logical, frame)),
     minibufferCompletions: themedCompletions(logical),
     minibufferCompletionLines: logical.completion?.text
       ? Math.max(1, logical.completion.text.split("\n").length)
@@ -29,6 +31,18 @@ export function webLayout(logical: LogicalModel, viewport: ViewportSize = { rows
     theme: logical.theme,
     viewport,
     hostLabel: logical.hostLabel,
+  }
+}
+
+function layoutChildFrame(logical: LogicalModel, frame: LogicalModel["childFrames"][number]): SerializedChildFrame {
+  return {
+    id: frame.id,
+    parentFrameId: frame.parentFrameId,
+    pane: layoutPane(logical, `${frame.id}:window`, frame.pane, true),
+    top: typeof frame.parameters.top === "number" ? frame.parameters.top : 2,
+    left: typeof frame.parameters.left === "number" ? frame.parameters.left : 2,
+    width: typeof frame.parameters.width === "number" ? frame.parameters.width : 72,
+    height: typeof frame.parameters.height === "number" ? frame.parameters.height : 12,
   }
 }
 

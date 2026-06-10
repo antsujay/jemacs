@@ -1,4 +1,4 @@
-import type { DisplayModel, WindowDisplayNode } from "./protocol"
+import type { ChildFrameModel, DisplayModel, WindowDisplayNode } from "./protocol"
 import type { TerminalSurfaceModel } from "./terminal-surface"
 import type { ThemedText } from "./themed-text"
 
@@ -18,6 +18,7 @@ export type SerializedThemedText = {
 export type SerializedDisplayModel = {
   title: SerializedThemedText
   windows: SerializedWindowNode
+  childFrames: SerializedChildFrame[]
   minibufferCompletions: SerializedThemedText
   minibufferCompletionLines: number
   minibuffer: SerializedThemedText
@@ -25,6 +26,16 @@ export type SerializedDisplayModel = {
   theme: DisplayModel["theme"]
   viewport: DisplayModel["viewport"]
   hostLabel: string
+}
+
+export type SerializedChildFrame = {
+  id: string
+  parentFrameId: string
+  pane: SerializedPane
+  top: number
+  left: number
+  width: number
+  height: number
 }
 
 export type SerializedWindowNode =
@@ -58,6 +69,7 @@ export function serializeDisplayModel(model: DisplayModel): SerializedDisplayMod
   return {
     title: serializeThemedText(model.title),
     windows: serializeWindowNode(model.windows),
+    childFrames: model.childFrames.map(serializeChildFrame),
     minibufferCompletions: serializeThemedText(model.minibufferCompletions),
     minibufferCompletionLines: model.minibufferCompletionLines,
     minibuffer: serializeThemedText(model.minibuffer),
@@ -68,24 +80,23 @@ export function serializeDisplayModel(model: DisplayModel): SerializedDisplayMod
   }
 }
 
+function serializeChildFrame(frame: ChildFrameModel): SerializedChildFrame {
+  return {
+    id: frame.id,
+    parentFrameId: frame.parentFrameId,
+    pane: serializePane(frame.pane),
+    top: frame.top,
+    left: frame.left,
+    width: frame.width,
+    height: frame.height,
+  }
+}
+
 function serializeWindowNode(node: WindowDisplayNode): SerializedWindowNode {
   if (node.kind === "leaf") {
     return {
       kind: "leaf",
-      pane: {
-        id: node.pane.id,
-        bufferId: node.pane.bufferId,
-        selected: node.pane.selected,
-        dedicated: node.pane.dedicated,
-        body: serializeThemedText(node.pane.body),
-        terminalSurface: node.pane.terminalSurface ? serializeTerminalSurface(node.pane.terminalSurface) : undefined,
-        modeline: serializeThemedText(node.pane.modeline),
-        clickState: node.pane.clickState,
-        bodyLineBudget: node.pane.bodyLineBudget,
-        syncText: node.pane.syncText,
-        syncPoint: node.pane.syncPoint,
-        textScale: node.pane.textScale,
-      },
+      pane: serializePane(node.pane),
     }
   }
   return {
@@ -94,6 +105,23 @@ function serializeWindowNode(node: WindowDisplayNode): SerializedWindowNode {
     firstRatio: node.firstRatio,
     first: serializeWindowNode(node.first),
     second: serializeWindowNode(node.second),
+  }
+}
+
+function serializePane(pane: DisplayModel["childFrames"][number]["pane"]): SerializedPane {
+  return {
+    id: pane.id,
+    bufferId: pane.bufferId,
+    selected: pane.selected,
+    dedicated: pane.dedicated,
+    body: serializeThemedText(pane.body),
+    terminalSurface: pane.terminalSurface ? serializeTerminalSurface(pane.terminalSurface) : undefined,
+    modeline: serializeThemedText(pane.modeline),
+    clickState: pane.clickState,
+    bodyLineBudget: pane.bodyLineBudget,
+    syncText: pane.syncText,
+    syncPoint: pane.syncPoint,
+    textScale: pane.textScale,
   }
 }
 

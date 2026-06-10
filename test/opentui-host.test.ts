@@ -26,6 +26,28 @@ test("OpenTuiHost present renders buffer text in test terminal", async () => {
   host.destroy()
 })
 
+test("OpenTuiHost present renders child frame text over windows", async () => {
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultConfig(editor)
+  const base = editor.scratch("base", "base", "text")
+  const doc = editor.scratch("*doc*", "child-frame-doc", "text")
+  editor.switchToBuffer(base.id)
+  editor.displayBufferInChildFrame(doc.id, { childFrameParameters: { width: 32, height: 6, top: 2, left: 4 } })
+
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+    width: 80,
+    height: 24,
+  })
+
+  const model = buildDisplayModel(editor, { lastMessage: "", viewport: { rows: 24, cols: 80 } })
+  const host = await OpenTuiHost.forRenderer(renderer)
+  host.present(model)
+  await renderOnce()
+  expect(captureCharFrame()).toContain("child-frame-doc")
+  host.destroy()
+})
+
 test("split window produces split display node", async () => {
   installDefaultModes()
   const editor = new Editor()
