@@ -39,6 +39,9 @@ export type FaceName =
   | "diffContext"
   | "diffFunction"
   | "diffNonexistent"
+  | "diffRefineChanged"
+  | "diffRefineRemoved"
+  | "diffRefineAdded"
 
 export type TextSpan = {
   start: number

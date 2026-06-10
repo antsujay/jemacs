@@ -30,6 +30,7 @@ export type DiffFile = {
 
 type Line = { text: string; start: number; end: number }
 const DIFF_NARROW_LOCAL = "diff-narrowed-region"
+const DIFF_REFINE_LOCAL = "diff-refine-spans"
 
 export function installDiffMode(): void {
   const keymap = new Keymap("diff-mode-map")
@@ -182,13 +183,16 @@ export function installDiffCommands(editor: Editor): void {
 
   for (const name of [
     "diff-ediff-patch",
-    "diff-refine-hunk",
     "diff-add-change-log-entries-other-window",
   ]) {
     editor.command(name, ({ editor }) => {
       editor.message(`${name} is not implemented in jemacs yet`)
     })
   }
+
+  editor.command("diff-refine-hunk", ({ buffer, editor }) => {
+    if (!refineHunk(buffer)) editor.message("No refinable hunk at point")
+  }, "Highlight changes of the hunk at point at a finer granularity.")
 
   editor.command("diff-refresh-hunk", async ({ editor, buffer }) => {
     if (!(await replaceHunkWithDiff(editor, buffer, currentHunkStyle(buffer), false))) editor.message("No hunk at point")
@@ -208,7 +212,8 @@ export function installDiffCommands(editor: Editor): void {
 }
 
 export function diffFontLock(buffer: BufferModel): TextSpan[] {
-  return diffFontLockText(buffer.text)
+  const refined = buffer.locals.get(DIFF_REFINE_LOCAL) as TextSpan[] | undefined
+  return [...diffFontLockText(buffer.text), ...(refined ?? [])]
 }
 
 export function diffFontLockText(text: string): TextSpan[] {
@@ -509,6 +514,87 @@ function hunkAppliedText(buffer: BufferModel, hunk: DiffHunk, destp: boolean): s
     }
   }
   return out.join("\n") + (out.length ? "\n" : "")
+}
+
+function refineHunk(buffer: BufferModel): boolean {
+  const hunk = diffHunkAtPoint(buffer)
+  if (!hunk) return false
+  const bounds = boundsOfHunk(buffer)
+  if (!bounds) return false
+  const existing = (buffer.locals.get(DIFF_REFINE_LOCAL) as TextSpan[] | undefined)
+    ?.filter(span => span.end <= bounds.start || span.start >= bounds.end) ?? []
+  const spans = hunk.style === "context"
+    ? refineContextHunk(buffer, hunk)
+    : hunk.style === "unified"
+      ? refineUnifiedHunk(buffer, hunk)
+      : refineNormalHunk(buffer, hunk)
+  if (!spans.length) return false
+  buffer.locals.set(DIFF_REFINE_LOCAL, [...existing, ...spans])
+  return true
+}
+
+function refineUnifiedHunk(buffer: BufferModel, hunk: DiffHunk): TextSpan[] {
+  const lines = lineInfo(buffer)
+  const spans: TextSpan[] = []
+  for (let i = hunk.startLine + 1; i <= hunk.endLine; i++) {
+    if (!lines[i]?.text.startsWith("-")) continue
+    const removed: Line[] = []
+    while (i <= hunk.endLine && lines[i]?.text.startsWith("-")) removed.push(lines[i++]!)
+    while (i <= hunk.endLine && lines[i]?.text.startsWith("\\")) i++
+    const added: Line[] = []
+    while (i <= hunk.endLine && lines[i]?.text.startsWith("+")) added.push(lines[i++]!)
+    i--
+    refineLinePairs(removed, added, 1, spans)
+  }
+  return spans
+}
+
+function refineContextHunk(buffer: BufferModel, hunk: DiffHunk): TextSpan[] {
+  const lines = lineInfo(buffer)
+  const middle = lines.findIndex((line, index) => index > hunk.startLine && index <= hunk.endLine && /^--- \d/.test(line.text))
+  if (middle < 0) return []
+  const removed = lines.slice(hunk.startLine + 1, middle).filter(line => line.text.startsWith("! "))
+  const added = lines.slice(middle + 1, hunk.endLine + 1).filter(line => line.text.startsWith("! "))
+  const spans: TextSpan[] = []
+  refineLinePairs(removed, added, 2, spans)
+  return spans
+}
+
+function refineNormalHunk(buffer: BufferModel, hunk: DiffHunk): TextSpan[] {
+  const lines = lineInfo(buffer).slice(hunk.startLine + 1, hunk.endLine + 1)
+  const middle = lines.findIndex(line => line.text === "---")
+  if (middle < 0) return []
+  const removed = lines.slice(0, middle).filter(line => line.text.startsWith("< "))
+  const added = lines.slice(middle + 1).filter(line => line.text.startsWith("> "))
+  const spans: TextSpan[] = []
+  refineLinePairs(removed, added, 2, spans)
+  return spans
+}
+
+function refineLinePairs(removed: Line[], added: Line[], prefixLen: number, spans: TextSpan[]): void {
+  const n = Math.min(removed.length, added.length)
+  for (let i = 0; i < n; i++) {
+    const r = removed[i]!
+    const a = added[i]!
+    const oldText = r.text.slice(prefixLen)
+    const newText = a.text.slice(prefixLen)
+    const [oldStart, oldEnd, newStart, newEnd] = changedSubstringBounds(oldText, newText)
+    if (oldStart < oldEnd) spans.push({ start: r.start + prefixLen + oldStart, end: r.start + prefixLen + oldEnd, face: "diffRefineRemoved" })
+    if (newStart < newEnd) spans.push({ start: a.start + prefixLen + newStart, end: a.start + prefixLen + newEnd, face: "diffRefineAdded" })
+  }
+}
+
+function changedSubstringBounds(oldText: string, newText: string): [number, number, number, number] {
+  let prefix = 0
+  const maxPrefix = Math.min(oldText.length, newText.length)
+  while (prefix < maxPrefix && oldText[prefix] === newText[prefix]) prefix++
+  let oldSuffix = oldText.length
+  let newSuffix = newText.length
+  while (oldSuffix > prefix && newSuffix > prefix && oldText[oldSuffix - 1] === newText[newSuffix - 1]) {
+    oldSuffix--
+    newSuffix--
+  }
+  return [prefix, oldSuffix, prefix, newSuffix]
 }
 
 function contextHunkText(lines: string[], destp: boolean): string {

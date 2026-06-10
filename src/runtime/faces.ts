@@ -80,6 +80,7 @@ export function listKnownFaceNames(): string[] {
     "diffHeader", "diffFileHeader", "diffIndex", "diffHunkHeader",
     "diffRemoved", "diffAdded", "diffChanged", "diffContext",
     "diffFunction", "diffNonexistent",
+    "diffRefineChanged", "diffRefineRemoved", "diffRefineAdded",
   ])
   for (const face of faces.keys()) names.add(face)
   return [...names].sort()

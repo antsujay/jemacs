@@ -35,4 +35,7 @@ export const jemacsDarkTheme = defineTheme("jemacs-dark", {
   diffContext: { fg: "#9d9d9d" },
   diffFunction: { fg: "#4ec9b0" },
   diffNonexistent: { fg: "#808080", italic: true },
+  diffRefineChanged: { bg: "#5f5a1f" },
+  diffRefineRemoved: { bg: "#5f2424" },
+  diffRefineAdded: { bg: "#245f2a" },
 })
