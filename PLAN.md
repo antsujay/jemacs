@@ -57,7 +57,7 @@ Current branch for this work: `main`.
   - `term-interrupt` / `term-kill` -> `term-interrupt-subjob` / `term-kill-subjob`
   - Removed non-GNU `load-plugin` and `reload-current-file`; use GNU `load-file` for module loading and GNU `revert-buffer` for file reload.
   - Removed core `i-bind-key`; Stephen's personal config now owns `my/i-bind-key`.
-- Customize buffers now expose GNU `Custom-*` and `widget-*` interactive commands for the implemented set/save/reset/navigation/help actions, and the Customize keymaps target those GNU command names.
+  - Customize buffers now expose GNU `Custom-*` and `widget-*` interactive commands for the implemented set/save/reset/navigation/help actions, and the Customize keymaps target those GNU command names.
 
 ## Missing Or Incomplete Parity Work
 
