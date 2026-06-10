@@ -150,3 +150,40 @@ test("diff-kill-ring-save copies modified or original hunk text", async () => {
   await editor.run("diff-kill-ring-save")
   expect(currentKill(editor)).toBe("one\ntwo\n")
 })
+
+test("diff-unified->context and diff-context->unified convert the current hunk", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  buffer.point = buffer.text.indexOf("+TWO")
+  await editor.run("diff-unified->context")
+  expect(buffer.text).toContain("***************")
+  expect(buffer.text).toContain("*** 1,2 ****")
+  expect(buffer.text).toContain("--- 1,3 ----")
+  expect(buffer.text).toContain("! TWO")
+
+  buffer.point = buffer.text.indexOf("***************")
+  await editor.run("diff-context->unified")
+  expect(buffer.text).toContain("@@ -1,2 +1,3 @@")
+  expect(buffer.text).toContain("-two")
+  expect(buffer.text).toContain("+TWO")
+  expect(buffer.text).toContain("+three")
+})
+
+test("diff-ignore-whitespace-hunk removes a whitespace-only hunk", async () => {
+  const editor = makeEditor()
+  const text = [
+    "diff --git a/a.txt b/a.txt",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1 +1 @@",
+    "-one ",
+    "+one",
+    "",
+  ].join("\n")
+  const buffer = editor.scratch("*diff*", text, "diff-mode")
+  buffer.point = buffer.text.indexOf("@@")
+  await editor.run("diff-ignore-whitespace-hunk")
+  expect(buffer.text).not.toContain("@@ -1 +1 @@")
+  expect(buffer.text).not.toContain("-one ")
+  expect(buffer.text).not.toContain("+one")
+})

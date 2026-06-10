@@ -1,4 +1,6 @@
-import { resolve } from "node:path"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import type { Editor } from "../kernel/editor"
 import type { BufferModel } from "../kernel/buffer"
 import { Keymap } from "../kernel/keymap"
@@ -180,10 +182,6 @@ export function installDiffCommands(editor: Editor): void {
 
   for (const name of [
     "diff-ediff-patch",
-    "diff-context->unified",
-    "diff-unified->context",
-    "diff-ignore-whitespace-hunk",
-    "diff-refresh-hunk",
     "diff-refine-hunk",
     "diff-add-change-log-entries-other-window",
   ]) {
@@ -191,6 +189,22 @@ export function installDiffCommands(editor: Editor): void {
       editor.message(`${name} is not implemented in jemacs yet`)
     })
   }
+
+  editor.command("diff-refresh-hunk", async ({ editor, buffer }) => {
+    if (!(await replaceHunkWithDiff(editor, buffer, currentHunkStyle(buffer), false))) editor.message("No hunk at point")
+  }, "Re-diff the current hunk.")
+
+  editor.command("diff-ignore-whitespace-hunk", async ({ editor, buffer }) => {
+    if (!(await replaceHunkWithDiff(editor, buffer, currentHunkStyle(buffer), true))) editor.message("No hunk at point")
+  }, "Re-diff the current hunk ignoring whitespace changes.")
+
+  editor.command("diff-context->unified", async ({ editor, buffer }) => {
+    if (!(await replaceHunkWithDiff(editor, buffer, "unified", false))) editor.message("No hunk at point")
+  }, "Convert the current context diff hunk to unified format.")
+
+  editor.command("diff-unified->context", async ({ editor, buffer }) => {
+    if (!(await replaceHunkWithDiff(editor, buffer, "context", false))) editor.message("No hunk at point")
+  }, "Convert the current unified diff hunk to context format.")
 }
 
 export function diffFontLock(buffer: BufferModel): TextSpan[] {
@@ -251,6 +265,36 @@ export function parseDiffBuffer(buffer: BufferModel): DiffFile[] {
       files.push(current)
       continue
     }
+    if (/^\*{15}/.test(text)) {
+      const file = ensureFile(i)
+      file.hunks.push({ style: "context", startLine: i, endLine: i })
+      file.endLine = i
+      continue
+    }
+    const contextOld = /^\*\*\* (\d+)(?:,(\d+))? \*\*\*\*$/.exec(text)
+    if (contextOld) {
+      const file = ensureFile(i)
+      const hunk = file.hunks.at(-1)
+      if (hunk?.style === "context") {
+        hunk.oldStart = Number(contextOld[1])
+        hunk.oldCount = contextOld[2] ? Number(contextOld[2]) - Number(contextOld[1]) + 1 : 1
+        hunk.endLine = i
+        file.endLine = i
+        continue
+      }
+    }
+    const contextNew = /^--- (\d+)(?:,(\d+))? ----$/.exec(text)
+    if (contextNew) {
+      const file = ensureFile(i)
+      const hunk = file.hunks.at(-1)
+      if (hunk?.style === "context") {
+        hunk.newStart = Number(contextNew[1])
+        hunk.newCount = contextNew[2] ? Number(contextNew[2]) - Number(contextNew[1]) + 1 : 1
+        hunk.endLine = i
+        file.endLine = i
+        continue
+      }
+    }
     const oldFile = /^(?:---|\*\*\*)\s+(.+?)(?:\t| \d| \*\*\*\*|$)/.exec(text)
     if (oldFile) {
       const file = ensureFile(i)
@@ -286,12 +330,6 @@ export function parseDiffBuffer(buffer: BufferModel): DiffFile[] {
     if (normal) {
       const file = ensureFile(i)
       file.hunks.push({ style: "normal", startLine: i, endLine: i, oldStart: Number(normal[1]), newStart: Number(normal[2]) })
-      file.endLine = i
-      continue
-    }
-    if (/^\*{15}/.test(text) || /^\*\*\* \d+/.test(text)) {
-      const file = ensureFile(i)
-      file.hunks.push({ style: "context", startLine: i, endLine: i })
       file.endLine = i
       continue
     }
@@ -459,6 +497,7 @@ function splitUnifiedHunk(buffer: BufferModel): boolean {
 
 function hunkAppliedText(buffer: BufferModel, hunk: DiffHunk, destp: boolean): string {
   const lines = lineInfo(buffer).slice(hunk.startLine + 1, hunk.endLine + 1).map(l => l.text)
+  if (hunk.style === "context") return contextHunkText(lines, destp)
   const out: string[] = []
   for (const line of lines) {
     if (hunk.style === "unified") {
@@ -467,14 +506,88 @@ function hunkAppliedText(buffer: BufferModel, hunk: DiffHunk, destp: boolean): s
     } else if (hunk.style === "normal") {
       if (destp && line.startsWith("> ")) out.push(line.slice(2))
       else if (!destp && line.startsWith("< ")) out.push(line.slice(2))
-    } else {
-      if (line.startsWith("! ")) out.push(line.slice(2))
-      else if (destp && line.startsWith("+ ")) out.push(line.slice(2))
-      else if (!destp && line.startsWith("- ")) out.push(line.slice(2))
-      else if (line.startsWith("  ")) out.push(line.slice(2))
     }
   }
   return out.join("\n") + (out.length ? "\n" : "")
+}
+
+function contextHunkText(lines: string[], destp: boolean): string {
+  const out: string[] = []
+  let newHalf = false
+  for (const line of lines) {
+    if (line.startsWith("--- ") && / ----$/.test(line)) {
+      newHalf = true
+      continue
+    }
+    if (line.startsWith("***************") || /^\*\*\* \d/.test(line)) continue
+    if (line.startsWith("  ") && destp === newHalf) out.push(line.slice(2))
+    else if (line.startsWith("! ") && destp === newHalf) out.push(line.slice(2))
+    else if (destp && line.startsWith("+ ")) out.push(line.slice(2))
+    else if (!destp && line.startsWith("- ")) out.push(line.slice(2))
+  }
+  return out.join("\n") + (out.length ? "\n" : "")
+}
+
+function currentHunkStyle(buffer: BufferModel): "unified" | "context" {
+  return diffHunkAtPoint(buffer)?.style === "context" ? "context" : "unified"
+}
+
+async function replaceHunkWithDiff(editor: Editor, buffer: BufferModel, style: "unified" | "context", ignoreWhitespace: boolean): Promise<boolean> {
+  const hunk = diffHunkAtPoint(buffer)
+  if (!hunk) return false
+  const oldText = hunkAppliedText(buffer, hunk, false)
+  const newText = hunkAppliedText(buffer, hunk, true)
+  const replacement = await diffTexts(editor, oldText, newText, style, ignoreWhitespace)
+  if (replacement == null) return true
+  replaceHunk(buffer, hunk, replacement)
+  return true
+}
+
+async function diffTexts(
+  editor: Editor,
+  oldText: string,
+  newText: string,
+  style: "unified" | "context",
+  ignoreWhitespace: boolean,
+): Promise<string | null> {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-mode-"))
+  const oldPath = join(dir, "old")
+  const newPath = join(dir, "new")
+  try {
+    await writeFile(oldPath, oldText)
+    await writeFile(newPath, newText)
+    const args = [style === "unified" ? "-u" : "-c", ...(ignoreWhitespace ? ["-b"] : []), oldPath, newPath]
+    const proc = spawnProcess({ cmd: ["diff", ...args], stdout: "pipe", stderr: "pipe" })
+    const [out, err] = await Promise.all([
+      proc.stdout ? new Response(proc.stdout).text() : Promise.resolve(""),
+      proc.stderr ? new Response(proc.stderr).text() : Promise.resolve(""),
+    ])
+    const code = await proc.exited
+    if (code === 0) return ""
+    if (code !== 1) {
+      editor.message(`diff failed: ${err.trim() || `exit ${code}`}`)
+      return null
+    }
+    return stripDiffFileHeaders(out)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+function stripDiffFileHeaders(text: string): string {
+  const lines = text.split("\n")
+  const start = lines.findIndex(line => line.startsWith("@@") || line.startsWith("***************"))
+  if (start < 0) return ""
+  const body = lines.slice(start).join("\n")
+  return body.endsWith("\n") ? body : body + "\n"
+}
+
+function replaceHunk(buffer: BufferModel, hunk: DiffHunk, text: string): void {
+  const lines = lineInfo(buffer)
+  const start = lines[hunk.startLine]?.start ?? 0
+  const end = hunk.endLine + 1 < lines.length ? lines[hunk.endLine + 1]!.start : buffer.text.length
+  buffer.splice(start, end, text, { markDirty: true })
+  buffer.point = start
 }
 
 async function applyPatchText(editor: Editor, buffer: BufferModel, patch: string, reverse: boolean, check: boolean): Promise<boolean> {
