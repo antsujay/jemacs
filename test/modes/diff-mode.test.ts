@@ -453,6 +453,33 @@ test("diff-apply-hunk applies the current hunk with git apply", async () => {
   }
 })
 
+test("diff-apply-hunk resolves prefixed source paths before applying", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-apply-prefix-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\ntwo\n")
+    const text = [
+      "diff --git a/src/a.txt b/src/a.txt",
+      "--- a/src/a.txt",
+      "+++ b/src/a.txt",
+      "@@ -1,2 +1,3 @@",
+      " one",
+      "-two",
+      "+TWO",
+      "+three",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = buffer.text.indexOf("@@ -1,2")
+    await editor.run("diff-test-hunk")
+    await editor.run("diff-apply-hunk")
+    expect(await readFile(join(dir, "a.txt"), "utf8")).toBe("one\nTWO\nthree\n")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("diff-kill-applied-hunks removes hunks already present in the source", async () => {
   const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-kill-applied-"))
   try {

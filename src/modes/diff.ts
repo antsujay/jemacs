@@ -1,6 +1,6 @@
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import type { Editor } from "../kernel/editor"
 import type { BufferModel } from "../kernel/buffer"
 import { Keymap } from "../kernel/keymap"
@@ -850,13 +850,69 @@ function replaceHunk(buffer: BufferModel, hunk: DiffHunk, text: string): void {
 }
 
 async function applyPatchText(editor: Editor, buffer: BufferModel, patch: string, reverse: boolean, check: boolean): Promise<boolean> {
-  const result = await runGitApply(buffer, patch, reverse, check)
+  let result = await runGitApply(buffer, patch, reverse, check)
+  if (!result.ok) {
+    const resolvedPatch = await patchWithResolvedFileNames(buffer, patch)
+    if (resolvedPatch !== patch) result = await runGitApply(buffer, resolvedPatch, reverse, check)
+  }
   if (result.ok) {
     editor.message(check ? "Patch applies cleanly" : "Applied patch")
     return true
   }
   editor.message(`git apply failed: ${result.err.trim()}`)
   return false
+}
+
+async function patchWithResolvedFileNames(buffer: BufferModel, patch: string): Promise<string> {
+  const lines = patch.split("\n")
+  let changed = false
+  for (let i = 0; i < lines.length; i++) {
+    const gitHeader = /^diff --git\s+(\S+)\s+(\S+)$/.exec(lines[i] ?? "")
+    if (gitHeader) {
+      const oldFile = cleanPatchHeaderPath(gitHeader[1]!)
+      const newFile = cleanPatchHeaderPath(gitHeader[2]!)
+      const oldResolved = oldFile && oldFile !== "/dev/null" ? await patchHeaderResolvedPath(buffer, oldFile) : oldFile
+      const newResolved = newFile && newFile !== "/dev/null" ? await patchHeaderResolvedPath(buffer, newFile) : newFile
+      const next = `diff --git a/${oldResolved} b/${newResolved}`
+      if (next !== lines[i]) {
+        lines[i] = next
+        changed = true
+      }
+      continue
+    }
+    const oldHeader = /^---\s+(.+)$/.exec(lines[i] ?? "")
+    if (oldHeader) {
+      const file = cleanPatchHeaderPath(oldHeader[1]!)
+      if (file && file !== "/dev/null") {
+        const resolved = await patchHeaderResolvedPath(buffer, file)
+        const next = `--- ${resolved}`
+        if (next !== lines[i]) {
+          lines[i] = next
+          changed = true
+        }
+      }
+      continue
+    }
+    const newHeader = /^\+\+\+\s+(.+)$/.exec(lines[i] ?? "")
+    if (newHeader) {
+      const file = cleanPatchHeaderPath(newHeader[1]!)
+      if (file && file !== "/dev/null") {
+        const resolved = await patchHeaderResolvedPath(buffer, file)
+        const next = `+++ ${resolved}`
+        if (next !== lines[i]) {
+          lines[i] = next
+          changed = true
+        }
+      }
+    }
+  }
+  return changed ? lines.join("\n") : patch
+}
+
+async function patchHeaderResolvedPath(buffer: BufferModel, file: string): Promise<string> {
+  const resolved = await resolveDiffFileName(buffer, file)
+  const rel = relative(diffDefaultDirectory(buffer), resolved)
+  return rel && !rel.startsWith("..") && !rel.startsWith("/") ? rel : resolved
 }
 
 async function runGitApply(buffer: BufferModel, patch: string, reverse: boolean, check: boolean): Promise<{ ok: boolean; err: string }> {
@@ -1251,6 +1307,12 @@ function cleanDiffPath(path: string): string {
   const trimmed = path.trim()
   if (trimmed === "/dev/null") return trimmed
   return trimmed.replace(/^[ab]\//, "")
+}
+
+function cleanPatchHeaderPath(path: string): string {
+  const raw = path.trim()
+  if (raw === "/dev/null") return raw
+  return cleanDiffPath(raw.split(/\t| \d/)[0] ?? raw)
 }
 
 function isHunkBodyLine(text: string, style: DiffHunkStyle): boolean {
