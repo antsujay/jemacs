@@ -42,6 +42,7 @@ test("diff-mode is installed as a core mode and inferred for patches", () => {
   expect(editor.commands.get("diff-sanity-check-hunk")).toBeDefined()
   expect(editor.commands.get("diff-current-defun")).toBeDefined()
   expect(editor.commands.get("diff-add-log-current-defuns")).toBeDefined()
+  expect(editor.commands.get("diff-fixup-modifs")).toBeDefined()
   expect(editor.commands.get("diff-find-file-name")).toBeDefined()
   expect(editor.commands.get("diff-buffer-file-names")).toBeDefined()
   expect(editor.commands.get("diff-tell-file-name")).toBeDefined()
@@ -375,6 +376,54 @@ test("diff-sanity-check-hunk reports well-formed and malformed unified hunks", a
   buffer.point = malformed.indexOf("@@ -1,2 +1,3 @@")
   await editor.run("diff-sanity-check-hunk")
   expect(messages.at(-1)).toBe("End of hunk ambiguously marked")
+})
+
+test("diff-fixup-modifs recomputes edited unified hunk headers", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", [
+    "diff --git a/a.txt b/a.txt",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1 +1 @@ function name",
+    " one",
+    "-two",
+    "+TWO",
+    "+three",
+    "",
+  ].join("\n"), "diff-mode")
+
+  await editor.run("diff-fixup-modifs")
+
+  expect(buffer.text).toContain("@@ -1,2 +1,3 @@ function name")
+  expect(buffer.text.endsWith("\n")).toBe(true)
+})
+
+test("diff-mode save fixes unified hunk headers before writing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-fixup-save-"))
+  try {
+    const path = join(dir, "edited.patch")
+    await writeFile(path, [
+      "diff --git a/a.txt b/a.txt",
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1 +1 @@",
+      " one",
+      "-two",
+      "+TWO",
+      "+three",
+      "",
+    ].join("\n"))
+    const editor = makeEditor()
+    const buffer = await editor.openFile(path)
+    buffer.insert(" ")
+    buffer.deleteBackward()
+    await buffer.save({ runHook: (name, saved) => editor.runHook(name, saved), makeBackupFiles: false })
+    const saved = await readFile(path, "utf8")
+    expect(saved).toContain("@@ -1,2 +1,3 @@")
+    expect(saved.endsWith("\n")).toBe(true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 test("diff-goto-source refuses malformed hunks before opening source", async () => {

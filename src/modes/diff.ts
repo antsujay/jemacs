@@ -7,7 +7,7 @@ import { addHook, getHooks } from "../kernel/hooks"
 import { Keymap } from "../kernel/keymap"
 import { spawnProcess } from "../platform/runtime"
 import { killNew } from "../runtime/kill-ring"
-import { defineMode, type TextSpan } from "./mode"
+import { defineMode, modeLineage, type TextSpan } from "./mode"
 import { defineMinorMode } from "./minor-mode"
 
 export type DiffHunkStyle = "unified" | "context" | "normal"
@@ -152,7 +152,13 @@ export function installDiffCommands(editor: Editor): void {
     editor.message(count ? `Killed ${count} junk block${count === 1 ? "" : "s"}` : "No junk blocks")
   }, "Kill spurious empty diffs.")
 
+  if (!getHooks("before-save-hook").includes(diffWriteContentsBeforeSave)) addHook("before-save-hook", diffWriteContentsBeforeSave)
   if (!getHooks("after-save-hook").includes(diffDeleteEmptyFilesAfterSave)) addHook("after-save-hook", diffDeleteEmptyFilesAfterSave)
+
+  editor.command("diff-fixup-modifs", ({ editor, buffer }) => {
+    const count = diffFixupModifs(buffer)
+    editor.message(count ? `Fixed ${count} hunk header${count === 1 ? "" : "s"}` : "No hunk headers needed fixing")
+  }, "Fix up hunk headers after editing a diff.")
 
   editor.command("diff-delete-if-empty", async ({ editor, buffer }) => {
     if (await diffDeleteIfEmpty(buffer)) editor.message("Deleted empty diff file")
@@ -1096,6 +1102,37 @@ function countUnifiedLines(lines: string[], side: "old" | "new"): number {
     if (line.startsWith(" ")) return true
     return side === "old" ? line.startsWith("-") : line.startsWith("+")
   }).length
+}
+
+function diffFixupModifs(buffer: BufferModel): number {
+  const lines = lineInfo(buffer)
+  let fixed = 0
+  const next = lines.map(line => line.text)
+  for (const hunk of parseDiffBuffer(buffer).flatMap(file => file.hunks)) {
+    if (hunk.style !== "unified" || hunk.oldStart == null || hunk.newStart == null) continue
+    const body = lines.slice(hunk.startLine + 1, hunk.endLine + 1).map(line => line.text).filter(isUnifiedBodyLine)
+    const oldCount = countUnifiedLines(body, "old")
+    const newCount = countUnifiedLines(body, "new")
+    const match = /^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@(.*)$/.exec(lines[hunk.startLine]?.text ?? "")
+    if (!match) continue
+    const replacement = formatUnifiedHeader(hunk.oldStart, oldCount, hunk.newStart, newCount, match[1] ?? "")
+    if (replacement !== lines[hunk.startLine]!.text) {
+      next[hunk.startLine] = replacement
+      fixed++
+    }
+  }
+  if (fixed) {
+    buffer.setText(next.join("\n"))
+  }
+  return fixed
+}
+
+async function diffWriteContentsBeforeSave({ buffer }: { buffer: BufferModel }): Promise<void> {
+  if (buffer.dirty && isDiffBuffer(buffer)) diffFixupModifs(buffer)
+}
+
+function isDiffBuffer(buffer: BufferModel): boolean {
+  return buffer.minorModes.has("diff-minor-mode") || modeLineage(buffer.mode).some(mode => mode.name === "diff-mode")
 }
 
 function formatUnifiedHeader(oldStart: number, oldCount: number, newStart: number, newCount: number, suffix: string): string {
