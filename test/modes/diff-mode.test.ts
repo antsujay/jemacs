@@ -6,6 +6,7 @@ import { BufferModel, inferMode } from "../../src/kernel/buffer"
 import { getMode } from "../../src/modes/mode"
 import { diffFileAtPoint, diffFontLock, diffHunkAtPoint, parseDiffBuffer } from "../../src/modes/diff"
 import { makeEditor } from "../plugins/helper"
+import { currentKill } from "../../src/runtime/kill-ring"
 
 const sample = [
   "diff --git a/a.txt b/a.txt",
@@ -106,4 +107,46 @@ test("diff-apply-hunk applies the current hunk with git apply", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test("diff-split-hunk splits unified hunks and recomputes ranges", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  buffer.point = buffer.text.indexOf("+TWO")
+  await editor.run("diff-split-hunk")
+  expect(buffer.text).toContain("@@ -1,2 +1 @@ function name")
+  expect(buffer.text).toContain("@@ -3,0 +2,2 @@ function name")
+  const files = parseDiffBuffer(buffer)
+  expect(files[0]?.hunks).toHaveLength(2)
+})
+
+test("diff-restrict-view narrows display to hunk or file and widen clears it", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  buffer.point = buffer.text.indexOf("+TWO")
+  await editor.run("diff-restrict-view")
+  const hunkFilter = getMode("diff-mode")?.displayFilter?.(buffer)
+  expect(hunkFilter?.text).toContain("+TWO")
+  expect(hunkFilter?.text).not.toContain("diff --git")
+  await editor.run("widen")
+  expect(getMode("diff-mode")?.displayFilter?.(buffer)).toBeNull()
+
+  buffer.point = buffer.text.indexOf("+new")
+  editor.prefixArg.addDigit(4)
+  await editor.run("diff-restrict-view")
+  const fileFilter = getMode("diff-mode")?.displayFilter?.(buffer)
+  expect(fileFilter?.text).toContain("diff --git a/b.txt")
+  expect(fileFilter?.text).toContain("+new")
+  expect(fileFilter?.text).not.toContain("+TWO")
+})
+
+test("diff-kill-ring-save copies modified or original hunk text", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  buffer.point = buffer.text.indexOf("+TWO")
+  await editor.run("diff-kill-ring-save")
+  expect(currentKill(editor)).toBe("one\nTWO\nthree\n")
+  editor.prefixArg.addDigit(4)
+  await editor.run("diff-kill-ring-save")
+  expect(currentKill(editor)).toBe("one\ntwo\n")
 })

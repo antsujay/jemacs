@@ -3,6 +3,7 @@ import type { Editor } from "../kernel/editor"
 import type { BufferModel } from "../kernel/buffer"
 import { Keymap } from "../kernel/keymap"
 import { spawnProcess } from "../platform/runtime"
+import { killNew } from "../runtime/kill-ring"
 import { defineMode, type TextSpan } from "./mode"
 
 export type DiffHunkStyle = "unified" | "context" | "normal"
@@ -26,6 +27,7 @@ export type DiffFile = {
 }
 
 type Line = { text: string; start: number; end: number }
+const DIFF_NARROW_LOCAL = "diff-narrowed-region"
 
 export function installDiffMode(): void {
   const keymap = new Keymap("diff-mode-map")
@@ -67,6 +69,7 @@ export function installDiffMode(): void {
     ["C-c C-l", "diff-refresh-hunk"],
     ["C-c C-b", "diff-refine-hunk"],
   ] as const) keymap.bind(key, command)
+  keymap.bind("S-w", "widen")
   defineMode({
     name: "diff-mode",
     parent: "text",
@@ -74,6 +77,7 @@ export function installDiffMode(): void {
     fontLock: diffFontLock,
     beginningOfDefun: diffBeginningOfFileAndJunk,
     endOfDefun: diffEndOfFile,
+    displayFilter: diffDisplayFilter,
   })
 }
 
@@ -114,6 +118,29 @@ export function installDiffCommands(editor: Editor): void {
     buffer.setText(kept + (kept.endsWith("\n") ? "" : "\n"))
   }, "Delete hunks other than the current hunk.")
 
+  editor.command("diff-restrict-view", ({ buffer, editor, prefixArgument }) => {
+    const bounds = prefixArgument != null ? boundsOfFile(buffer) : boundsOfHunk(buffer)
+    if (!bounds) return editor.message(prefixArgument != null ? "No file at point" : "No hunk at point")
+    buffer.locals.set(DIFF_NARROW_LOCAL, bounds)
+    buffer.point = Math.max(bounds.start, Math.min(buffer.point, bounds.end))
+  }, "Restrict the view to the current hunk, or current file with a prefix argument.")
+
+  editor.command("widen", ({ buffer }) => {
+    buffer.locals.delete(DIFF_NARROW_LOCAL)
+  }, "Remove narrowing from the current buffer.")
+
+  editor.command("diff-split-hunk", ({ buffer, editor }) => {
+    if (!splitUnifiedHunk(buffer)) editor.message("diff-split-hunk only works inside a splittable unified hunk")
+  }, "Split the current unified diff hunk at point.")
+
+  editor.command("diff-kill-ring-save", ({ editor, buffer, prefixArgument }) => {
+    const hunk = diffHunkAtPoint(buffer)
+    if (!hunk) return editor.message("No hunk at point")
+    killNew(editor, hunkAppliedText(buffer, hunk, prefixArgument == null))
+    buffer.markActive = false
+    editor.message(prefixArgument == null ? "Copied modified text" : "Copied original text")
+  }, "Copy the modified text from the current hunk to the kill ring.")
+
   editor.command("diff-reverse-direction", ({ buffer }) => {
     reverseDiffDirection(buffer)
   }, "Reverse the direction of the diff.")
@@ -152,8 +179,6 @@ export function installDiffCommands(editor: Editor): void {
   }, "Reverse-apply and then kill the current hunk.")
 
   for (const name of [
-    "diff-restrict-view",
-    "diff-split-hunk",
     "diff-ediff-patch",
     "diff-context->unified",
     "diff-unified->context",
@@ -161,7 +186,6 @@ export function installDiffCommands(editor: Editor): void {
     "diff-refresh-hunk",
     "diff-refine-hunk",
     "diff-add-change-log-entries-other-window",
-    "diff-kill-ring-save",
   ]) {
     editor.command(name, ({ editor }) => {
       editor.message(`${name} is not implemented in jemacs yet`)
@@ -273,7 +297,7 @@ export function parseDiffBuffer(buffer: BufferModel): DiffFile[] {
     }
     if (current) current.endLine = i
     const lastHunk = current?.hunks.at(-1)
-    if (lastHunk && !isFileHeaderLine(text, lastHunk.style)) lastHunk.endLine = i
+    if (lastHunk && isHunkBodyLine(text, lastHunk.style)) lastHunk.endLine = i
   }
   if (current) current.endLine = lines.length - 1
   return files
@@ -292,6 +316,37 @@ export function diffHunkAtPoint(buffer: BufferModel): DiffHunk | null {
 export function diffFileAtPoint(buffer: BufferModel): DiffFile | null {
   const line = buffer.lineAt(buffer.point)
   return parseDiffBuffer(buffer).find(file => line >= file.startLine && line <= file.endLine) ?? null
+}
+
+function boundsOfHunk(buffer: BufferModel): { start: number; end: number } | null {
+  const hunk = diffHunkAtPoint(buffer)
+  if (!hunk) return null
+  const lines = lineInfo(buffer)
+  return {
+    start: lines[hunk.startLine]?.start ?? 0,
+    end: hunk.endLine + 1 < lines.length ? lines[hunk.endLine + 1]!.start : buffer.text.length,
+  }
+}
+
+function boundsOfFile(buffer: BufferModel): { start: number; end: number } | null {
+  const file = diffFileAtPoint(buffer)
+  if (!file) return null
+  const lines = lineInfo(buffer)
+  return {
+    start: lines[file.startLine]?.start ?? 0,
+    end: file.endLine + 1 < lines.length ? lines[file.endLine + 1]!.start : buffer.text.length,
+  }
+}
+
+function diffDisplayFilter(buffer: BufferModel): { text: string; map: (n: number) => number } | null {
+  const narrowed = buffer.locals.get(DIFF_NARROW_LOCAL) as { start: number; end: number } | undefined
+  if (!narrowed) return null
+  const start = Math.max(0, Math.min(narrowed.start, buffer.text.length))
+  const end = Math.max(start, Math.min(narrowed.end, buffer.text.length))
+  return {
+    text: buffer.text.slice(start, end),
+    map: n => Math.max(0, Math.min(end, Math.max(start, n)) - start),
+  }
 }
 
 function diffBeginningOfFileAndJunk(buffer: BufferModel): boolean {
@@ -368,6 +423,60 @@ function patchAtPoint(buffer: BufferModel): string | null {
   return [...header, ...body, ""].join("\n")
 }
 
+function splitUnifiedHunk(buffer: BufferModel): boolean {
+  const hunk = diffHunkAtPoint(buffer)
+  if (!hunk || hunk.style !== "unified" || hunk.oldStart == null || hunk.newStart == null) return false
+  const splitLine = buffer.lineAt(buffer.point)
+  if (splitLine <= hunk.startLine + 1 || splitLine > hunk.endLine) return false
+  const lines = lineInfo(buffer)
+  const before = lines.slice(hunk.startLine + 1, splitLine).map(l => l.text)
+  const after = lines.slice(splitLine, hunk.endLine + 1).map(l => l.text)
+  if (!before.length || !after.length) return false
+  if (![...before, ...after].every(isUnifiedBodyLine)) return false
+
+  const oldBefore = countUnifiedLines(before, "old")
+  const newBefore = countUnifiedLines(before, "new")
+  const oldAfter = countUnifiedLines(after, "old")
+  const newAfter = countUnifiedLines(after, "new")
+  if (oldBefore + newBefore === 0 || oldAfter + newAfter === 0) return false
+
+  const headerLine = lines[hunk.startLine]!.text
+  const suffix = /^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@(.*)$/.exec(headerLine)?.[1] ?? ""
+  const firstHeader = formatUnifiedHeader(hunk.oldStart, oldBefore, hunk.newStart, newBefore, suffix)
+  const secondHeader = formatUnifiedHeader(hunk.oldStart + oldBefore, oldAfter, hunk.newStart + newBefore, newAfter, suffix)
+  const nextLines = [
+    ...lines.slice(0, hunk.startLine).map(l => l.text),
+    firstHeader,
+    ...before,
+    secondHeader,
+    ...after,
+    ...lines.slice(hunk.endLine + 1).map(l => l.text),
+  ]
+  buffer.setText(nextLines.join("\n"))
+  buffer.point = nextLines.slice(0, hunk.startLine + 1 + before.length).reduce((n, line) => n + line.length + 1, 0)
+  return true
+}
+
+function hunkAppliedText(buffer: BufferModel, hunk: DiffHunk, destp: boolean): string {
+  const lines = lineInfo(buffer).slice(hunk.startLine + 1, hunk.endLine + 1).map(l => l.text)
+  const out: string[] = []
+  for (const line of lines) {
+    if (hunk.style === "unified") {
+      if (line.startsWith("\\ No newline")) continue
+      if (line.startsWith(" ") || (destp && line.startsWith("+")) || (!destp && line.startsWith("-"))) out.push(line.slice(1))
+    } else if (hunk.style === "normal") {
+      if (destp && line.startsWith("> ")) out.push(line.slice(2))
+      else if (!destp && line.startsWith("< ")) out.push(line.slice(2))
+    } else {
+      if (line.startsWith("! ")) out.push(line.slice(2))
+      else if (destp && line.startsWith("+ ")) out.push(line.slice(2))
+      else if (!destp && line.startsWith("- ")) out.push(line.slice(2))
+      else if (line.startsWith("  ")) out.push(line.slice(2))
+    }
+  }
+  return out.join("\n") + (out.length ? "\n" : "")
+}
+
 async function applyPatchText(editor: Editor, buffer: BufferModel, patch: string, reverse: boolean, check: boolean): Promise<boolean> {
   const args = ["apply", ...(check ? ["--check"] : []), ...(reverse ? ["--reverse"] : []), "-"]
   const proc = spawnProcess({
@@ -408,6 +517,26 @@ function reverseDiffDirection(buffer: BufferModel): void {
   buffer.setText(next)
 }
 
+function isUnifiedBodyLine(line: string): boolean {
+  return line.startsWith(" ") || line.startsWith("+") || line.startsWith("-") || line.startsWith("\\")
+}
+
+function countUnifiedLines(lines: string[], side: "old" | "new"): number {
+  return lines.filter(line => {
+    if (line.startsWith("\\")) return false
+    if (line.startsWith(" ")) return true
+    return side === "old" ? line.startsWith("-") : line.startsWith("+")
+  }).length
+}
+
+function formatUnifiedHeader(oldStart: number, oldCount: number, newStart: number, newCount: number, suffix: string): string {
+  return `@@ -${formatRange(oldStart, oldCount)} +${formatRange(newStart, newCount)} @@${suffix}`
+}
+
+function formatRange(start: number, count: number): string {
+  return count === 1 ? String(start) : `${start},${count}`
+}
+
 function deleteLines(buffer: BufferModel, startLine: number, endLine: number): void {
   const lines = lineInfo(buffer)
   const start = lines[startLine]?.start ?? 0
@@ -426,9 +555,10 @@ function cleanDiffPath(path: string): string {
   return trimmed.replace(/^[ab]\//, "")
 }
 
-function isFileHeaderLine(text: string, style: DiffHunkStyle): boolean {
-  if (style === "unified") return /^diff --git |^Index: |^--- |^\+\+\+ /.test(text)
-  return /^diff --git |^Index: /.test(text)
+function isHunkBodyLine(text: string, style: DiffHunkStyle): boolean {
+  if (style === "unified") return isUnifiedBodyLine(text)
+  if (style === "normal") return /^[<>] /.test(text) || /^---$/.test(text)
+  return /^(  |! |\+ |- |--- )/.test(text)
 }
 
 function lineInfo(buffer: BufferModel): Line[] {
