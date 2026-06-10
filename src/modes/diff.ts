@@ -144,6 +144,11 @@ export function installDiffCommands(editor: Editor): void {
     editor.message(count ? `Killed ${count} junk block${count === 1 ? "" : "s"}` : "No junk blocks")
   }, "Kill spurious empty diffs.")
 
+  editor.command("diff-delete-trailing-whitespace", async ({ editor, buffer, prefixArgument }) => {
+    const count = await deleteTrailingWhitespaceFromDiff(editor, buffer, prefixArgument != null)
+    editor.message(count ? `Deleted trailing whitespace from ${count} line${count === 1 ? "" : "s"}` : "No trailing whitespace to delete")
+  }, "Remove trailing whitespace from lines modified in this diff and their source files.")
+
   editor.command("diff-delete-other-hunks", ({ buffer, editor }) => {
     const keep = diffHunkAtPoint(buffer)
     if (!keep) return editor.message("No hunk at point")
@@ -913,6 +918,99 @@ function killJunk(buffer: BufferModel): number {
   for (const range of ranges.sort((a, b) => b.startLine - a.startLine)) deleteLines(buffer, range.startLine, range.endLine)
   if (ranges.length) buffer.point = Math.min(buffer.point, buffer.text.length)
   return ranges.length
+}
+
+async function deleteTrailingWhitespaceFromDiff(editor: Editor, buffer: BufferModel, otherFile: boolean): Promise<number> {
+  const edits: Array<{ line: number; file: string; sourceLine: number }> = []
+  const lines = lineInfo(buffer)
+  for (const file of parseDiffBuffer(buffer)) {
+    for (const hunk of file.hunks) {
+      edits.push(...trailingWhitespaceEdits(buffer, lines, file, hunk, otherFile))
+    }
+  }
+  for (const edit of edits.sort((a, b) => b.line - a.line)) {
+    const line = lines[edit.line]
+    if (!line) continue
+    const next = line.text.replace(/[ \t]+$/, "")
+    buffer.splice(line.start, line.end, next, { markDirty: true })
+  }
+  const byFile = new Map<string, number[]>()
+  for (const edit of edits) byFile.set(edit.file, [...(byFile.get(edit.file) ?? []), edit.sourceLine])
+  for (const [file, sourceLines] of byFile) {
+    const source = await editor.openFile(resolve(diffDefaultDirectory(buffer), file))
+    trimTrailingWhitespaceAtLines(source, sourceLines)
+  }
+  return edits.length
+}
+
+function trailingWhitespaceEdits(
+  buffer: BufferModel,
+  lines: Line[],
+  file: DiffFile,
+  hunk: DiffHunk,
+  otherFile: boolean,
+): Array<{ line: number; file: string; sourceLine: number }> {
+  if (hunk.style === "unified") return unifiedTrailingWhitespaceEdits(lines, file, hunk, otherFile)
+  if (hunk.style === "context") return contextTrailingWhitespaceEdits(buffer, lines, file, hunk, otherFile)
+  return []
+}
+
+function unifiedTrailingWhitespaceEdits(
+  lines: Line[],
+  file: DiffFile,
+  hunk: DiffHunk,
+  otherFile: boolean,
+): Array<{ line: number; file: string; sourceLine: number }> {
+  const targetFile = otherFile ? file.oldFile : file.newFile
+  if (!targetFile || targetFile === "/dev/null") return []
+  const edits: Array<{ line: number; file: string; sourceLine: number }> = []
+  let oldLine = hunk.oldStart ?? 1
+  let newLine = hunk.newStart ?? 1
+  for (let i = hunk.startLine + 1; i <= hunk.endLine; i++) {
+    const text = lines[i]?.text ?? ""
+    if (text.startsWith("\\")) continue
+    const lineNumber = otherFile ? oldLine : newLine
+    const matchesSide = otherFile ? text.startsWith("-") : text.startsWith("+")
+    if (matchesSide && /[ \t]+$/.test(text)) edits.push({ line: i, file: targetFile, sourceLine: lineNumber })
+    if (!text.startsWith("+")) oldLine++
+    if (!text.startsWith("-")) newLine++
+  }
+  return edits
+}
+
+function contextTrailingWhitespaceEdits(
+  buffer: BufferModel,
+  lines: Line[],
+  file: DiffFile,
+  hunk: DiffHunk,
+  otherFile: boolean,
+): Array<{ line: number; file: string; sourceLine: number }> {
+  const targetFile = otherFile ? file.oldFile : file.newFile
+  if (!targetFile || targetFile === "/dev/null") return []
+  const edits: Array<{ line: number; file: string; sourceLine: number }> = []
+  const hunkLines = lines.slice(hunk.startLine + 1, hunk.endLine + 1)
+  const middle = hunkLines.findIndex(line => /^--- \d/.test(line.text))
+  if (middle < 0) return edits
+  const half = otherFile ? hunkLines.slice(0, middle) : hunkLines.slice(middle + 1)
+  let lineNumber = otherFile ? hunk.oldStart ?? 1 : hunk.newStart ?? 1
+  for (const line of half) {
+    const text = line.text
+    if (/^\*{15}/.test(text) || /^\*\*\* \d/.test(text) || /^--- \d/.test(text)) continue
+    const changed = otherFile ? text.startsWith("- ") || text.startsWith("! ") : text.startsWith("+ ") || text.startsWith("! ")
+    if (changed && /[ \t]+$/.test(text)) edits.push({ line: buffer.lineAt(line.start), file: targetFile, sourceLine: lineNumber })
+    if (/^[ !+-] /.test(text)) lineNumber++
+  }
+  return edits
+}
+
+function trimTrailingWhitespaceAtLines(buffer: BufferModel, lineNumbers: number[]): void {
+  const unique = [...new Set(lineNumbers)].sort((a, b) => b - a)
+  const lines = lineInfo(buffer)
+  for (const lineNumber of unique) {
+    const line = lines[lineNumber - 1]
+    if (!line || !/[ \t]+$/.test(line.text)) continue
+    buffer.splice(line.start, line.end, line.text.replace(/[ \t]+$/, ""), { markDirty: true })
+  }
 }
 
 function diffDefaultDirectory(buffer: BufferModel): string {

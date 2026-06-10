@@ -171,6 +171,59 @@ test("diff-kill-junk removes empty Index blocks and junk before file headers", a
   expect(buffer.text).toContain("+new")
 })
 
+test("diff-delete-trailing-whitespace removes changed-line whitespace from diff and source", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-trailing-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\nnew   \n")
+    const text = [
+      "diff --git a/a.txt b/a.txt",
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,2 +1,2 @@",
+      " one",
+      "-old",
+      "+new   ",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    await editor.run("diff-delete-trailing-whitespace")
+    expect(buffer.text).toContain("+new\n")
+    expect(buffer.text).not.toContain("+new   ")
+    expect(editor.currentBuffer.text).toBe("one\nnew\n")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-delete-trailing-whitespace with prefix cleans the old side", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-trailing-old-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\nold   \n")
+    const text = [
+      "diff --git a/a.txt b/a.txt",
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,2 +1,2 @@",
+      " one",
+      "-old   ",
+      "+new",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    editor.prefixArg.universalArgument()
+    await editor.run("diff-delete-trailing-whitespace")
+    expect(buffer.text).toContain("-old\n")
+    expect(buffer.text).not.toContain("-old   ")
+    expect(editor.currentBuffer.text).toBe("one\nold\n")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("diff-reverse-direction swaps headers, hunk ranges, and line polarity", async () => {
   const editor = makeEditor()
   const buffer = editor.scratch("*diff*", sample, "diff-mode")
