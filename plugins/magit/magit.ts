@@ -615,6 +615,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   magitModeMap.bind("+", "magit-diff-more-context")
   magitModeMap.bind("-", "magit-diff-less-context")
   magitModeMap.bind("0", "magit-diff-default-context")
+  magitModeMap.bind("d", "magit-diff-popup")
+  magitModeMap.bind("S-d", "magit-diff-refresh")
   magitModeMap.bind("g", "magit-refresh")
   magitModeMap.bind("S-g", "magit-refresh-all")
   magitModeMap.bind("h", "magit-dispatch")
@@ -766,6 +768,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.command("magit-diff-default-context", async ({ editor, buffer }) => {
     if (!(await refreshDiffBuffer(editor, buffer, DEFAULT_DIFF_CONTEXT))) editor.message("Cannot change diff context in this buffer")
   }, "Reset context for diff hunks to the default height.")
+
+  editor.command("magit-diff-refresh", ({ editor }) => {
+    editor.openTransient(magitDiffTransient)
+  }, "Change the diff arguments used for the current buffer.")
 
   editor.command("magit-diff-while-committing", async ({ editor }) => {
     const commitBuffer = commitMessageBuffer(editor)

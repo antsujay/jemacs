@@ -57,10 +57,12 @@ test("install registers v2 commands, modes and bindings", () => {
     "magit-branch-create", "magit-stash", "magit-stash-pop", "magit-discard",
     "magit-reset", "magit-toggle-fold", "magit-commit-abort",
     "magit-diff-more-context", "magit-diff-less-context", "magit-diff-default-context",
-    "magit-diff-while-committing",
+    "magit-diff-refresh", "magit-diff-while-committing",
   ]) {
     expect(editor.commands.get(cmd)).toBeDefined()
   }
+  expect(getMode("magit-mode")?.keymap?.get("d")).toBe("magit-diff-popup")
+  expect(getMode("magit-mode")?.keymap?.get("S-d")).toBe("magit-diff-refresh")
   const status = getMode("magit-status")
   expect(status?.keymap?.get("S-p p")).toBe("magit-push")
   expect(status?.keymap?.get("l l")).toBe("magit-log")
@@ -85,6 +87,8 @@ test("install registers v2 commands, modes and bindings", () => {
   expect(getMode("magit-diff-mode")?.parent).toBe("magit-mode")
   expect(getMode("magit-diff-mode")?.keymap?.get("C-c C-b")).toBe("magit-go-backward")
   expect(getMode("magit-diff-mode")?.keymap?.get("C-c C-f")).toBe("magit-go-forward")
+  editor.scratch("*magit-diff*", "", "magit-diff-mode")
+  expect(editor.keymaps.lookup("S-d")).toMatchObject({ status: "matched", command: "magit-diff-refresh" })
   const revision = getMode("magit-revision-mode")
   expect(revision?.parent).toBe("magit-diff-mode")
   expect(revision?.fontLock).toBe(magitDiffFontLock)
