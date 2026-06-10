@@ -432,6 +432,7 @@ export function inferMode(path: string, text = ""): string {
   if (/README\.md$/i.test(path)) return "gfm"
   if (/\.(?:md|markdown|mkd|mdown|mkdn|mdwn)$/i.test(path)) return "markdown"
   if (/\.py$/.test(path)) return "python"
+  if (/\.el$/.test(path)) return "emacs-lisp-mode"
   if (/\.rs$/.test(path)) return "rust"
   if (/\.go$/.test(path)) return "go"
   if (/\.proto$/.test(path)) return "protobuf"

@@ -1297,6 +1297,47 @@ test("sh-mode supports indentation, font-lock, and TAB completion", async () => 
   expect(buffer.text.endsWith("exec")).toBe(true)
 })
 
+test("emacs-lisp-mode is installed for .el files using GNU Emacs naming", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  const { getMode, modeLineage } = await import("../src/modes/mode")
+  installDefaultModes()
+
+  expect(getMode("emacs-lisp-mode")?.parent).toBe("prog-mode")
+  expect(getMode("emacs-lisp-mode")?.commentStart).toBe(";")
+  expect(getMode("emacs-lisp-mode")?.keymap?.get("C-M-a")).toBe("beginning-of-defun")
+  expect(getMode("emacs-lisp-mode")?.keymap?.get("C-M-e")).toBe("end-of-defun")
+  expect(modeLineage("emacs-lisp-mode").map(m => m.name)).toEqual(["emacs-lisp-mode", "prog-mode", "text"])
+  expect(new BufferModel({ name: "init.el" }).mode).toBe("emacs-lisp-mode")
+})
+
+test("emacs-lisp-mode supports indentation, defun navigation, font-lock, and TAB completion", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.scratch("example.el", "(defun greet ()\n(message \"hi\"))\n(setq local-value mes", "emacs-lisp-mode")
+
+  buffer.point = buffer.text.indexOf("(message")
+  editor.indentLine(buffer)
+  expect(buffer.text).toContain("(defun greet ()\n  (message \"hi\")")
+
+  buffer.point = buffer.text.length
+  await editor.run("beginning-of-defun")
+  expect(buffer.point).toBe(0)
+  await editor.run("end-of-defun")
+  expect(buffer.point).toBe(buffer.text.lastIndexOf(")") + 1)
+
+  const spans = editor.fontLock(buffer)
+  expect(spans.some(span => span.face === "keyword" && buffer.text.slice(span.start, span.end) === "defun")).toBe(true)
+  expect(spans.some(span => span.face === "function" && buffer.text.slice(span.start, span.end) === "greet")).toBe(true)
+  expect(spans.some(span => span.face === "builtin" && buffer.text.slice(span.start, span.end) === "message")).toBe(true)
+  expect(spans.some(span => span.face === "string" && buffer.text.slice(span.start, span.end) === "\"hi\"")).toBe(true)
+
+  buffer.point = buffer.text.length
+  await editor.completeAtPoint(buffer)
+  expect(buffer.text.endsWith("message")).toBe(true)
+})
+
 test("python mode supports indentation, defun navigation, font-lock, and TAB completion", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   installDefaultModes()

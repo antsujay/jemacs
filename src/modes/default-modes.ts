@@ -8,6 +8,7 @@ import { installMinibufferMode } from "./minibuffer"
 import { installPythonMode } from "./python"
 import { installShellScriptMode } from "./shell-script"
 import { installConfigModes } from "./generic"
+import { installEmacsLispMode } from "./emacs-lisp"
 
 export function installDefaultModes(): void {
   installLinumMode()
@@ -17,6 +18,7 @@ export function installDefaultModes(): void {
   installCustomizeMode()
   defineMode({ name: "prog-mode", parent: "text" })
   installConfigModes()
+  installEmacsLispMode()
   installPythonMode()
   installShellScriptMode()
   installBufferListMode()
