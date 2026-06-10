@@ -42,6 +42,9 @@ test("diff-mode is installed as a core mode and inferred for patches", () => {
   expect(editor.commands.get("diff-sanity-check-hunk")).toBeDefined()
   expect(editor.commands.get("diff-current-defun")).toBeDefined()
   expect(editor.commands.get("diff-add-log-current-defuns")).toBeDefined()
+  expect(editor.commands.get("diff-find-file-name")).toBeDefined()
+  expect(editor.commands.get("diff-buffer-file-names")).toBeDefined()
+  expect(editor.commands.get("diff-tell-file-name")).toBeDefined()
   expect(inferMode("change.patch")).toBe("diff-mode")
   expect(inferMode("change.diff")).toBe("diff-mode")
 })
@@ -222,6 +225,96 @@ test("diff-goto-source resolves prefixed diff paths by dropping leading director
     await editor.run("diff-goto-source")
     expect(editor.currentBuffer.path).toBe(resolve(dir, "a.txt"))
     expect(editor.currentBuffer.point).toBe(editor.currentBuffer.lineBounds(1)[0])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-find-file-name reports the resolved source file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-find-file-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\nnew\n")
+    const text = [
+      "diff --git a/src/a.txt b/src/a.txt",
+      "--- a/src/a.txt",
+      "+++ b/src/a.txt",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    let message = ""
+    editor.events.on("message", ({ text }) => { if (text) message = text })
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = text.indexOf("@@ -1 +1 @@")
+    await editor.run("diff-find-file-name")
+    expect(message).toBe(resolve(dir, "a.txt"))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-buffer-file-names lists resolved files for every file diff", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-buffer-files-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\n")
+    await writeFile(join(dir, "b.txt"), "two\n")
+    const text = [
+      "diff --git a/src/a.txt b/src/a.txt",
+      "--- a/src/a.txt",
+      "+++ b/src/a.txt",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "diff --git a/lib/b.txt b/lib/b.txt",
+      "--- a/lib/b.txt",
+      "+++ b/lib/b.txt",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    await editor.run("diff-buffer-file-names")
+    expect(editor.currentBuffer.name).toBe("*diff-buffer-file-names*")
+    expect(editor.currentBuffer.readOnly).toBe(true)
+    expect(editor.currentBuffer.text).toContain(`${resolve(dir, "a.txt")}\n`)
+    expect(editor.currentBuffer.text).toContain(`${resolve(dir, "b.txt")}\n`)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-tell-file-name remembers an explicit source file for the current hunk", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-tell-file-"))
+  try {
+    const actual = join(dir, "actual.txt")
+    await writeFile(actual, "one\nnew\n")
+    const text = [
+      "diff --git a/missing.txt b/missing.txt",
+      "--- a/missing.txt",
+      "+++ b/missing.txt",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    let message = ""
+    editor.events.on("message", ({ text }) => { if (text) message = text })
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = text.indexOf("@@ -1 +1 @@")
+    await editor.run("diff-tell-file-name", [actual])
+    expect(message).toBe(`Remembered ${actual}`)
+    await editor.run("diff-find-file-name")
+    expect(message).toBe(actual)
+    await editor.run("diff-goto-source")
+    expect(editor.currentBuffer.path).toBe(actual)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -32,6 +32,7 @@ export type DiffFile = {
 type Line = { text: string; start: number; end: number }
 const DIFF_NARROW_LOCAL = "diff-narrowed-region"
 const DIFF_REFINE_LOCAL = "diff-refine-spans"
+const DIFF_REMEMBERED_FILES_LOCAL = "diff-remembered-files"
 
 export function installDiffMode(): void {
   const keymap = new Keymap("diff-mode-map")
@@ -199,11 +200,30 @@ export function installDiffCommands(editor: Editor): void {
     if (!loc) return editor.message("No source location at point")
     const sanity = sanityCheckHunkAtPoint(buffer)
     if (!sanity.ok) return editor.message(sanity.error)
-    const file = await resolveDiffFileName(buffer, loc.file)
+    const file = await diffFindFileName(buffer, false) ?? await resolveDiffFileName(buffer, loc.file)
     const source = await editor.openFile(file)
     const line = Math.max(0, loc.line - 1)
     source.point = source.lineBounds(Math.min(line, source.lineCount - 1))[0]
   }, "Visit the source location corresponding to point.")
+
+  editor.command("diff-find-file-name", async ({ editor, buffer, prefixArgument }) => {
+    const file = await diffFindFileName(buffer, prefixArgument != null)
+    editor.message(file ?? "Can't find the file")
+  }, "Return the file corresponding to the current patch.")
+
+  editor.command("diff-buffer-file-names", async ({ editor, buffer, prefixArgument }) => {
+    const files = await diffBufferFileNames(buffer, prefixArgument != null)
+    const out = editor.scratch("*diff-buffer-file-names*", files.join("\n") + (files.length ? "\n" : ""), "text")
+    out.readOnly = true
+    editor.message(files.length ? `Found ${files.length} file${files.length === 1 ? "" : "s"}` : "No file names found")
+  }, "Return file names corresponding to all hunks in this diff buffer.")
+
+  editor.command("diff-tell-file-name", ({ editor, buffer, args, prefixArgument }) => {
+    const name = args[0]
+    if (!name) return editor.message("No file name supplied")
+    if (!rememberDiffFileName(buffer, prefixArgument != null, name)) return editor.message("No file name to look for")
+    editor.message(`Remembered ${name}`)
+  }, "Tell diff-mode where to find the source file of the current hunk.")
 
   editor.command("diff-apply-hunk", async ({ editor, buffer }) => {
     const patch = patchAtPoint(buffer)
@@ -1139,12 +1159,71 @@ function diffDefaultDirectory(buffer: BufferModel): string {
 }
 
 async function resolveDiffFileName(buffer: BufferModel, file: string): Promise<string> {
-  const dir = diffDefaultDirectory(buffer)
-  for (const candidate of diffPathCandidates(file)) {
-    const path = resolve(dir, candidate)
-    if (await isRegularFile(path)) return path
+  return resolveDiffFileCandidates(buffer, [file])
+}
+
+async function diffFindFileName(buffer: BufferModel, old: boolean): Promise<string | null> {
+  const candidates = diffHunkFileNames(buffer, old)
+  if (!candidates.length) return null
+  const remembered = rememberedDiffFiles(buffer).get(diffRememberKey(candidates))
+  if (remembered) return resolve(diffDefaultDirectory(buffer), remembered)
+  return resolveDiffFileCandidates(buffer, candidates)
+}
+
+async function diffBufferFileNames(buffer: BufferModel, old: boolean): Promise<string[]> {
+  const found: string[] = []
+  const originalPoint = buffer.point
+  try {
+    for (const file of parseDiffBuffer(buffer)) {
+      const line = lineInfo(buffer)[file.startLine]
+      if (!line) continue
+      buffer.point = line.start
+      const resolved = await diffFindFileName(buffer, old)
+      if (resolved && !found.includes(resolved)) found.push(resolved)
+    }
+  } finally {
+    buffer.point = originalPoint
   }
-  return resolve(dir, file)
+  return found
+}
+
+function rememberDiffFileName(buffer: BufferModel, old: boolean, name: string): boolean {
+  const candidates = diffHunkFileNames(buffer, old)
+  if (!candidates.length) return false
+  rememberedDiffFiles(buffer).set(diffRememberKey(candidates), name)
+  return true
+}
+
+function rememberedDiffFiles(buffer: BufferModel): Map<string, string> {
+  let remembered = buffer.locals.get(DIFF_REMEMBERED_FILES_LOCAL) as Map<string, string> | undefined
+  if (!remembered) {
+    remembered = new Map()
+    buffer.locals.set(DIFF_REMEMBERED_FILES_LOCAL, remembered)
+  }
+  return remembered
+}
+
+function diffRememberKey(candidates: string[]): string {
+  return candidates.join("\0")
+}
+
+function diffHunkFileNames(buffer: BufferModel, old: boolean): string[] {
+  const file = diffFileAtPoint(buffer)
+  if (!file) return []
+  const primary = old ? file.oldFile : file.newFile
+  const secondary = old ? file.newFile : file.oldFile
+  return [primary, secondary].filter((name): name is string => Boolean(name && name !== "/dev/null"))
+}
+
+async function resolveDiffFileCandidates(buffer: BufferModel, files: string[]): Promise<string> {
+  const dir = diffDefaultDirectory(buffer)
+  for (const file of files) {
+    for (const candidate of diffPathCandidates(file)) {
+      const path = resolve(dir, candidate)
+      if (await isRegularFile(path)) return path
+    }
+  }
+  return resolve(dir, files[0] ?? "")
 }
 
 function diffPathCandidates(file: string): string[] {
