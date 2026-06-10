@@ -850,17 +850,22 @@ function replaceHunk(buffer: BufferModel, hunk: DiffHunk, text: string): void {
 }
 
 async function applyPatchText(editor: Editor, buffer: BufferModel, patch: string, reverse: boolean, check: boolean): Promise<boolean> {
-  let result = await runGitApply(buffer, patch, reverse, check)
-  if (!result.ok) {
-    const resolvedPatch = await patchWithResolvedFileNames(buffer, patch)
-    if (resolvedPatch !== patch) result = await runGitApply(buffer, resolvedPatch, reverse, check)
-  }
+  const result = await runGitApplyResolved(buffer, patch, reverse, check)
   if (result.ok) {
     editor.message(check ? "Patch applies cleanly" : "Applied patch")
     return true
   }
   editor.message(`git apply failed: ${result.err.trim()}`)
   return false
+}
+
+async function runGitApplyResolved(buffer: BufferModel, patch: string, reverse: boolean, check: boolean): Promise<{ ok: boolean; err: string }> {
+  let result = await runGitApply(buffer, patch, reverse, check)
+  if (!result.ok) {
+    const resolvedPatch = await patchWithResolvedFileNames(buffer, patch)
+    if (resolvedPatch !== patch) result = await runGitApply(buffer, resolvedPatch, reverse, check)
+  }
+  return result
 }
 
 async function patchWithResolvedFileNames(buffer: BufferModel, patch: string): Promise<string> {
@@ -938,7 +943,7 @@ async function killAppliedHunks(buffer: BufferModel): Promise<number> {
     for (const hunk of file.hunks) {
       if (hunk.startLine < startLine) continue
       const patch = patchForHunk(buffer, file, hunk)
-      const reverseApplies = await runGitApply(buffer, patch, true, true)
+      const reverseApplies = await runGitApplyResolved(buffer, patch, true, true)
       if (reverseApplies.ok) matches.push(hunk)
     }
   }
