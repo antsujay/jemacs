@@ -27,6 +27,7 @@ const builtins: Array<[name: string, load: () => Promise<{ install: InstallFn }>
   ["auto-save", () => import("./auto-save")],
   ["tramp", () => import("./tramp")],
   ["lsp-extras", () => import("./lsp-extras")],
+  ["lsp-ui-doc", () => import("./lsp-ui-doc")],
   ["lsp-monorepo", () => import("./lsp-monorepo")],
   ["lsp-watchman", () => import("./lsp-watchman")],
   ["which-key", () => import("./which-key")],

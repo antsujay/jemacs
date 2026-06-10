@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import type { SerializedDisplayModel, SerializedPane, SerializedThemedText, SerializedWindowNode } from "./serialize"
+import type { SerializedChildFrame, SerializedDisplayModel, SerializedPane, SerializedThemedText, SerializedWindowNode } from "./serialize"
 import type { TerminalCell, TerminalSurfaceModel } from "./terminal-surface"
 
 export type SerializedChunk = SerializedThemedText["chunks"][number]
@@ -225,6 +225,30 @@ export function renderWindows(
   return split
 }
 
+function renderChildFrame(frame: SerializedChildFrame, theme?: SerializedDisplayModel["theme"]): HTMLElement {
+  const el = document.createElement("div")
+  el.className = "jemacs-child-frame"
+  el.dataset.childFrameId = frame.id
+  el.style.top = `${frame.top * DOM_FRAME_ROW_PX}px`
+  el.style.left = `${frame.left * DOM_FRAME_COL_PX}px`
+  el.style.width = `${frame.width * DOM_FRAME_COL_PX}px`
+  el.style.maxHeight = `${frame.height * DOM_FRAME_ROW_PX}px`
+  const defaultFace = themeFace(theme, "default")
+  const modelineFace = themeFace(theme, "modeLine")
+  if (defaultFace?.bg) el.style.backgroundColor = defaultFace.bg
+  if (defaultFace?.fg) el.style.color = defaultFace.fg
+  if (defaultFace?.family) el.style.fontFamily = defaultFace.family
+  if (modelineFace?.bg) el.style.borderColor = modelineFace.bg
+  const body = document.createElement("div")
+  body.className = "jemacs-child-frame-body"
+  renderThemedText(body, frame.pane.body, {
+    textScale: frame.pane.textScale,
+    defaultFontPx: defaultFace?.height != null ? defaultFace.height / 10 : DOM_FRAME_BODY_FONT_PX,
+  })
+  el.appendChild(body)
+  return el
+}
+
 function renderTerminalSurface(el: HTMLElement, surface: TerminalSurfaceModel): void {
   el.replaceChildren()
   el.classList.add("terminal-surface")
@@ -271,7 +295,10 @@ export function presentDomFrame(
   const titleFace = model.theme.faces.title ?? defaultFace
   const defaultPx = defaultFace?.height != null ? defaultFace.height / 10 : DOM_FRAME_BODY_FONT_PX
   renderThemedText(targets.title, model.title, { defaultFontPx: defaultPx })
-  targets.windows.replaceChildren(renderWindows(model.windows, onMouse, terminalRenderer, 1, model.theme))
+  targets.windows.replaceChildren(
+    renderWindows(model.windows, onMouse, terminalRenderer, 1, model.theme),
+    ...(model.childFrames ?? []).map(frame => renderChildFrame(frame, model.theme)),
+  )
   if (targets.minibufferCompletions) {
     renderThemedText(targets.minibufferCompletions, model.minibufferCompletions, { defaultFontPx: defaultPx })
     targets.minibufferCompletions.style.display = model.minibufferCompletionLines > 0 ? "" : "none"

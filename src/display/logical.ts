@@ -3,7 +3,7 @@ import type { BufferModel } from "../kernel/buffer"
 import { textScaleFactor, textScaleLighter } from "../core/text-scale"
 import { defvar, getCustom } from "../runtime/custom"
 import { isearchLazyHighlightSpans, isearchMatchSpan } from "../kernel/isearch"
-import { type WindowLeaf, type WindowNode } from "../kernel/window"
+import { type ChildFrameParameters, type WindowLeaf, type WindowNode } from "../kernel/window"
 import { diagnosticsForBuffer } from "../lsp/diagnostics"
 import { positionToPoint } from "../lsp/positions"
 import { modeFeature, type TextSpan } from "../modes/mode"
@@ -60,6 +60,13 @@ export type LogicalWindowNode =
   | { kind: "leaf"; id: string; pane: LogicalPane; dedicated: boolean }
   | { kind: "split"; direction: "horizontal" | "vertical"; ratio?: number; first: LogicalWindowNode; second: LogicalWindowNode }
 
+export type LogicalChildFrame = {
+  id: string
+  parentFrameId: string
+  parameters: ChildFrameParameters
+  pane: LogicalPane
+}
+
 export type LogicalMinibuffer = {
   text: string
   point: number
@@ -68,6 +75,7 @@ export type LogicalMinibuffer = {
 
 export type LogicalModel = {
   windows: LogicalWindowNode
+  childFrames: LogicalChildFrame[]
   selectedWindowId: string
   minibuffer: LogicalMinibuffer | null
   completion: MinibufferCompletionDisplay | null
@@ -98,6 +106,14 @@ export function buildLogicalModel(editor: Editor, options: BuildLogicalOptions =
   const title = applyTheme(titleText, [{ start: 0, end: titleText.length, face: "title" }], editor.theme)
 
   const windows = buildLogicalWindowTree(editor, editor.windowLayout)
+  const childFrames = [...editor.childFrames.values()]
+    .filter(frame => frame.visible)
+    .map(frame => ({
+      id: frame.id,
+      parentFrameId: frame.parentFrameId,
+      parameters: frame.parameters,
+      pane: buildLogicalPane(editor, frame.window),
+    }))
   const minibuffer = logicalMinibuffer(editor, depth)
   const overlayRows = editor.minibuffer ? editor.activeBuffer.text.split("\n").length - 1 : 0
 
@@ -111,6 +127,7 @@ export function buildLogicalModel(editor: Editor, options: BuildLogicalOptions =
 
   return {
     windows,
+    childFrames,
     selectedWindowId: editor.selectedWindowId,
     minibuffer,
     completion: editor.minibufferCompletionDisplay,
