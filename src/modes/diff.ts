@@ -7,6 +7,7 @@ import { Keymap } from "../kernel/keymap"
 import { spawnProcess } from "../platform/runtime"
 import { killNew } from "../runtime/kill-ring"
 import { defineMode, type TextSpan } from "./mode"
+import { defineMinorMode } from "./minor-mode"
 
 export type DiffHunkStyle = "unified" | "context" | "normal"
 
@@ -34,7 +35,7 @@ const DIFF_REFINE_LOCAL = "diff-refine-spans"
 
 export function installDiffMode(): void {
   const keymap = new Keymap("diff-mode-map")
-  for (const [key, command] of [
+  const sharedBindings = [
     ["n", "diff-hunk-next"],
     ["S-n", "diff-file-next"],
     ["p", "diff-hunk-prev"],
@@ -55,6 +56,12 @@ export function installDiffMode(): void {
     ["s", "diff-split-hunk"],
     ["u", "diff-revert-and-kill-hunk"],
     ["@", "diff-revert-and-kill-hunk"],
+  ] as const
+  for (const [key, command] of sharedBindings) {
+    keymap.bind(key, command)
+    keymap.bind(`ESC ${key}`, command)
+  }
+  for (const [key, command] of [
     ["C-c C-c", "diff-goto-source"],
     ["C-x 4 A", "diff-add-change-log-entries-other-window"],
     ["C-c C-a", "diff-apply-hunk"],
@@ -74,6 +81,7 @@ export function installDiffMode(): void {
     ["C-c C-b", "diff-refine-hunk"],
   ] as const) keymap.bind(key, command)
   keymap.bind("S-w", "widen")
+  keymap.bind("ESC S-w", "widen")
   defineMode({
     name: "diff-mode",
     parent: "text",
@@ -82,6 +90,14 @@ export function installDiffMode(): void {
     beginningOfDefun: diffBeginningOfFileAndJunk,
     endOfDefun: diffEndOfFile,
     displayFilter: diffDisplayFilter,
+  })
+  const minorMap = new Keymap("diff-minor-mode-map")
+  for (const [key, command] of sharedBindings) minorMap.bind(`C-c = ${key}`, command)
+  minorMap.bind("C-c = S-w", "widen")
+  defineMinorMode({
+    name: "diff-minor-mode",
+    lighter: " Diff",
+    keymap: minorMap,
   })
 }
 

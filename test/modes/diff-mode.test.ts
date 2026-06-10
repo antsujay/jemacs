@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BufferModel, inferMode } from "../../src/kernel/buffer"
 import { getMode } from "../../src/modes/mode"
+import { getMinorMode } from "../../src/modes/minor-mode"
 import { diffFileAtPoint, diffFontLock, diffHunkAtPoint, parseDiffBuffer } from "../../src/modes/diff"
 import { makeEditor } from "../plugins/helper"
 import { currentKill } from "../../src/runtime/kill-ring"
@@ -33,10 +34,23 @@ test("diff-mode is installed as a core mode and inferred for patches", () => {
   const mode = getMode("diff-mode")
   expect(mode?.parent).toBe("text")
   expect(mode?.keymap?.get("n")).toBe("diff-hunk-next")
+  expect(mode?.keymap?.get("ESC n")).toBe("diff-hunk-next")
+  expect(mode?.keymap?.get("ESC S-w")).toBe("widen")
   expect(mode?.keymap?.get("C-c C-a")).toBe("diff-apply-hunk")
   expect(editor.commands.get("diff-hunk-next")).toBeDefined()
   expect(inferMode("change.patch")).toBe("diff-mode")
   expect(inferMode("change.diff")).toBe("diff-mode")
+})
+
+test("diff-minor-mode exposes Emacs shared diff bindings under C-c =", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*text*", sample, "text")
+  const minor = getMinorMode("diff-minor-mode")
+  expect(minor?.keymap?.get("C-c = n")).toBe("diff-hunk-next")
+  expect(minor?.keymap?.get("C-c = S-w")).toBe("widen")
+  await editor.run("diff-minor-mode")
+  expect(buffer.minorModes.has("diff-minor-mode")).toBe(true)
+  expect(editor.keymaps.lookup("C-c = n")).toMatchObject({ status: "matched", command: "diff-hunk-next" })
 })
 
 test("parseDiffBuffer tracks unified files and hunks", () => {
