@@ -62,13 +62,13 @@ export class BufferModel {
     this._lineStarts = scanLineStarts(this._text)
     this.path = args.path
     this.kind = args.kind ?? (args.path ? "file" : "scratch")
-    this.mode = args.mode ?? inferMode(args.path ?? args.name)
+    this.mode = args.mode ?? inferMode(args.path ?? args.name, this._text)
   }
 
   static async fromFile(path: string): Promise<BufferModel> {
     const exists = await fileExists(path)
     const text = exists ? await readFileText(path) : ""
-    const buf = new BufferModel({ name: basename(path), path, text, kind: "file", mode: inferMode(path) })
+    const buf = new BufferModel({ name: basename(path), path, text, kind: "file", mode: inferMode(path, text) })
     if (exists) buf.visitedFileModtime = await fileModtime(path)
     return buf
   }
@@ -421,7 +421,7 @@ async function fileModtime(path: string): Promise<number | undefined> {
   }
 }
 
-export function inferMode(path: string): string {
+export function inferMode(path: string, text = ""): string {
   if (/\.(js|mjs|cjs|jsx)$/.test(path)) return "javascript"
   if (/\.(ts|mts|cts|tsx)$/.test(path)) return "typescript"
   if (/\.(html?|xhtml)$/.test(path)) return "html"
@@ -442,7 +442,18 @@ export function inferMode(path: string): string {
   if (/(^|\/)Jenkinsfile$/.test(path)) return "jenkinsfile"
   if (/\.exs?$/.test(path)) return "elixir"
   if (/\.prisma$/.test(path)) return "prisma"
+  if (isShellScriptPath(path) || isShellShebang(text)) return "sh-mode"
   return "text"
+}
+
+function isShellScriptPath(path: string): boolean {
+  return /\.(?:ba|z|k)?sh$/i.test(path)
+    || /(^|\/)\.(?:bashrc|bash_profile|bash_login|bash_logout|profile|zshrc|zprofile|zlogin|zlogout|zshenv|kshrc)$/.test(path)
+}
+
+function isShellShebang(text: string): boolean {
+  const firstLine = text.slice(0, text.indexOf("\n") === -1 ? undefined : text.indexOf("\n"))
+  return /^#!\s*(?:\/usr\/bin\/env\s+(?:-\S+\s+)*|\/(?:usr\/)?bin\/)(?:ba|z|k)?sh(?:\s|$)/.test(firstLine)
 }
 
 function clamp(n: number, min: number, max: number): number {

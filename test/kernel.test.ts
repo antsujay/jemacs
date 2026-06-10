@@ -1245,6 +1245,58 @@ test("prog-mode and python-mode are installed with a real python major map", asy
   expect(file.mode).toBe("python")
 })
 
+test("sh-mode, shell-script-mode, and bash-mode are installed as core shell script modes", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  const { getMode, modeLineage } = await import("../src/modes/mode")
+  installDefaultModes()
+
+  expect(getMode("sh-mode")?.parent).toBe("prog-mode")
+  expect(getMode("sh-mode")?.commentStart).toBe("#")
+  expect(getMode("sh-mode")?.keymap?.get("C-M-a")).toBe("beginning-of-defun")
+  expect(getMode("shell-script-mode")?.parent).toBe("sh-mode")
+  expect(getMode("bash-mode")?.parent).toBe("sh-mode")
+  expect(modeLineage("bash-mode").map(m => m.name)).toEqual(["bash-mode", "sh-mode", "prog-mode", "text"])
+
+  expect(new BufferModel({ name: "deploy.sh" }).mode).toBe("sh-mode")
+  expect(new BufferModel({ name: ".zshrc", path: "/tmp/.zshrc" }).mode).toBe("sh-mode")
+  expect(new BufferModel({ name: "script", text: "#!/bin/sh\necho hi\n" }).mode).toBe("sh-mode")
+
+  await Bun.write("/tmp/jemacs-shell-script-without-extension", "#!/usr/bin/env bash\necho hi\n")
+  const editor = new Editor()
+  const file = await editor.openFile("/tmp/jemacs-shell-script-without-extension")
+  expect(file.mode).toBe("sh-mode")
+})
+
+test("sh-mode supports indentation, font-lock, and TAB completion", async () => {
+  const { installDefaultModes } = await import("../src/modes/default-modes")
+  installDefaultModes()
+  const editor = new Editor()
+  installDefaultCommands(editor)
+  const buffer = editor.scratch("example.sh", "greet() {\nif true; then\necho \"hi\"\nfi\n}\nex", "sh-mode")
+
+  buffer.point = buffer.text.indexOf("if true")
+  editor.indentLine(buffer)
+  expect(buffer.text).toContain("greet() {\n  if true; then")
+
+  buffer.point = buffer.text.indexOf("echo")
+  editor.indentLine(buffer)
+  expect(buffer.text).toContain("  if true; then\n    echo \"hi\"")
+
+  buffer.point = buffer.text.indexOf("fi")
+  editor.indentLine(buffer)
+  expect(buffer.text).toContain("    echo \"hi\"\n  fi")
+
+  const spans = editor.fontLock(buffer)
+  expect(spans.some(span => span.face === "keyword" && buffer.text.slice(span.start, span.end) === "if")).toBe(true)
+  expect(spans.some(span => span.face === "builtin" && buffer.text.slice(span.start, span.end) === "echo")).toBe(true)
+  expect(spans.some(span => span.face === "function" && buffer.text.slice(span.start, span.end) === "greet")).toBe(true)
+  expect(spans.some(span => span.face === "string" && buffer.text.slice(span.start, span.end) === "\"hi\"")).toBe(true)
+
+  buffer.point = buffer.text.length
+  await editor.completeAtPoint(buffer)
+  expect(buffer.text.endsWith("exec")).toBe(true)
+})
+
 test("python mode supports indentation, defun navigation, font-lock, and TAB completion", async () => {
   const { installDefaultModes } = await import("../src/modes/default-modes")
   installDefaultModes()

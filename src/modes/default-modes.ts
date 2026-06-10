@@ -6,6 +6,7 @@ import { installLinumMode } from "./linum-mode"
 import { installHelpMode } from "./help"
 import { installMinibufferMode } from "./minibuffer"
 import { installPythonMode } from "./python"
+import { installShellScriptMode } from "./shell-script"
 import { installConfigModes } from "./generic"
 
 export function installDefaultModes(): void {
@@ -17,6 +18,7 @@ export function installDefaultModes(): void {
   defineMode({ name: "prog-mode", parent: "text" })
   installConfigModes()
   installPythonMode()
+  installShellScriptMode()
   installBufferListMode()
   installDiredMode()
 }
