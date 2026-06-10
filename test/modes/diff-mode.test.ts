@@ -39,6 +39,7 @@ test("diff-mode is installed as a core mode and inferred for patches", () => {
   expect(mode?.keymap?.get("C-c C-a")).toBe("diff-apply-hunk")
   expect(editor.commands.get("diff-hunk-next")).toBeDefined()
   expect(editor.commands.get("diff-make-unified")).toBeDefined()
+  expect(editor.commands.get("diff-sanity-check-hunk")).toBeDefined()
   expect(inferMode("change.patch")).toBe("diff-mode")
   expect(inferMode("change.diff")).toBe("diff-mode")
 })
@@ -219,6 +220,59 @@ test("diff-goto-source resolves prefixed diff paths by dropping leading director
     await editor.run("diff-goto-source")
     expect(editor.currentBuffer.path).toBe(resolve(dir, "a.txt"))
     expect(editor.currentBuffer.point).toBe(editor.currentBuffer.lineBounds(1)[0])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-sanity-check-hunk reports well-formed and malformed unified hunks", async () => {
+  const editor = makeEditor()
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  buffer.point = buffer.text.indexOf("@@ -1,2 +1,3 @@")
+  await editor.run("diff-sanity-check-hunk")
+  expect(messages.at(-1)).toBe("Hunk is well formed")
+
+  const malformed = [
+    "diff --git a/a.txt b/a.txt",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1,2 +1,3 @@",
+    " one",
+    "-two",
+    "+TWO",
+    "",
+  ].join("\n")
+  buffer.setText(malformed)
+  buffer.point = malformed.indexOf("@@ -1,2 +1,3 @@")
+  await editor.run("diff-sanity-check-hunk")
+  expect(messages.at(-1)).toBe("End of hunk ambiguously marked")
+})
+
+test("diff-goto-source refuses malformed hunks before opening source", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-sanity-source-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\nTWO\nthree\n")
+    const malformed = [
+      "diff --git a/a.txt b/a.txt",
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,2 +1,3 @@",
+      " one",
+      "-two",
+      "+TWO",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const messages: string[] = []
+    editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+    const buffer = editor.scratch("*diff*", malformed, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = malformed.indexOf("+TWO")
+    await editor.run("diff-goto-source")
+    expect(editor.currentBuffer).toBe(buffer)
+    expect(messages.at(-1)).toBe("End of hunk ambiguously marked")
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

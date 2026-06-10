@@ -122,6 +122,11 @@ export function installDiffCommands(editor: Editor): void {
     if (!moveToNextComplexHunk(buffer)) editor.message("No next complex hunk")
   }, "Jump to the next unified hunk that changes the number of lines.")
 
+  editor.command("diff-sanity-check-hunk", ({ buffer, editor }) => {
+    const result = sanityCheckHunkAtPoint(buffer)
+    editor.message(result.ok ? "Hunk is well formed" : result.error)
+  }, "Check whether the current hunk is well formed.")
+
   editor.command("diff-hunk-kill", ({ buffer, editor }) => {
     const hunk = diffHunkAtPoint(buffer)
     if (!hunk) return editor.message("No hunk at point")
@@ -192,6 +197,8 @@ export function installDiffCommands(editor: Editor): void {
   editor.command("diff-goto-source", async ({ editor, buffer }) => {
     const loc = sourceLocationAtPoint(buffer)
     if (!loc) return editor.message("No source location at point")
+    const sanity = sanityCheckHunkAtPoint(buffer)
+    if (!sanity.ok) return editor.message(sanity.error)
     const file = await resolveDiffFileName(buffer, loc.file)
     const source = await editor.openFile(file)
     const line = Math.max(0, loc.line - 1)
@@ -508,6 +515,65 @@ function sourceLocationAtPoint(buffer: BufferModel): { file: string; line: numbe
     }
   }
   return { file: target, line }
+}
+
+function sanityCheckHunkAtPoint(buffer: BufferModel): { ok: true } | { ok: false; error: string } {
+  const hunk = diffHunkAtPoint(buffer)
+  if (!hunk) return { ok: false, error: "Not recognizable hunk header" }
+  if (hunk.style === "unified") return sanityCheckUnifiedHunk(buffer, hunk)
+  if (hunk.style === "context") return sanityCheckContextHunk(buffer, hunk)
+  return { ok: true }
+}
+
+function sanityCheckUnifiedHunk(buffer: BufferModel, hunk: DiffHunk): { ok: true } | { ok: false; error: string } {
+  if (hunk.oldCount == null || hunk.newCount == null) return { ok: false, error: "Unrecognized unified diff hunk header format" }
+  let before = hunk.oldCount
+  let after = hunk.newCount
+  const lines = lineInfo(buffer)
+  for (let i = hunk.startLine + 1; i <= hunk.endLine; i++) {
+    const text = lines[i]?.text ?? ""
+    if (text.startsWith(" ")) {
+      before--
+      after--
+    } else if (text.startsWith("-")) {
+      before--
+    } else if (text.startsWith("+")) {
+      after--
+    } else if (text.startsWith("\\")) {
+      continue
+    } else if (text === "" && before > 0 && after > 0) {
+      before--
+      after--
+    } else {
+      return { ok: false, error: "End of hunk ambiguously marked" }
+    }
+    if (before < 0 || after < 0) {
+      return { ok: false, error: before === 0 || after === 0 ? "End of hunk ambiguously marked" : "Hunk seriously messed up" }
+    }
+  }
+  if (before !== 0 || after !== 0) return { ok: false, error: "End of hunk ambiguously marked" }
+  return { ok: true }
+}
+
+function sanityCheckContextHunk(buffer: BufferModel, hunk: DiffHunk): { ok: true } | { ok: false; error: string } {
+  if (hunk.oldCount == null || hunk.newCount == null) return { ok: false, error: "Unrecognized context diff hunk header format" }
+  const lines = lineInfo(buffer)
+  const middle = lines.findIndex((line, index) => index > hunk.startLine && index <= hunk.endLine && /^--- \d/.test(line.text))
+  if (middle < 0) return { ok: false, error: "Unrecognized context diff second hunk header format" }
+  const oldResult = sanityCheckContextHunkHalf(lines.slice(hunk.startLine + 1, middle), hunk.oldCount)
+  if (!oldResult.ok) return oldResult
+  return sanityCheckContextHunkHalf(lines.slice(middle + 1, hunk.endLine + 1), hunk.newCount)
+}
+
+function sanityCheckContextHunkHalf(lines: Line[], expected: number): { ok: true } | { ok: false; error: string } {
+  let count = 0
+  for (const line of lines) {
+    if (/^\*\*\* \d/.test(line.text) || /^--- \d/.test(line.text)) continue
+    if (/^[ !+-] /.test(line.text)) count++
+    else if (line.text.startsWith("!") || line.text.startsWith("+") || line.text.startsWith("-")) return { ok: false, error: "End of hunk ambiguously marked" }
+    else if (line.text.trim() !== "") return { ok: false, error: "End of hunk ambiguously marked" }
+  }
+  return count === expected ? { ok: true } : { ok: false, error: "End of hunk ambiguously marked" }
 }
 
 function patchAtPoint(buffer: BufferModel): string | null {
