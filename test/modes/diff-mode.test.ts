@@ -40,6 +40,8 @@ test("diff-mode is installed as a core mode and inferred for patches", () => {
   expect(editor.commands.get("diff-hunk-next")).toBeDefined()
   expect(editor.commands.get("diff-make-unified")).toBeDefined()
   expect(editor.commands.get("diff-sanity-check-hunk")).toBeDefined()
+  expect(editor.commands.get("diff-current-defun")).toBeDefined()
+  expect(editor.commands.get("diff-add-log-current-defuns")).toBeDefined()
   expect(inferMode("change.patch")).toBe("diff-mode")
   expect(inferMode("change.diff")).toBe("diff-mode")
 })
@@ -525,6 +527,49 @@ test("diff-ediff-patch opens a read-only patched preview beside source", async (
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test("diff-current-defun reports the current hunk function name", async () => {
+  const editor = makeEditor()
+  const messages: string[] = []
+  editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  buffer.point = buffer.text.indexOf("@@ -1,2")
+  await editor.run("diff-current-defun")
+  expect(messages.at(-1)).toBe("function name")
+
+  buffer.point = buffer.text.indexOf("@@ -1 +1")
+  await editor.run("diff-current-defun")
+  expect(messages.at(-1)).toBe("No current defun")
+})
+
+test("diff-add-log-current-defuns groups hunk defuns by file", async () => {
+  const editor = makeEditor()
+  const text = [
+    "diff --git a/a.txt b/a.txt",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1 +1 @@ alpha",
+    "-old",
+    "+new",
+    "@@ -10 +10 @@ beta",
+    "-old",
+    "+new",
+    "diff --git a/b.txt b/b.txt",
+    "--- a/b.txt",
+    "+++ b/b.txt",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n")
+  editor.scratch("*diff*", text, "diff-mode")
+  await editor.run("diff-add-log-current-defuns")
+  const out = editor.currentBuffer
+  expect(out.name).toBe("*diff-current-defuns*")
+  expect(out.readOnly).toBe(true)
+  expect(out.text).toContain("a.txt: alpha, beta\n")
+  expect(out.text).toContain("b.txt: \n")
 })
 
 test("diff-add-change-log-entries-other-window creates entries for diff hunks", async () => {

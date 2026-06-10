@@ -242,6 +242,19 @@ export function installDiffCommands(editor: Editor): void {
     if (!(await addChangeLogEntriesOtherWindow(editor, buffer))) editor.message("No change log entries found")
   }, "Add ChangeLog entries for the current diff in another window.")
 
+  editor.command("diff-current-defun", ({ editor, buffer }) => {
+    const defun = diffCurrentDefun(buffer)
+    editor.message(defun ? defun : "No current defun")
+  }, "Find the function name for the current diff hunk.")
+
+  editor.command("diff-add-log-current-defuns", ({ editor, buffer }) => {
+    const entries = diffAddLogCurrentDefuns(buffer)
+    const text = entries.map(entry => `${entry.file}: ${entry.defuns.join(", ")}`).join("\n") + (entries.length ? "\n" : "")
+    const out = editor.scratch("*diff-current-defuns*", text, "text")
+    out.readOnly = true
+    editor.message(entries.length ? `Found defuns for ${entries.length} file${entries.length === 1 ? "" : "s"}` : "No diff defuns found")
+  }, "Return defun names for the current diff.")
+
   editor.command("diff-refine-hunk", ({ buffer, editor }) => {
     if (!refineHunk(buffer)) editor.message("No refinable hunk at point")
   }, "Highlight changes of the hunk at point at a finer granularity.")
@@ -907,6 +920,19 @@ async function addChangeLogEntriesOtherWindow(editor: Editor, buffer: BufferMode
 }
 
 function changeLogEntries(buffer: BufferModel): Array<{ file: string; functionName?: string }> {
+  return diffAddLogCurrentDefuns(buffer).flatMap(entry => {
+    if (!entry.defuns.length) return [{ file: entry.file }]
+    return entry.defuns.map(functionName => ({ file: entry.file, functionName }))
+  })
+}
+
+function diffCurrentDefun(buffer: BufferModel): string | undefined {
+  const hunk = diffHunkAtPoint(buffer)
+  if (!hunk) return undefined
+  return hunkFunctionName(lineInfo(buffer)[hunk.startLine]?.text ?? "")
+}
+
+function diffAddLogCurrentDefuns(buffer: BufferModel): Array<{ file: string; defuns: string[] }> {
   const entries: Array<{ file: string; functionName?: string }> = []
   const seen = new Set<string>()
   const lines = lineInfo(buffer)
@@ -921,7 +947,16 @@ function changeLogEntries(buffer: BufferModel): Array<{ file: string; functionNa
       entries.push({ file: name, functionName })
     }
   }
-  return entries
+  const grouped: Array<{ file: string; defuns: string[] }> = []
+  for (const entry of entries) {
+    const existing = grouped.find(item => item.file === entry.file)
+    if (existing) {
+      if (entry.functionName && !existing.defuns.includes(entry.functionName)) existing.defuns.push(entry.functionName)
+    } else {
+      grouped.push({ file: entry.file, defuns: entry.functionName ? [entry.functionName] : [] })
+    }
+  }
+  return grouped
 }
 
 function hunkFunctionName(header: string): string | undefined {
