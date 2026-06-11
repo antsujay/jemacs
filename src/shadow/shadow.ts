@@ -114,6 +114,17 @@ function withoutEmit<T>(buf: BufferModel, fn: () => T): T {
   try { return fn() } finally { buf.onSplice = prev }
 }
 
+/** Overwrite `buf` with authoritative text from a CAS hit / chunk reassembly.
+ *  Not a user edit: no dirty flag, no undo node, point at BOB — same arrival
+ *  state as `find-file`, not `replaceRange`'s dirty=true + point-at-EOF. */
+function syncBufferText(buf: BufferModel, text: string): void {
+  withoutEmit(buf, () => {
+    buf.setText(text, false, false)
+    buf.point = 0
+    buf.dirty = false
+  })
+}
+
 /** Duck-type check for `RemoteRuntime` — `opts.runtime` is typed as the base
  *  `PlatformRuntime` so a plain stub (browser phase-5) also fits. */
 function isRemoteRuntime(rt: Partial<PlatformRuntime>): rt is RemoteRuntime {
@@ -260,7 +271,7 @@ async function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, 
         buf = editor.addBuffer(new BufferModel({ id: op.id, name: op.name, path: op.path, text: hit ?? "", mode: op.mode }))
         hookBuffer(buf)
       } else if (hit !== undefined && buf.text !== hit) {
-        withoutEmit(buf, () => buf!.replaceRange(0, buf!.text.length, hit))
+        syncBufferText(buf, hit)
       }
       buf.link = link
       if (state.wantCurrent === buf.id) editor.switchToBuffer(buf.id)
@@ -301,7 +312,7 @@ async function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, 
         assembled += slice
         if (at === p.eofAt) {
           state.partial.delete(op.id)
-          withoutEmit(buf, () => buf.replaceRange(0, buf.text.length, assembled))
+          syncBufferText(buf, assembled)
           buf.locals.set("shadow-cached-sha", state.cas.write(assembled))
           buf.locals.delete("shadow-sync")
           break

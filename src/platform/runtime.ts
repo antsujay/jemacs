@@ -1,12 +1,19 @@
 import { spawn as nodeSpawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { constants, existsSync, watch as nodeWatch } from "node:fs"
-import { access, readFile, readdir as nodeReaddir, stat as nodeStat, writeFile } from "node:fs/promises"
+import { access, readFile, readdir as nodeReaddir, stat as nodeStat, unlink as nodeUnlink, writeFile } from "node:fs/promises"
 import { homedir as nodeHomedir } from "node:os"
 import { join } from "node:path"
 import type { Readable } from "node:stream"
 
 export type StatLike = { mode: number; size: number; mtime: number }
+
+const S_IFDIR = 0o040000
+/** True when `st.mode` has the directory bit — works for both nodeRuntime
+ *  (POSIX `st_mode`) and RemoteRuntime (manifest entries use the same bit). */
+export function isDirectory(st: StatLike): boolean {
+  return (st.mode & S_IFDIR) !== 0
+}
 
 /** Returned by `watch`; call `close()` to stop receiving events. */
 export type WatchHandle = { close(): void }
@@ -26,6 +33,9 @@ export type PlatformRuntime = {
   writeFileText(path: string, text: string): Promise<void>
   fileExists(path: string): Promise<boolean>
   stat(path: string): Promise<StatLike | null>
+  /** Remove a file. Optional: hosts that lack it (RemoteRuntime today) fall
+   *  through to nodeRuntime; callers already `.catch` the no-op throw. */
+  unlink?(path: string): Promise<void>
   readdir(dir: string): Promise<string[]>
   spawnProcess(options: SpawnOptions): SpawnHandle
   whichExecutable(name: string): string | null
@@ -169,6 +179,9 @@ export const nodeRuntime: PlatformRuntime = {
       return null
     }
   },
+  async unlink(path) {
+    await nodeUnlink(path)
+  },
   async readdir(dir) {
     try {
       return await nodeReaddir(dir)
@@ -223,6 +236,10 @@ export async function writeFileText(path: string, text: string): Promise<void> {
 
 export async function stat(path: string): Promise<StatLike | null> {
   return (override?.stat ?? nodeRuntime.stat)(path)
+}
+
+export async function unlink(path: string): Promise<void> {
+  return (override?.unlink ?? nodeRuntime.unlink!)(path)
 }
 
 export async function readdir(dir: string): Promise<string[]> {
