@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import type { Chunk, Splice } from "./ops"
+import type { Splice } from "./ops"
+
+export { chunkText } from "./ops"
 
 /** Hex sha256 of `text`. The CAS key. */
 export function sha256(text: string): string {
@@ -81,7 +83,12 @@ export class FileCas implements Cas, EvictableCas {
     if (!existsSync(p)) {
       if (this.maxBytes !== undefined) this.bytes ??= scanCasBytes()
       mkdirSync(casDir(), { recursive: true })
-      writeFileSync(p, text)
+      // Atomic publish: write to a sibling tmp then rename(2). A crash leaves
+      // either no cas/<sha> or the full blob — never a truncated file keyed by
+      // content hash. tmp name has a '.' so SHA256_HEX scans skip orphans.
+      const tmp = `${p}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+      writeFileSync(tmp, text)
+      renameSync(tmp, p)
       if (this.maxBytes !== undefined) {
         this.bytes! += text.length
         if (this.bytes! > this.maxBytes) this.bytes! -= evictCas(this, this.maxBytes)
@@ -197,18 +204,3 @@ function splitLines(s: string): string[] {
   return out
 }
 
-// ── Chunking ────────────────────────────────────────────────────────────────
-
-/** Split `text` into ≤`size`-char chunks for streaming after a `Want`. The last
- *  chunk (only) carries `eof: true`. Empty text → one empty eof chunk. */
-export function chunkText(id: string, text: string, size = 64 * 1024): Chunk[] {
-  if (text.length === 0) return [{ kind: "chunk", id, offset: 0, data: "", eof: true }]
-  const out: Chunk[] = []
-  for (let off = 0; off < text.length; off += size) {
-    const data = text.slice(off, off + size)
-    const chunk: Chunk = { kind: "chunk", id, offset: off, data }
-    if (off + size >= text.length) chunk.eof = true
-    out.push(chunk)
-  }
-  return out
-}

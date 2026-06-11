@@ -1,27 +1,44 @@
 import { spawn as nodeSpawn } from "node:child_process"
-import { constants, existsSync } from "node:fs"
-import { access, readFile, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { constants, existsSync, watch as nodeWatch } from "node:fs"
+import { access, readFile, readdir as nodeReaddir, stat as nodeStat, writeFile } from "node:fs/promises"
+import { homedir as nodeHomedir } from "node:os"
 import { join } from "node:path"
 import type { Readable } from "node:stream"
 
 export type StatLike = { mode: number; size: number; mtime: number }
 
-/** Swappable backend for the functions below. The browser shadow bundle
- *  installs a stub that throws (phase-5); phase-6 installs the manifest+CAS
- *  backed impl (shadow/DESIGN.md §Filesystem replica). When unset, the
- *  Bun/Node implementations in this file are used.
+/** Returned by `watch`; call `close()` to stop receiving events. */
+export type WatchHandle = { close(): void }
+
+/**
+ * The sole I/O seam between the editor (kernel/lisp/modes/plugins) and the
+ * host. Mirrors the `UiHost` display seam (ARCHITECTURE.md): a new host
+ * implements `PlatformRuntime` and the editor never imports `node:*` directly.
  *
- *  `stat`/`readdir` are optional: the Node default doesn't provide them (dired
- *  etc. import `node:fs/promises` directly), but the remote runtime does so
- *  navigation can be served from the manifest without a node:fs dependency. */
+ * Hosts: `nodeRuntime` below for authority/tty/Electron; `RemoteRuntime`
+ * (shadow/remote-runtime.ts) for the browser shadow, backed by manifest+CAS.
+ * The Editor is constructed with one of these — `editor.runtime` is how
+ * commands reach the filesystem, env, and crypto.
+ */
 export type PlatformRuntime = {
   readFileText(path: string): Promise<string>
   writeFileText(path: string, text: string): Promise<void>
   fileExists(path: string): Promise<boolean>
+  stat(path: string): Promise<StatLike | null>
+  readdir(dir: string): Promise<string[]>
   spawnProcess(options: SpawnOptions): SpawnHandle
   whichExecutable(name: string): string | null
-  stat?(path: string): Promise<StatLike | null>
-  readdir?(dir: string): Promise<string[]>
+  /** Hex sha256 of `text` — the CAS/BufferRef key. */
+  hash(text: string): string
+  /** Process working directory (or the project root the shadow is attached to). */
+  cwd(): string
+  /** Single environment-variable lookup. */
+  env(name: string): string | undefined
+  /** User home directory (or the shadow's virtual `~`). */
+  homedir(): string
+  /** Watch `path` for changes. Returns a no-op handle when watching is unsupported. */
+  watch(path: string, onChange: () => void): WatchHandle
 }
 
 let override: Partial<PlatformRuntime> | undefined
@@ -67,46 +84,7 @@ function nodeReadableToWeb(stream: Readable): ReadableStream<Uint8Array> {
   })
 }
 
-export function whichExecutable(name: string): string | null {
-  if (override?.whichExecutable) return override.whichExecutable(name)
-  if (name.includes("/")) return existsSync(name) ? name : null
-  const pathEnv = process.env.PATH ?? ""
-  for (const dir of pathEnv.split(":")) {
-    if (!dir) continue
-    const full = join(dir, name)
-    if (existsSync(full)) return full
-  }
-  return null
-}
-
-export async function fileExists(path: string): Promise<boolean> {
-  if (override?.fileExists) return override.fileExists(path)
-  try {
-    await access(path, constants.F_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-export async function readFileText(path: string): Promise<string> {
-  if (override?.readFileText) return override.readFileText(path)
-  try {
-    return await readFile(path, "utf8")
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return ""
-    throw error
-  }
-}
-
-export async function writeFileText(path: string, text: string): Promise<void> {
-  if (override?.writeFileText) return override.writeFileText(path, text)
-  await writeFile(path, text, "utf8")
-}
-
-/** Spawn a subprocess in Bun or Node (Electron main uses Node). */
-export function spawnProcess(options: SpawnOptions): SpawnHandle {
-  if (override?.spawnProcess) return override.spawnProcess(options)
+function nodeSpawnProcess(options: SpawnOptions): SpawnHandle {
   if (typeof Bun !== "undefined") {
     const proc = Bun.spawn({
       cmd: options.cmd,
@@ -147,6 +125,133 @@ export function spawnProcess(options: SpawnOptions): SpawnHandle {
     }),
     kill: () => proc.kill(),
   }
+}
+
+function nodeWhich(name: string): string | null {
+  if (name.includes("/")) return existsSync(name) ? name : null
+  const pathEnv = process.env.PATH ?? ""
+  for (const dir of pathEnv.split(":")) {
+    if (!dir) continue
+    const full = join(dir, name)
+    if (existsSync(full)) return full
+  }
+  return null
+}
+
+/** The Bun/Node host runtime. The authority side and the tty/Electron entry
+ *  points construct the Editor with this; it is the only place outside
+ *  `src/web/host.ts` permitted to import `node:*`. */
+export const nodeRuntime: PlatformRuntime = {
+  async readFileText(path) {
+    try {
+      return await readFile(path, "utf8")
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return ""
+      throw error
+    }
+  },
+  async writeFileText(path, text) {
+    await writeFile(path, text, "utf8")
+  },
+  async fileExists(path) {
+    try {
+      await access(path, constants.F_OK)
+      return true
+    } catch {
+      return false
+    }
+  },
+  async stat(path) {
+    try {
+      const s = await nodeStat(path)
+      return { mode: s.mode, size: s.size, mtime: s.mtimeMs }
+    } catch {
+      return null
+    }
+  },
+  async readdir(dir) {
+    try {
+      return await nodeReaddir(dir)
+    } catch {
+      return []
+    }
+  },
+  spawnProcess: nodeSpawnProcess,
+  whichExecutable: nodeWhich,
+  hash(text) {
+    return createHash("sha256").update(text).digest("hex")
+  },
+  cwd() {
+    return process.cwd()
+  },
+  env(name) {
+    return process.env[name]
+  },
+  homedir() {
+    return nodeHomedir()
+  },
+  watch(path, onChange) {
+    try {
+      const w = nodeWatch(path, { persistent: false }, () => onChange())
+      return { close: () => w.close() }
+    } catch {
+      return { close: () => {} }
+    }
+  },
+}
+
+// ── Module-level free functions ─────────────────────────────────────────────
+// These delegate through the installed override (RemoteRuntime in the shadow)
+// and fall back to nodeRuntime. Prefer `editor.runtime.*` in new code; these
+// remain for call sites without an Editor in scope.
+
+export function whichExecutable(name: string): string | null {
+  return (override?.whichExecutable ?? nodeRuntime.whichExecutable)(name)
+}
+
+export async function fileExists(path: string): Promise<boolean> {
+  return (override?.fileExists ?? nodeRuntime.fileExists)(path)
+}
+
+export async function readFileText(path: string): Promise<string> {
+  return (override?.readFileText ?? nodeRuntime.readFileText)(path)
+}
+
+export async function writeFileText(path: string, text: string): Promise<void> {
+  return (override?.writeFileText ?? nodeRuntime.writeFileText)(path, text)
+}
+
+export async function stat(path: string): Promise<StatLike | null> {
+  return (override?.stat ?? nodeRuntime.stat)(path)
+}
+
+export async function readdir(dir: string): Promise<string[]> {
+  return (override?.readdir ?? nodeRuntime.readdir)(dir)
+}
+
+/** Spawn a subprocess in Bun or Node (Electron main uses Node). */
+export function spawnProcess(options: SpawnOptions): SpawnHandle {
+  return (override?.spawnProcess ?? nodeRuntime.spawnProcess)(options)
+}
+
+export function hash(text: string): string {
+  return (override?.hash ?? nodeRuntime.hash)(text)
+}
+
+export function cwd(): string {
+  return (override?.cwd ?? nodeRuntime.cwd)()
+}
+
+export function env(name: string): string | undefined {
+  return (override?.env ?? nodeRuntime.env)(name)
+}
+
+export function homedir(): string {
+  return (override?.homedir ?? nodeRuntime.homedir)()
+}
+
+export function watch(path: string, onChange: () => void): WatchHandle {
+  return (override?.watch ?? nodeRuntime.watch)(path, onChange)
 }
 
 /** Minimal Bun surface for `M-x eval` in Electron (full Bun when running under Bun). */

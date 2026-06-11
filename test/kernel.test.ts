@@ -685,7 +685,7 @@ test("newline honors numeric prefix arguments", async () => {
   expect(editor.currentBuffer.point).toBe(4)
 })
 
-test("newline with zero prefix moves to line start without inserting", async () => {
+test("newline with zero prefix is a no-op (Emacs: ARG newlines, 0 = none)", async () => {
   const editor = new Editor()
   installDefaultCommands(editor)
   editor.currentBuffer.setText("  ab", false)
@@ -694,7 +694,7 @@ test("newline with zero prefix moves to line start without inserting", async () 
   editor.prefixArg.addDigit(0)
   await editor.run("newline")
   expect(editor.currentBuffer.text).toBe("  ab")
-  expect(editor.currentBuffer.point).toBe(0)
+  expect(editor.currentBuffer.point).toBe(3)
 })
 
 test("newline rejects negative prefix arguments", async () => {

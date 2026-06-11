@@ -8,6 +8,8 @@
 import { spawn } from "node:child_process"
 import { createReadStream, existsSync } from "node:fs"
 import { join } from "node:path"
+import type { Editor } from "../kernel/editor"
+import { announceBuffer, authorityState, shadowState } from "./shadow"
 
 /** Result of one subprocess invocation. */
 export type RunResult = { code: number; stdout: string; stderr: string }
@@ -149,3 +151,53 @@ export async function ensureRemote(host: string, opts: InstallOpts = {}): Promis
   return sshServeArgv(host, rev)
 }
 
+// ── Initial state sync (DESIGN.md §Ops / qa-shadow.ts step 1) ──────────────
+//
+// `attachAuthority` wires the live op stream but ships nothing about A's
+// *current* state — which buffers are open, which one is selected. host.ts
+// announced every buffer by hand, but S still sat on its own *scratch* because
+// no op said "this is the one A is showing". `initialSync` is that handshake:
+// the same call on both sides, role-dispatched on authorityState/shadowState.
+
+/** Builtin buffers both editors create in their constructor — not announced
+ *  (S already has its own) and never auto-selected. */
+function isBuiltin(kind: string): boolean {
+  return kind === "scratch" || kind === "messages" || kind === "minibuffer"
+}
+
+/**
+ * Authority side: announce A's open buffers — `currentBuffer` first so S's
+ * auto-select hook (below) lands on it — then ship the window layout so a
+ * layout-aware S can mirror splits once `applyRemoteOp` grows that handler.
+ *
+ * Shadow side: hook `onAddBuffer` to `switchToBuffer` the first non-builtin
+ * buffer that arrives over the link. `attachShadow` doesn't claim
+ * `onAddBuffer` (only `attachAuthority` does), so chaining is safe.
+ *
+ * Returns an unhook (no-op on the authority side).
+ */
+export function initialSync(editor: Editor): () => void {
+  const auth = authorityState(editor)
+  if (auth) {
+    const cur = editor.currentBuffer
+    if (!isBuiltin(cur.kind)) announceBuffer(editor, cur.id)
+    for (const buf of editor.buffers.values()) {
+      if (buf.id === cur.id || isBuiltin(buf.kind)) continue
+      announceBuffer(editor, buf.id)
+    }
+    auth.link.send({ kind: "layout", tree: editor.windowLayout })
+    return () => {}
+  }
+  if (shadowState(editor)) {
+    const prev = editor.onAddBuffer
+    let switched = false
+    editor.onAddBuffer = buf => {
+      prev?.(buf)
+      if (switched || isBuiltin(buf.kind)) return
+      switched = true
+      editor.switchToBuffer(buf.id)
+    }
+    return () => { editor.onAddBuffer = prev }
+  }
+  return () => {}
+}

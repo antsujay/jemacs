@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { BufferModel, inferMode } from "../../src/kernel/buffer"
 import { getMode } from "../../src/modes/mode"
 import { getMinorMode } from "../../src/modes/minor-mode"
-import { diffFileAtPoint, diffFontLock, diffHunkAtPoint, parseDiffBuffer } from "../../src/modes/diff"
+import { diffFileAtPoint, diffFontLock, diffHunkAtPoint, parseDiffBuffer, patchForHunk } from "../../src/modes/diff"
 import { makeEditor } from "../plugins/helper"
 import { currentKill } from "../../src/runtime/kill-ring"
 
@@ -861,4 +861,184 @@ test("diff-add-change-log-entries-other-window creates entries for diff hunks", 
     else process.env.GIT_AUTHOR_EMAIL = oldEmail
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+// ─── Adversarial fixtures (audit-2 tasks 36/38/39/40, item 75) ────────────────
+
+const twoHunk = [
+  "diff --git a/a.txt b/a.txt",
+  "index 1111111..2222222 100644",
+  "--- a/a.txt",
+  "+++ b/a.txt",
+  "@@ -1,3 +1,3 @@",
+  " one",
+  "-two",
+  "+TWO",
+  " three",
+  "@@ -10,3 +10,3 @@",
+  " ten",
+  "-eleven",
+  "+ELEVEN",
+  " twelve",
+  "",
+].join("\n")
+
+test("patchForHunk on the second hunk emits only the file header, not preceding hunk bodies", () => {
+  // Regression: header slice ran file.startLine..hunk.startLine, leaking hunk-1
+  // body lines between `+++` and `@@` so git apply rejected later hunks.
+  const buffer = new BufferModel({ name: "x.diff", text: twoHunk, mode: "diff-mode" })
+  const [file] = parseDiffBuffer(buffer)
+  expect(file?.hunks).toHaveLength(2)
+  const patch = patchForHunk(buffer, file!, file!.hunks[1]!)
+  const lines = patch.split("\n")
+  // header: diff --git, index, ---, +++; then exactly one @@ header + body
+  expect(lines.slice(0, 4)).toEqual([
+    "diff --git a/a.txt b/a.txt",
+    "index 1111111..2222222 100644",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+  ])
+  expect(lines[4]).toBe("@@ -10,3 +10,3 @@")
+  expect(patch).not.toContain("@@ -1,3 +1,3 @@")
+  expect(patch).not.toContain("-two")
+  expect(patch).not.toContain("+TWO")
+  expect(patch).toContain("+ELEVEN")
+  // first hunk's patch is still well-formed too
+  const first = patchForHunk(buffer, file!, file!.hunks[0]!)
+  expect(first).toContain("@@ -1,3 +1,3 @@")
+  expect(first).not.toContain("ELEVEN")
+})
+
+test("diff-apply-hunk on the second hunk applies only that hunk", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-2ndhunk-"))
+  try {
+    const original = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve\n"
+    await writeFile(join(dir, "a.txt"), original)
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", twoHunk, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    buffer.point = buffer.text.indexOf("@@ -10,3")
+    await editor.run("diff-apply-hunk")
+    const onDisk = await readFile(join(dir, "a.txt"), "utf8")
+    expect(onDisk).toContain("two\n")
+    expect(onDisk).not.toContain("TWO")
+    expect(onDisk).toContain("ELEVEN")
+    expect(onDisk).not.toContain("\neleven\n")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-goto-source refuses `..` path headers that escape diff-default-directory", async () => {
+  const outer = await mkdtemp(join(tmpdir(), "jemacs-diff-traverse-"))
+  try {
+    const inner = join(outer, "repo")
+    await mkdir(inner)
+    // bait file lives OUTSIDE diff-default-directory
+    const bait = join(outer, "target.txt")
+    await writeFile(bait, "one\nnew\n")
+    const text = [
+      "diff --git a/../target.txt b/../target.txt",
+      "--- a/../target.txt",
+      "+++ b/../target.txt",
+      "@@ -1,2 +1,2 @@",
+      " one",
+      "-old",
+      "+new",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    let message = ""
+    editor.events.on("message", ({ text }) => { if (text) message = text })
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", inner)
+    buffer.point = text.indexOf("+new")
+    await editor.run("diff-find-file-name")
+    expect(message).not.toBe(bait)
+    expect(message).not.toBe(resolve(bait))
+    await editor.run("diff-goto-source")
+    // must not have opened the bait file outside `inner`
+    const opened = editor.currentBuffer.path
+    expect(opened).not.toBe(bait)
+    if (opened) expect(relative(inner, opened).startsWith("..")).toBe(false)
+    expect([...editor.buffers.values()].some(b => b.path === bait)).toBe(false)
+  } finally {
+    await rm(outer, { recursive: true, force: true })
+  }
+})
+
+test("diff-goto-source skips `\\ No newline at end of file` markers when counting lines", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jemacs-diff-noeol-"))
+  try {
+    await writeFile(join(dir, "a.txt"), "one\nTWO\nthree\n")
+    const text = [
+      "diff --git a/a.txt b/a.txt",
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,2 +1,3 @@",
+      " one",
+      "-two",
+      "\\ No newline at end of file",
+      "+TWO",
+      "+three",
+      "",
+    ].join("\n")
+    const editor = makeEditor()
+    const buffer = editor.scratch("*diff*", text, "diff-mode")
+    buffer.locals.set("diff-default-directory", dir)
+    // sanity-check accepts the marker without miscounting
+    const messages: string[] = []
+    editor.events.on("message", ({ text }) => { if (text) messages.push(text) })
+    buffer.point = text.indexOf("@@ -1,2")
+    await editor.run("diff-sanity-check-hunk")
+    expect(messages.at(-1)).toBe("Hunk is well formed")
+    // point on +TWO → source line 2; off-by-one would land on line 3 ("three")
+    buffer.point = text.indexOf("+TWO")
+    await editor.run("diff-goto-source")
+    expect(editor.currentBuffer.path).toBe(resolve(dir, "a.txt"))
+    expect(editor.currentBuffer.point).toBe(editor.currentBuffer.lineBounds(1)[0])
+    // point on +three (past the marker) → source line 3
+    editor.switchToBuffer(buffer.id)
+    buffer.point = text.indexOf("+three")
+    await editor.run("diff-goto-source")
+    expect(editor.currentBuffer.point).toBe(editor.currentBuffer.lineBounds(2)[0])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("diff-reverse-direction on a context diff swaps headers without unified-style corruption", async () => {
+  // Regression: without per-line style tagging, `--- 1,3 ----` matched the
+  // unified file-header rule and became `+++ 1,3 ----`.
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", sample, "diff-mode")
+  buffer.point = buffer.text.indexOf("+TWO")
+  await editor.run("diff-unified->context")
+  expect(buffer.text).toContain("*** 1,2 ****")
+  expect(buffer.text).toContain("--- 1,3 ----")
+
+  await editor.run("diff-reverse-direction")
+  // separator survives untouched
+  expect(buffer.text).toContain("***************")
+  // range headers swap *** N,M **** ↔ --- N,M ----
+  expect(buffer.text).toContain("*** 1,3 ****")
+  expect(buffer.text).toContain("--- 1,2 ----")
+  expect(buffer.text).not.toContain("*** 1,2 ****")
+  expect(buffer.text).not.toContain("--- 1,3 ----")
+  // `! ` change markers are direction-neutral and survive untouched
+  expect(buffer.text).toContain("! two")
+  expect(buffer.text).toContain("! TWO")
+  // no leakage of the unified `+++ ` rule into context range headers
+  expect(buffer.text).not.toMatch(/^\+\+\+ \d/m)
+})
+
+test("diff-reverse-direction is an involution on a multi-hunk unified diff", async () => {
+  const editor = makeEditor()
+  const buffer = editor.scratch("*diff*", twoHunk, "diff-mode")
+  await editor.run("diff-reverse-direction")
+  expect(buffer.text).toContain("@@ -1,3 +1,3 @@")
+  expect(buffer.text).toContain("+two")
+  expect(buffer.text).toContain("-ELEVEN")
+  await editor.run("diff-reverse-direction")
+  expect(buffer.text).toBe(twoHunk)
 })

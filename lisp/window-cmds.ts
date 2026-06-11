@@ -12,9 +12,6 @@ const recenterCycle = defvar("recenter--cycle", new WeakMap<Editor, number>(),
 
 export type DisplayBufferActionFunction =
   | "display-buffer-in-child-frame"
-  | "display-buffer-pop-up-window"
-  | "display-buffer-use-some-window"
-  | "display-buffer-reuse-window"
 
 export type DisplayBufferActionAlist = {
   action?: DisplayBufferActionFunction
@@ -33,7 +30,10 @@ export function displayBufferInChildFrame(
 }
 
 export function displayBuffer(editor: Editor, bufferOrName: string, alist: DisplayBufferActionAlist = {}) {
-  if (alist.action === "display-buffer-in-child-frame") return displayBufferInChildFrame(editor, bufferOrName, alist)
+  const action = alist.action
+  if (action === "display-buffer-in-child-frame") return displayBufferInChildFrame(editor, bufferOrName, alist)
+  // Exhaustiveness guard: adding a DisplayBufferActionFunction without dispatching it fails tsc here.
+  action satisfies undefined
   return editor.displayBufferInOtherWindow(bufferOrName, { select: alist.select ?? false })
 }
 
@@ -94,6 +94,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   editor.command("jemacs-other-window-backward", previousWindow, "Jemacs extension alias for previous-window-any-frame.")
   editor.command("next-window-any-frame", ({ editor }) => otherWindow(editor, 1), "Select the next window.")
   editor.command("previous-window-any-frame", previousWindow, "Select the previous window.")
+
+  ctx.onDispose(editor.events.on("changed", ({ reason }) => {
+    if (reason.startsWith("command:") && reason !== "command:recenter-top-bottom") recenterCycle.delete(editor)
+  }))
 
   editor.command("recenter-top-bottom", ({ editor, prefixArgument }) => {
     if (!editor.selectedWindowLeaf()) return
@@ -276,7 +280,7 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   }
   editor.key("C-l", "recenter-top-bottom")
   editor.key("C-M-v", "scroll-other-window")
-  editor.key("M-C-v", "scroll-other-window-down")
+  editor.key("C-M-S-v", "scroll-other-window-down")
   editor.key("C-x left", "previous-buffer")
   editor.key("C-x C-left", "previous-buffer")
   editor.key("C-x right", "next-buffer")

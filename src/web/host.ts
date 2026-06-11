@@ -41,26 +41,45 @@ type SocketState = {
 }
 
 /** `FsLike` over `node:fs/promises` — what `attachAuthority` reads to answer
- *  `manifest-req` / `want` ops in shadow mode. */
+ *  `manifest-req` / `want` ops in shadow mode. `readdir` filters dangling
+ *  symlinks so the manifest walk's follow-up `stat`/`readFile` can't ENOENT. */
 const nodeFs: FsLike = {
   stat: async p => { const s = await stat(p); return { mode: s.mode, size: s.size, mtime: s.mtimeMs } },
-  readdir: p => readdir(p),
+  readdir: async p => {
+    const entries = await readdir(p, { withFileTypes: true })
+    const out: string[] = []
+    for (const e of entries) {
+      if (e.isSymbolicLink()) {
+        try { await stat(join(p, e.name)) } catch { continue }
+      }
+      out.push(e.name)
+    }
+    return out
+  },
   readFile: p => readFile(p, "utf8"),
 }
 
-/** Recursive `fs.watch` adapted to the `FsWatcher` shape. */
+/** Recursive `fs.watch` adapted to the `FsWatcher` shape. The recursive walk
+ *  emits `'error'` for any unreadable entry (dangling symlink, raced delete);
+ *  swallow those rather than let the default unhandled-error throw take the
+ *  server down — the manifest path re-stats on demand anyway. */
 function nodeWatcher(root: string): FsWatcher {
   return onChange => {
-    const w = fsWatch(root, { recursive: true }, (_ev, filename) => {
-      if (filename) onChange({ path: join(root, filename.toString()) })
-    })
-    return () => w.close()
+    try {
+      const w = fsWatch(root, { recursive: true }, (_ev, filename) => {
+        if (filename) onChange({ path: join(root, filename.toString()) })
+      })
+      w.on("error", err => console.warn("[jemacs] fs.watch:", (err as Error).message))
+      return () => w.close()
+    } catch (err) {
+      console.warn("[jemacs] fs.watch:", (err as Error).message)
+      return () => {}
+    }
   }
 }
 
 const STATIC_ROUTES: Record<string, { file: string; type: string }> = {
   "/renderer.js": { file: "client-bridge.js", type: "text/javascript" },
-  "/renderer.css": { file: "renderer.css", type: "text/css" },
   "/xterm.css": { file: "xterm.css", type: "text/css" },
 }
 
@@ -85,6 +104,7 @@ export class WebHost implements UiHost {
 
   private readonly server: Server<SocketState>
   private readonly distDir: string
+  private readonly cssPath: string
   private readonly sockets = new Set<ServerWebSocket<SocketState>>()
   private readonly inputHandlers: InputHandler[] = []
   private readonly resizeHandlers: ResizeHandler[] = []
@@ -100,6 +120,10 @@ export class WebHost implements UiHost {
     this.token = token
     this.port = server.port ?? 0
     this.distDir = distDir
+    // The shadow build emits no CSS; both modes serve the source stylesheet so
+    // the caret/layout rules (`.jemacs-caret { position:absolute }` etc.) are
+    // always reachable at /renderer.css.
+    this.cssPath = rendererCssPath()
     this.authTimeoutMs = opts.authTimeoutMs ?? 5000
     this.shadow = opts.shadow ?? false
     this.fsRoot = opts.fsRoot ?? process.cwd()
@@ -170,11 +194,16 @@ export class WebHost implements UiHost {
     if (!this.hostAllowed(req)) return new Response("forbidden", { status: 403 })
     const url = new URL(req.url)
     if (url.pathname === "/ws") {
+      if (!this.originAllowed(req)) return new Response("forbidden", { status: 403 })
       if (server.upgrade(req, { data: { authed: false } })) return undefined
       return new Response("upgrade required", { status: 426 })
     }
     if (url.pathname === "/") {
       return new Response(this.html, { headers: { "Content-Type": "text/html; charset=utf-8" } })
+    }
+    if (url.pathname === "/favicon.ico") return new Response(null, { status: 204 })
+    if (url.pathname === "/renderer.css") {
+      return new Response(Bun.file(this.cssPath), { headers: { "Content-Type": "text/css" } })
     }
     if (this.shadow && url.pathname === "/editor.js") {
       return new Response(Bun.file(join(this.distDir, "editor.js")), {
@@ -193,18 +222,32 @@ export class WebHost implements UiHost {
   /** DNS-rebinding guard: even though we bind 127.0.0.1, a hostile page can
    *  point `evil.com` at 127.0.0.1 and read the token out of `/`. */
   private hostAllowed(req: Request): boolean {
-    const host = req.headers.get("host")
+    const host = req.headers.get("host")?.toLowerCase()
     if (!host) return false
     return host === `127.0.0.1:${this.port}` || host === `localhost:${this.port}`
+  }
+
+  /** CSWSH guard for the WS upgrade: browsers always send `Origin` on WebSocket
+   *  handshakes, so a present-but-foreign value means a cross-site page is
+   *  dialing us. Absent `Origin` (CLI clients) is fine — they can't read `/`
+   *  to steal the token anyway. */
+  private originAllowed(req: Request): boolean {
+    const origin = req.headers.get("origin")
+    if (!origin) return true
+    const o = origin.toLowerCase()
+    return o === `http://127.0.0.1:${this.port}` || o === `http://localhost:${this.port}`
   }
 
   private async loadHtml(): Promise<string> {
     const inject = `<script>window.__JEMACS_TOKEN__=${JSON.stringify(this.token)}</script>`
     if (this.shadow) {
-      // The shadow bundle auto-mounts when it finds these ids; the editor
-      // renders locally so no thin-client CSS/shell is needed.
-      return `<!doctype html><html><head><meta charset="utf-8"><title>Jemacs Shadow</title>${inject}</head>`
+      // Mirrors `src/electron/renderer.html`: same mount-point ids the DOM
+      // renderer and shadow-entry probe for, plus the stylesheet that drives
+      // caret positioning (`.jemacs-caret { position:absolute }`).
+      return `<!doctype html><html><head><meta charset="utf-8"><title>Jemacs Shadow</title>`
+        + `<link rel="stylesheet" href="/renderer.css">${inject}</head>`
         + `<body><div id="jemacs-root"><div id="jemacs-title"></div><div id="jemacs-windows"></div>`
+        + `<div id="jemacs-minibuffer-completions"></div>`
         + `<div id="jemacs-minibuffer"></div><div id="jemacs-echo"></div></div>`
         + `<script type="module" src="/editor.js"></script></body></html>`
     }
@@ -292,4 +335,10 @@ function shadowDistDir(): string {
   const home = process.env.JEMACS_HOME
   if (home) return join(home, "dist/shadow-web")
   return join(import.meta.dirname, "..", "..", "dist", "shadow-web")
+}
+
+function rendererCssPath(): string {
+  const home = process.env.JEMACS_HOME
+  if (home) return join(home, "src", "electron", "renderer.css")
+  return join(import.meta.dirname, "..", "electron", "renderer.css")
 }

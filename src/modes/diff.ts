@@ -1,10 +1,10 @@
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, relative, resolve } from "node:path"
+import { join, relative, resolve, sep } from "node:path"
 import type { Editor } from "../kernel/editor"
 import type { BufferModel } from "../kernel/buffer"
-import { addHook, getHooks } from "../kernel/hooks"
 import { Keymap } from "../kernel/keymap"
+import { trackedContext, type PluginContext } from "../runtime/plugin-context"
 import { spawnProcess } from "../platform/runtime"
 import { killNew } from "../runtime/kill-ring"
 import { defineMode, modeLineage, type TextSpan } from "./mode"
@@ -104,7 +104,10 @@ export function installDiffMode(): void {
   })
 }
 
-export function installDiffCommands(editor: Editor): void {
+export function installDiffCommands(editor: Editor, ctx?: PluginContext): void {
+  // Route hook registration through a tracked context so a hot-reload of this
+  // module disposes the previous fn refs instead of accumulating duplicates.
+  ctx ??= trackedContext(editor, "modes/diff")
   editor.command("diff-hunk-next", ({ buffer, prefixArgument }) => {
     moveToHunk(buffer, prefixCount(prefixArgument), 1)
   }, "Move to the next diff hunk.")
@@ -131,9 +134,10 @@ export function installDiffCommands(editor: Editor): void {
   }, "Check whether the current hunk is well formed.")
 
   editor.command("diff-hunk-kill", ({ buffer, editor }) => {
+    const file = diffFileAtPoint(buffer)
     const hunk = diffHunkAtPoint(buffer)
     if (!hunk) return editor.message("No hunk at point")
-    deleteLines(buffer, hunk.startLine, hunk.endLine)
+    killHunk(buffer, file, hunk)
   }, "Kill the current diff hunk.")
 
   editor.command("diff-file-kill", ({ buffer, editor }) => {
@@ -152,8 +156,8 @@ export function installDiffCommands(editor: Editor): void {
     editor.message(count ? `Killed ${count} junk block${count === 1 ? "" : "s"}` : "No junk blocks")
   }, "Kill spurious empty diffs.")
 
-  if (!getHooks("before-save-hook").includes(diffWriteContentsBeforeSave)) addHook("before-save-hook", diffWriteContentsBeforeSave)
-  if (!getHooks("after-save-hook").includes(diffDeleteEmptyFilesAfterSave)) addHook("after-save-hook", diffDeleteEmptyFilesAfterSave)
+  ctx.hook("before-save-hook", diffWriteContentsBeforeSave)
+  ctx.hook("after-save-hook", diffDeleteEmptyFilesAfterSave)
 
   editor.command("diff-fixup-modifs", ({ editor, buffer }) => {
     const count = diffFixupModifs(buffer)
@@ -267,11 +271,12 @@ export function installDiffCommands(editor: Editor): void {
   }, "Kill all hunks starting at point that have already been applied.")
 
   editor.command("diff-revert-and-kill-hunk", async ({ editor, buffer }) => {
+    const file = diffFileAtPoint(buffer)
     const hunk = diffHunkAtPoint(buffer)
     const patch = patchAtPoint(buffer)
     if (!hunk || !patch) return editor.message("No hunk at point")
     const ok = await applyPatchText(editor, buffer, patch, true, false)
-    if (ok) deleteLines(buffer, hunk.startLine, hunk.endLine)
+    if (ok) killHunk(buffer, file, hunk)
   }, "Reverse-apply and then kill the current hunk.")
 
   editor.command("diff-ediff-patch", async ({ editor, buffer }) => {
@@ -355,7 +360,11 @@ export function diffFontLockText(text: string): TextSpan[] {
   return spans
 }
 
+const parseCache = new WeakMap<BufferModel, { text: string; files: DiffFile[] }>()
+
 export function parseDiffBuffer(buffer: BufferModel): DiffFile[] {
+  const cached = parseCache.get(buffer)
+  if (cached && cached.text === buffer.text) return cached.files
   const lines = lineInfo(buffer)
   const files: DiffFile[] = []
   let current: DiffFile | null = null
@@ -448,6 +457,7 @@ export function parseDiffBuffer(buffer: BufferModel): DiffFile[] {
     if (lastHunk && isHunkBodyLine(text, lastHunk.style)) lastHunk.endLine = i
   }
   if (current) current.endLine = lines.length - 1
+  parseCache.set(buffer, { text: buffer.text, files })
   return files
 }
 
@@ -561,6 +571,7 @@ function sourceLocationAtPoint(buffer: BufferModel): { file: string; line: numbe
   const lines = lineInfo(buffer)
   for (let i = hunk.startLine + 1; i < Math.min(here, hunk.endLine + 1); i++) {
     const text = lines[i]?.text ?? ""
+    if (text.startsWith("\\")) continue
     if (hunk.style === "unified") {
       if (!text.startsWith("-")) line++
     } else if (!text.startsWith("***") && !text.startsWith("---") && !text.startsWith("-")) {
@@ -636,11 +647,12 @@ function patchAtPoint(buffer: BufferModel): string | null {
   return patchForHunk(buffer, file, hunk)
 }
 
-function patchForHunk(buffer: BufferModel, file: DiffFile, hunk: DiffHunk): string {
+export function patchForHunk(buffer: BufferModel, file: DiffFile, hunk: DiffHunk): string {
   const lines = lineInfo(buffer)
-  const header = lines.slice(file.startLine, hunk.startLine)
-    .filter(line => !/^@@|^\*{15}|^[0-9,]+[acd]/.test(line.text))
-    .map(line => line.text)
+  // The file header is everything before the *first* hunk; slicing up to the
+  // current hunk would leak earlier hunks' body lines into the patch.
+  const headerEnd = file.hunks[0]?.startLine ?? hunk.startLine
+  const header = lines.slice(file.startLine, headerEnd).map(line => line.text)
   const body = lines.slice(hunk.startLine, hunk.endLine + 1).map(line => line.text)
   return [...header, ...body, ""].join("\n")
 }
@@ -968,7 +980,10 @@ async function killAppliedHunks(buffer: BufferModel): Promise<number> {
     }
   }
   for (const hunk of matches.sort((a, b) => b.startLine - a.startLine)) deleteLines(buffer, hunk.startLine, hunk.endLine)
-  if (matches.length) buffer.point = Math.min(buffer.point, buffer.text.length)
+  if (matches.length) {
+    pruneOrphanedFileHeaders(buffer)
+    buffer.point = Math.min(buffer.point, buffer.text.length)
+  }
   return matches.length
 }
 
@@ -1074,22 +1089,89 @@ function changeLogUserName(): string {
 }
 
 function reverseDiffDirection(buffer: BufferModel): void {
-  const next = lineInfo(buffer).map(line => {
-    const text = line.text
-    const git = /^diff --git a\/(.+) b\/(.+)$/.exec(text)
-    if (git) return `diff --git a/${git[2]} b/${git[1]}`
+  const files = parseDiffBuffer(buffer)
+  const lines = lineInfo(buffer).map(l => l.text)
+  const out = [...lines]
+  const inHunk = new Array<boolean>(lines.length).fill(false)
+  for (const file of files) {
+    for (const h of file.hunks) {
+      // Context/normal hunks have an old half *then* a new half; reversing them
+      // means physically swapping the halves, which a per-line pass can't do.
+      const body = h.style === "context" ? reverseContextHunk(lines, h)
+        : h.style === "normal" ? reverseNormalHunk(lines, h)
+        : lines.slice(h.startLine, h.endLine + 1).map(reverseUnifiedLine)
+      for (let i = 0; i < body.length; i++) {
+        out[h.startLine + i] = body[i]!
+        inHunk[h.startLine + i] = true
+      }
+    }
+    const fileStyle = file.hunks[0]?.style ?? "unified"
+    for (let i = file.startLine; i <= file.endLine; i++) {
+      if (!inHunk[i]) out[i] = reverseHeaderLine(lines[i]!, fileStyle)
+    }
+    if (fileStyle === "context") swapContextFileHeader(out, lines, file)
+  }
+  buffer.setText(out.join("\n"))
+}
+
+function reverseContextHunk(lines: string[], h: DiffHunk): string[] {
+  const body = lines.slice(h.startLine, h.endLine + 1)
+  const star = body.findIndex(t => /^\*\*\* \d+(?:,\d+)? \*\*\*\*$/.test(t))
+  const dash = body.findIndex(t => /^--- \d+(?:,\d+)? ----$/.test(t))
+  if (star < 0 || dash < 0 || dash < star) return body
+  const oldRange = /^\*\*\* (\d+(?:,\d+)?) \*\*\*\*$/.exec(body[star]!)![1]!
+  const newRange = /^--- (\d+(?:,\d+)?) ----$/.exec(body[dash]!)![1]!
+  const flip = (t: string) => t.startsWith("+ ") ? "- " + t.slice(2) : t.startsWith("- ") ? "+ " + t.slice(2) : t
+  return [
+    ...body.slice(0, star),
+    `*** ${newRange} ****`,
+    ...body.slice(dash + 1).map(flip),
+    `--- ${oldRange} ----`,
+    ...body.slice(star + 1, dash).map(flip),
+  ]
+}
+
+function reverseNormalHunk(lines: string[], h: DiffHunk): string[] {
+  const body = lines.slice(h.startLine + 1, h.endLine + 1)
+  const m = /^(\d+(?:,\d+)?)([acd])(\d+(?:,\d+)?)$/.exec(lines[h.startLine]!)
+  if (!m) return lines.slice(h.startLine, h.endLine + 1)
+  const op = m[2] === "a" ? "d" : m[2] === "d" ? "a" : "c"
+  const oldHalf = body.filter(t => t.startsWith("< ")).map(t => "> " + t.slice(2))
+  const newHalf = body.filter(t => t.startsWith("> ")).map(t => "< " + t.slice(2))
+  const sep = op === "c" ? ["---"] : []
+  return [`${m[3]}${op}${m[1]}`, ...newHalf, ...sep, ...oldHalf]
+}
+
+/** Context-diff file header is `*** old\n--- new`; reversed is `*** new\n--- old`. */
+function swapContextFileHeader(out: string[], lines: string[], file: DiffFile): void {
+  const headerEnd = file.hunks[0]?.startLine ?? file.endLine + 1
+  for (let i = file.startLine; i + 1 < headerEnd; i++) {
+    if (lines[i]!.startsWith("*** ") && lines[i + 1]!.startsWith("--- ")) {
+      out[i] = "*** " + lines[i + 1]!.slice(4)
+      out[i + 1] = "--- " + lines[i]!.slice(4)
+      return
+    }
+  }
+}
+
+function reverseHeaderLine(text: string, style: DiffHunkStyle): string {
+  const git = /^diff --git a\/(.+) b\/(.+)$/.exec(text)
+  if (git) return `diff --git a/${git[2]} b/${git[1]}`
+  if (text.startsWith("new file mode ")) return text.replace(/^new/, "deleted")
+  if (text.startsWith("deleted file mode ")) return text.replace(/^deleted/, "new")
+  if (style === "unified") {
     if (text.startsWith("--- ")) return "+++ " + text.slice(4)
     if (text.startsWith("+++ ")) return "--- " + text.slice(4)
-    if (text.startsWith("*** ")) return "--- " + text.slice(4)
-    const unified = /^@@\s+-(\d+(?:,\d+)?)\s+\+(\d+(?:,\d+)?)\s+@@(.*)$/.exec(text)
-    if (unified) return `@@ -${unified[2]} +${unified[1]} @@${unified[3]}`
-    if (text.startsWith("+")) return "-" + text.slice(1)
-    if (text.startsWith("-")) return "+" + text.slice(1)
-    if (text.startsWith("new file mode ")) return text.replace(/^new/, "deleted")
-    if (text.startsWith("deleted file mode ")) return text.replace(/^deleted/, "new")
-    return text
-  }).join("\n")
-  buffer.setText(next)
+  }
+  return text
+}
+
+function reverseUnifiedLine(text: string): string {
+  const u = /^@@\s+-(\d+(?:,\d+)?)\s+\+(\d+(?:,\d+)?)\s+@@(.*)$/.exec(text)
+  if (u) return `@@ -${u[2]} +${u[1]} @@${u[3]}`
+  if (text.startsWith("+")) return "-" + text.slice(1)
+  if (text.startsWith("-")) return "+" + text.slice(1)
+  return text
 }
 
 function isUnifiedBodyLine(line: string): boolean {
@@ -1150,6 +1232,21 @@ function deleteLines(buffer: BufferModel, startLine: number, endLine: number): v
   buffer.deleteRange(start, end)
 }
 
+function killHunk(buffer: BufferModel, file: DiffFile | null, hunk: DiffHunk): void {
+  // Killing the last hunk under a file header would otherwise orphan the
+  // ---/+++ (or diff --git) lines; take the whole file block with it.
+  if (file && file.hunks.length === 1 && file.hunks[0]!.startLine === hunk.startLine) {
+    deleteLines(buffer, file.startLine, file.endLine)
+  } else {
+    deleteLines(buffer, hunk.startLine, hunk.endLine)
+  }
+}
+
+function pruneOrphanedFileHeaders(buffer: BufferModel): void {
+  const orphans = parseDiffBuffer(buffer).filter(f => f.hunks.length === 0)
+  for (const f of orphans.sort((a, b) => b.startLine - a.startLine)) deleteLines(buffer, f.startLine, f.endLine)
+}
+
 function killCreationsDeletions(buffer: BufferModel): number {
   const matches = parseDiffBuffer(buffer).filter(file => file.oldFile === "/dev/null" || file.newFile === "/dev/null")
   for (const file of matches.sort((a, b) => b.startLine - a.startLine)) deleteLines(buffer, file.startLine, file.endLine)
@@ -1186,6 +1283,7 @@ async function diffDeleteIfEmpty(buffer: BufferModel): Promise<boolean> {
 }
 
 async function diffDeleteEmptyFilesAfterSave({ buffer }: { buffer: BufferModel }): Promise<void> {
+  if (!isDiffBuffer(buffer)) return
   if (buffer.locals.get(DIFF_DELETE_EMPTY_FILES_LOCAL)) await diffDeleteIfEmpty(buffer)
 }
 
@@ -1295,7 +1393,7 @@ async function diffFindFileName(buffer: BufferModel, old: boolean): Promise<stri
   const candidates = diffHunkFileNames(buffer, old)
   if (!candidates.length) return null
   const remembered = rememberedDiffFiles(buffer).get(diffRememberKey(candidates))
-  if (remembered) return resolve(diffDefaultDirectory(buffer), remembered)
+  if (remembered) return containedResolve(diffDefaultDirectory(buffer), remembered)
   return resolveDiffFileCandidates(buffer, candidates)
 }
 
@@ -1348,11 +1446,21 @@ async function resolveDiffFileCandidates(buffer: BufferModel, files: string[]): 
   const dir = diffDefaultDirectory(buffer)
   for (const file of files) {
     for (const candidate of diffPathCandidates(file)) {
-      const path = resolve(dir, candidate)
-      if (await isRegularFile(path)) return path
+      const path = containedResolve(dir, candidate)
+      if (path && await isRegularFile(path)) return path
     }
   }
-  return resolve(dir, files[0] ?? "")
+  return containedResolve(dir, files[0] ?? "") ?? dir
+}
+
+/** resolve(dir, file) but refuse to return a path that escapes `dir` — a
+ *  malicious patch can supply `../` segments in its --- / +++ headers. */
+function containedResolve(dir: string, file: string): string | null {
+  const base = resolve(dir)
+  const path = resolve(base, file)
+  const rel = relative(base, path)
+  if (rel === "" || (!rel.startsWith("..") && !rel.startsWith(sep) && !/^[A-Za-z]:/.test(rel))) return path
+  return null
 }
 
 function diffPathCandidates(file: string): string[] {
@@ -1401,12 +1509,17 @@ function isJunkTerminator(text: string): boolean {
     || /^Binary files .* differ$/.test(text)
 }
 
+const lineCache = new WeakMap<BufferModel, { text: string; lines: Line[] }>()
+
 function lineInfo(buffer: BufferModel): Line[] {
+  const cached = lineCache.get(buffer)
+  if (cached && cached.text === buffer.text) return cached.lines
   const lines: Line[] = []
   for (let i = 0; i < buffer.lineCount; i++) {
     const [start, end] = buffer.lineBounds(i)
     lines.push({ text: buffer.text.slice(start, end), start, end })
   }
+  lineCache.set(buffer, { text: buffer.text, lines })
   return lines
 }
 

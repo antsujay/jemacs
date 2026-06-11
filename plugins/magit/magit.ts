@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises"
+import { unlink, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
 import { basename, isAbsolute, join } from "node:path"
 import type { Editor, TransientDefinition } from "../../src/kernel/editor"
 import { createPluginContext, type PluginContext } from "../../src/runtime/plugin-context"
@@ -14,6 +15,7 @@ import { projectRoot } from "../project"
 export type MagitEntry = {
   file: string
   staged: boolean
+  untracked: boolean
   startLine: number
   endLine: number
 }
@@ -185,7 +187,7 @@ export async function buildStatus(root: string, folded: ReadonlySet<string> = ne
           })
         }
       }
-      entries.push({ file: f.file, staged: isStaged, startLine: start, endLine: lines.length - 1 })
+      entries.push({ file: f.file, staged: isStaged, untracked: code === "?", startLine: start, endLine: lines.length - 1 })
     }
     push("")
   }
@@ -787,6 +789,10 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     const diffArgs = magitDiffBaseArgs(buffer)
     const patch = diffArgs ? (await git([...diffArgs, ...magitDiffContextArgs(magitDiffContext(buffer)), "-p"], root)).out : buffer.text
     const target = isAbsolute(file) ? file : join(root, file)
+    if (existsSync(target)) {
+      const ans = await editor.prompt(`File ${target} exists; overwrite? (y or n) `)
+      if (ans !== "y") return editor.message("Cancelled")
+    }
     await writeFile(target, patch)
     editor.message(`Wrote ${target}`)
     await refreshDiffBuffer(editor, buffer, magitDiffContext(buffer))
@@ -1091,10 +1097,20 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
       editor.message("Discard cancelled")
       return
     }
-    const { err, code } = await git(["checkout", "--", entry.file], root)
-    if (code !== 0) {
-      editor.message(`git checkout failed: ${err.trim()}`)
-      return
+    if (entry.untracked) {
+      // No HEAD/index version to restore — discarding an untracked file means removing it.
+      try {
+        await unlink(join(root, entry.file))
+      } catch (e) {
+        editor.message(`Discard failed: ${(e as Error).message}`)
+        return
+      }
+    } else {
+      const { err, code } = await git(["checkout", "--", entry.file], root)
+      if (code !== 0) {
+        editor.message(`git checkout failed: ${err.trim()}`)
+        return
+      }
     }
     await refresh(editor, root)
     editor.message(`Discarded ${entry.file}`)
@@ -1358,7 +1374,8 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     buffer.locals.set("magit-folded", folded)
     // Re-render with the new fold set; place point on the entry's header so a
     // second TAB on the same key toggles back regardless of the diff body length.
-    const status = await buildStatus(root, folded)
+    // Match the buffer's diff context so line offsets agree with what refresh() shows.
+    const status = await buildStatus(root, folded, magitDiffContext(buffer))
     const next = status.entries.find(e => e.file === entry.file && e.staged === entry.staged)
     await refresh(editor, root, next ? lineToPoint(status.text, next.startLine) : buffer.point)
   }, "Toggle section at point (fold/unfold diff).")

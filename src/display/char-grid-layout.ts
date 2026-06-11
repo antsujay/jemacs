@@ -149,10 +149,23 @@ function layoutLeafPane(
     }
   }
 
-  let startLine = pane.startLine
-  const displayLinesForWrap = pane.displayText.split("\n")
+  // Normalize to display-space (t-audit2-df12aac9): startLine arrives as a
+  // raw-text line index, but every consumer below slices/wraps/row-weights
+  // `displayText`. Map offsets once here and stay in one index space.
+  const map = pane.displayMap
+  const dText = pane.displayText
+  const dPoint = map ? map(pane.point) : pane.point
+  const mark = pane.markActive ? pane.mark : null
+  const dMark = map && mark != null ? map(mark) : mark
+  const dSpans = map ? pane.spans.map(s => ({ ...s, start: map(s.start), end: map(s.end) })) : pane.spans
+  const dFontLockSpans = map
+    ? pane.fontLockSpans.map(s => ({ ...s, start: map(s.start), end: map(s.end) }))
+    : pane.fontLockSpans
+  const dLines = dText.split("\n")
+  const lineCount = dLines.length
+  let startLine = Math.max(0, Math.min(pane.startLine, lineCount - 1))
   const wrapLayout = paneWrapLayoutFor(
-    pane.displayText,
+    dText,
     pane.locals,
     availableCols,
     pane.showLineNumbers,
@@ -161,35 +174,29 @@ function layoutLeafPane(
   )
   const useVisualWeights = hostCapabilities?.perFaceFonts === true
   const visualRows = useVisualWeights
-    ? computeLineVisualRows(pane.text, pane.fontLockSpans, logical.theme, pane.buffer, pane.textScale, {
+    ? computeLineVisualRows(dText, dFontLockSpans, logical.theme, pane.buffer, pane.textScale, {
       wrapCols: wrapLayout.wrapCols,
       gutterPrefixLen: wrapLayout.gutterPrefixLen,
       wordWrap: wrapLayout.wordWrap,
-      displayLines: displayLinesForWrap,
+      displayLines: dLines,
     })
     : undefined
   if (pane.selected) {
     // Keep point on-screen — same correction the shim wrote back to the editor.
-    const cursorLine = pointLineCol(pane.text, pane.point).line - 1
+    const cursorLine = pointLineCol(dText, dPoint).line - 1
     startLine = syncViewportStartLine(startLine, cursorLine, maxLines, visualRows)
   }
-  const lineCount = pane.text.split("\n").length
   const displayLines = visualRows
     ? visibleLineCountForBudget(startLine, maxLines, lineCount, visualRows)
     : maxLines
-  const mark = pane.markActive ? pane.mark : null
   const syncSpans = bufferHighlightSpans(pane.point, mark, pane.spans)
-  const map = pane.displayMap
-  const dPoint = map ? map(pane.point) : pane.point
-  const dMark = map && mark != null ? map(mark) : mark
-  const dSpans = map ? pane.spans.map(s => ({ ...s, start: map(s.start), end: map(s.end) })) : pane.spans
-  const clickState = windowClickState(pane.displayText, startLine, displayLines, pane.showLineNumbers)
+  const clickState = windowClickState(dText, startLine, displayLines, pane.showLineNumbers)
   // Hosts hard-wrap overflowing rows at column 0, which paints continuation
   // text into the next line's gutter (t-16be1a86). Pre-wrap here so every
   // continuation row carries the gutter's left padding.
   const keepWrappedTop = startLine === 0
   const { wrapCols, gutterPrefixLen: gutter, wordWrap } = paneWrapLayoutFor(
-    pane.displayText,
+    dText,
     pane.locals,
     availableCols,
     pane.showLineNumbers,
@@ -204,7 +211,7 @@ function layoutLeafPane(
     ? wrapCols - clickState.gutterPrefixLen
     : undefined
   let body = wrapBodyRows(
-    visibleStyledTextFromStart(pane.displayText, dPoint, startLine, {
+    visibleStyledTextFromStart(dText, dPoint, startLine, {
       mark: dMark,
       spans: dSpans,
       theme: logical.theme,
@@ -303,23 +310,23 @@ const MARKDOWN_VISUAL_FILL_CENTER = "markdown-visual-fill-column-center-text"
 /** Prefix every body row (including wrapped continuations) with `leftPad`. */
 function padBodyLines(body: ThemedText, leftPad: string): ThemedText {
   if (!leftPad) return body
-  const pad: ThemedChunk = { text: leftPad }
-  const out: ThemedChunk[] = [pad]
+  const out: ThemedChunk[] = [{ text: leftPad }]
+  let lastIsPad = true
   const append = (style: ThemedChunk, ch: string) => {
     const last = out[out.length - 1]!
-    if (last.text !== leftPad && themedChunkStyleEqual(last, style) && !last.text.endsWith("\n")) {
+    if (!lastIsPad && themedChunkStyleEqual(last, style) && !last.text.endsWith("\n")) {
       last.text += ch
       return
     }
     out.push({ ...style, text: ch })
+    lastIsPad = false
   }
   for (const chunk of body.chunks) {
     for (const ch of chunk.text) {
+      append(chunk, ch)
       if (ch === "\n") {
-        append(chunk, ch)
-        out.push(pad)
-      } else {
-        append(chunk, ch)
+        out.push({ text: leftPad })
+        lastIsPad = true
       }
     }
   }

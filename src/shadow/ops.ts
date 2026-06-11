@@ -24,6 +24,27 @@ export type Want = { kind: "want"; id: string }
 /** A→S: one slice of buffer text. Last chunk carries eof. */
 export type Chunk = { kind: "chunk"; id: string; offset: number; data: string; eof?: true }
 
+/** Split `text` into ≈`size`-code-unit chunks for streaming after a `Want`.
+ *  Boundaries never fall inside a surrogate pair — a lone surrogate is replaced
+ *  with U+FFFD by any UTF-8 transport (TextEncoder, ws.send), so a torn pair
+ *  would corrupt on reassembly. `offset` is in UTF-16 units to match the
+ *  reassembly walk (`at += slice.length`). Empty text → one empty eof chunk. */
+export function chunkText(id: string, text: string, size = 64 * 1024): Chunk[] {
+  if (text.length === 0) return [{ kind: "chunk", id, offset: 0, data: "", eof: true }]
+  const out: Chunk[] = []
+  for (let off = 0; off < text.length; ) {
+    let end = Math.min(off + size, text.length)
+    // If `end` lands on a low surrogate, the previous code unit is its high
+    // half — pull the boundary forward one so the pair stays in this chunk.
+    if (end < text.length && (text.charCodeAt(end) & 0xfc00) === 0xdc00) end++
+    const chunk: Chunk = { kind: "chunk", id, offset: off, data: text.slice(off, end) }
+    if (end >= text.length) chunk.eof = true
+    out.push(chunk)
+    off = end
+  }
+  return out
+}
+
 // Filesystem manifest (DESIGN.md §Filesystem replica). A→S: ManifestTree, ManifestDelta. S→A: ManifestReq.
 /** One file's manifest row. `sha` keys the CAS; `mode/size/mtime` for dired. */
 export type ManifestEntry = { path: string; sha: string; mode: number; size: number; mtime: number }

@@ -56,10 +56,14 @@ describe("buildManifest", () => {
     expect(idx.get("/")!.mode & S_IFDIR).toBeTruthy()
   })
 
-  test("dirHash is the Merkle hash: identical subtree contents ⇒ identical dir sha", async () => {
+  test("dirHash is the Merkle hash: identical subtree contents+metadata ⇒ identical dir sha", async () => {
     const fs = new FakeFs()
     seed(fs, { "/x/f": "same", "/y/f": "same" })
-    const m = byPath(await buildManifest(fsLike(fs), "/"))
+    // dirHash now folds in mtime/size so a `touch` propagates to dired; FakeFs's
+    // mtime is a monotone clock, so pin it for the structural-equality check.
+    const flat = fsLike(fs)
+    const fixed: FsLike = { ...flat, stat: p => ({ ...flat.stat(p), mtime: 0 }) }
+    const m = byPath(await buildManifest(fixed, "/"))
     expect(m.get("/x")!.sha).toBe(m.get("/y")!.sha)
     expect(m.get("/x")!.sha).toBe(dirHash([m.get("/x/f")!]))
   })

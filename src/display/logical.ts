@@ -8,6 +8,7 @@ import { diagnosticsForBuffer } from "../lsp/diagnostics"
 import { positionToPoint } from "../lsp/positions"
 import { modeFeature, type TextSpan } from "../modes/mode"
 import { applyTheme, type Theme } from "./theme"
+import { FACE_REMAP_KEY } from "./face-resolve"
 import type { ThemedText } from "./themed-text"
 import { TERMINAL_SURFACE_LOCAL, type TerminalSurfaceModel } from "./terminal-surface"
 
@@ -16,22 +17,34 @@ import { TERMINAL_SURFACE_LOCAL, type TerminalSurfaceModel } from "./terminal-su
 defvar("mode-line-misc-info", [] as Array<(buffer: BufferModel) => string>,
   "Functions appended to the mode line after minor-mode lighters.")
 
+/** What downstream `resolveFace` actually reads from the buffer. Carrying the
+ *  full `BufferModel` would alias mutable kernel state into the display model
+ *  and defeat serialization (t-audit2-7eecc353). */
+type FaceRemapSource = { readonly locals: ReadonlyMap<string, unknown> }
+
 /** Viewport-independent description of one window's contents. A host that lays
  *  out its own text (DOM, web) consumes this directly; the char-grid path
  *  (`layoutCharGrid`) projects it into wrapped rows. */
 export type LogicalPane = {
   bufferId: string
-  /** Backing buffer; carried so char-grid layout can resolve buffer-local face
-   *  remaps via `resolveFace(face, theme, buffer)`. Hosts that bypass char-grid
-   *  layout may ignore this and rely on the flat fields below. */
+  /** Snapshot of the buffer's face-remap locals so char-grid layout can call
+   *  `resolveFace(face, theme, buffer)`. Typed as `BufferModel` only so existing
+   *  consumers (`applyTheme`, `computeLineVisualRows`) keep typechecking; at
+   *  runtime it is a `{ locals }` snapshot, never the live kernel object. */
   buffer?: BufferModel
   /** Raw buffer text (also used as `syncText` for native-editor hosts). */
   text: string
   /** Buffer text after the mode's `displayFilter` (markup hidden); same as
    *  `text` when no filter is active. */
   displayText: string
-  /** Maps a `text` offset to the corresponding `displayText` offset. Unset when
-   *  no display filter is active (treat as identity). */
+  /** Pre-evaluated `text → displayText` offset pairs for every offset the
+   *  renderer maps (point, mark, span boundaries). Plain data so the model
+   *  survives JSON; absent when no display filter is active. */
+  displayOffsets?: ReadonlyArray<readonly [raw: number, display: number]>
+  /** @deprecated Functions are dropped by JSON; call {@link paneDisplayMap}
+   *  host-side instead (it derives the closure from `displayOffsets`). Kept
+   *  populated only until char-grid-layout / web-layout migrate
+   *  (t-audit2-f8e12ae6). */
   displayMap?: (n: number) => number
   /** Font-lock + LSP + overlay-source + isearch spans, buffer-absolute. Region
    *  is *not* included here — derive it from `point`/`mark`. */
@@ -190,16 +203,20 @@ function buildLogicalPane(editor: Editor, leaf: WindowLeaf): LogicalPane {
     if (match) spans.push(match)
     spans.push(...isearchLazyHighlightSpans(buffer, editor.isearch))
   }
-  const filt = modeFeature(buffer.mode, "displayFilter")?.(buffer)
-  const surface = buffer.locals.get(TERMINAL_SURFACE_LOCAL) as TerminalSurfaceModel | undefined
+  const filt = safeDisplayFilter(buffer)
+  const displayOffsets = filt ? evalDisplayOffsets(filt.map, point, buffer.mark, spans) : undefined
+  const locals = snapshotLocals(buffer.locals)
+  const bufferSnapshot = { locals } satisfies FaceRemapSource as unknown as BufferModel
+  const surface = locals.get(TERMINAL_SURFACE_LOCAL) as TerminalSurfaceModel | undefined
   const dirty = buffer.dirty ? "*" : ""
 
   return {
     bufferId: leaf.bufferId,
-    buffer,
+    buffer: bufferSnapshot,
     text: buffer.text,
     displayText: filt?.text ?? buffer.text,
-    displayMap: filt ? filt.map : undefined,
+    displayOffsets,
+    displayMap: paneDisplayMap({ displayOffsets }),
     spans,
     fontLockSpans,
     point,
@@ -216,8 +233,73 @@ function buildLogicalPane(editor: Editor, leaf: WindowLeaf): LogicalPane {
     readOnly: buffer.readOnly,
     showLineNumbers: buffer.kind !== "minibuffer" && editor.showLineNumbers(buffer),
     textScale: textScaleFactor(buffer),
-    locals: buffer.locals,
+    locals,
   }
+}
+
+/** Guard the mode's `displayFilter` so a buggy plugin degrades to identity
+ *  instead of taking the frame down (t-audit2-ab15abf8). */
+function safeDisplayFilter(buffer: BufferModel): { text: string; map: (n: number) => number } | null {
+  try {
+    return modeFeature(buffer.mode, "displayFilter")?.(buffer) ?? null
+  } catch (err) {
+    console.error(`display-filter for mode '${buffer.mode}' threw:`, err)
+    return null
+  }
+}
+
+/** Guard each `mode-line-misc-info` segment so one bad entry renders an inline
+ *  marker instead of crashing the modeline (t-audit2-ab15abf8). */
+function safeMiscInfo(buffer: BufferModel): string {
+  const fns = getCustom<Array<(b: BufferModel) => string>>("mode-line-misc-info") ?? []
+  return fns.map(f => {
+    try { return f(buffer) } catch { return " [misc-err]" }
+  }).join("")
+}
+
+/** Pre-evaluate the mode's offset map at every offset the renderer will query
+ *  (point, mark, span boundaries). The resulting table is plain data; the
+ *  per-buffer closure is dropped here (t-audit2-f8e12ae6). */
+function evalDisplayOffsets(
+  map: (n: number) => number,
+  point: number,
+  mark: number | null,
+  spans: readonly TextSpan[],
+): ReadonlyArray<readonly [number, number]> {
+  const raw = new Set<number>([point])
+  if (mark != null) raw.add(mark)
+  for (const s of spans) { raw.add(s.start); raw.add(s.end) }
+  return [...raw].sort((a, b) => a - b).map(n => [n, map(n)] as const)
+}
+
+/** Snapshot `buffer.locals` so post-build kernel mutations don't leak into the
+ *  display model. The face-remap entry is itself a `Map` that
+ *  `faceRemapAddRelative` mutates in place, so it needs its own copy — a
+ *  shallow `new Map(locals)` would still alias it (t-audit2-7eecc353). */
+function snapshotLocals(src: ReadonlyMap<string, unknown>): Map<string, unknown> {
+  const out = new Map(src)
+  const remaps = out.get(FACE_REMAP_KEY)
+  if (remaps instanceof Map) out.set(FACE_REMAP_KEY, new Map(remaps))
+  return out
+}
+
+/** Reconstruct a `displayMap` from the pre-evaluated table. Closes over the
+ *  table only — never the buffer or the mode's original closure. Exported so a
+ *  host that JSON-round-trips `displayOffsets` can rebuild the function on its
+ *  side (`displayMap` itself is dropped by JSON). */
+export function offsetTableMap(table: ReadonlyArray<readonly [number, number]>): (n: number) => number {
+  const lut = new Map(table)
+  return n => lut.get(n) ?? n
+}
+
+/** Host-side `text → displayText` offset map for a pane. The closure is built
+ *  here, from the serializable `displayOffsets` descriptor — never carried on
+ *  the pane and never the mode's `displayFilter` closure (t-audit2-f8e12ae6).
+ *  Returns `undefined` (treat as identity) when no display filter is active. */
+export function paneDisplayMap(
+  pane: { readonly displayOffsets?: ReadonlyArray<readonly [number, number]> },
+): ((n: number) => number) | undefined {
+  return pane.displayOffsets ? offsetTableMap(pane.displayOffsets) : undefined
 }
 
 function modelineFor(
@@ -229,9 +311,7 @@ function modelineFor(
   dirty: string,
 ): ThemedText {
   const { line, col } = pointLineCol(buffer.text, point)
-  const misc = (getCustom<Array<(b: BufferModel) => string>>("mode-line-misc-info") ?? [])
-    .map(f => f(buffer)).join("")
-  const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer) + misc
+  const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer) + safeMiscInfo(buffer)
   const region = selected && buffer.markActive && buffer.mark != null
     ? `  (${Math.abs(point - buffer.mark)} chars)`
     : ""
@@ -240,9 +320,7 @@ function modelineFor(
 }
 
 function terminalModelineText(editor: Editor, buffer: BufferModel, dirty: string, dedicated: boolean): string {
-  const misc = (getCustom<Array<(b: BufferModel) => string>>("mode-line-misc-info") ?? [])
-    .map(f => f(buffer)).join("")
-  const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer) + misc
+  const lighters = editor.minorModeLighters(buffer) + textScaleLighter(buffer) + safeMiscInfo(buffer)
   return ` ${buffer.mode}${lighters}  ${editor.bufferDisplayName(buffer)}${dirty}${dedicated ? " [D]" : ""}  terminal`
 }
 
