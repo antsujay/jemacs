@@ -1,5 +1,6 @@
 import type { Editor, KeyDispatchResult } from "../src/kernel/editor"
 import { isPrintable, type KeyEventLike } from "../src/kernel/keymap"
+import { currentKill } from "../src/runtime/kill-ring"
 import { createPluginContext, type PluginContext } from "../src/runtime/plugin-context"
 
 /** isearch per-key UI loop (DESIGN.md: kernel keeps findForward/findBackward only). */
@@ -12,6 +13,12 @@ async function handleIsearchKey(editor: Editor, key: KeyEventLike): Promise<KeyD
       const m = /^\W?\w*/.exec(buffer.text.slice(from))
       if (m && m[0]) editor.setIsearchString(state.string + m[0])
     }
+    return { status: "inserted" }
+  }
+  if (state && key.ctrl && !key.meta && key.name === "y") {
+    const text = currentKill(editor)
+    if (text) editor.setIsearchString(state.string + text)
+    else editor.message("Kill ring is empty")
     return { status: "inserted" }
   }
   switch (key.name) {

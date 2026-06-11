@@ -3,6 +3,7 @@ import { makeEditor } from "../plugins/helper"
 import { keySeq } from "../harness/script"
 import { Editor, type CompletingReadFunction } from "../../src/kernel/editor"
 import { BufferModel } from "../../src/kernel/buffer"
+import { killNew } from "../../src/runtime/kill-ring"
 
 // t-76a7fc8b merged batch — editor.ts dispatch/isearch/minibuffer hardening.
 // Implementation landed in be88a61 + c3826d9; this file pins the behaviours.
@@ -92,6 +93,21 @@ describe("t-87311a94 [Feat-1] / t-92e15670 [Feat-2]: isearch C-w and search-ring
     expect(editor.isearch?.string).toBe("hello")
     await editor.handleKey({ name: "w", ctrl: true })
     expect(editor.isearch?.string).toBe("hello world")
+  })
+
+  test("C-y yanks the current kill into the search string", async () => {
+    const editor = makeEditor()
+    const buf = editor.currentBuffer
+    buf.setText("alpha pasted needle", false)
+    buf.point = 0
+    killNew(editor, "pasted")
+
+    await keySeq(editor, "C-s")
+    await editor.handleKey({ name: "y", ctrl: true })
+
+    expect(editor.isearch?.string).toBe("pasted")
+    expect(buf.point).toBe("alpha pasted".length)
+    expect(buf.text).toBe("alpha pasted needle")
   })
 
   test("C-s C-s with empty string recalls last search from the ring", async () => {

@@ -6,6 +6,7 @@ import { makeEditor } from "../plugins/helper"
 import { spawnProcess } from "../../src/platform/runtime"
 import { listWindowLeaves } from "../../src/kernel/window"
 import { install } from "../../plugins/magit"
+import { keySeq } from "../harness/script"
 
 let repo: string
 
@@ -86,4 +87,22 @@ test("magit-commit: shows staged diff in a split window alongside COMMIT_EDITMSG
   expect(editor.currentBuffer.mode).toBe("magit-status")
   expect([...editor.buffers.values()].some(b => b.name === "*magit-diff: staged*")).toBe(false)
   expect(listWindowLeaves(editor.windowLayout).length).toBe(1)
+})
+
+test("magit status c c opens COMMIT_EDITMSG and C-c C-c commits it", async () => {
+  const editor = makeEditor()
+  install(editor)
+  await writeFile(join(repo, "a.txt"), "one\nchanged through transient\n")
+  await git(["add", "a.txt"])
+  await editor.run("magit-status", [repo])
+
+  await keySeq(editor, "c", "c")
+  expect(editor.currentBuffer.name).toBe("*COMMIT_EDITMSG*")
+  expect(editor.currentBuffer.mode).toBe("magit-commit")
+
+  editor.currentBuffer.insert("transient commit\n")
+  await keySeq(editor, "C-c", "C-c")
+
+  expect(editor.currentBuffer.mode).toBe("magit-status")
+  expect(await git(["log", "-1", "--pretty=%s"])).toBe("transient commit\n")
 })

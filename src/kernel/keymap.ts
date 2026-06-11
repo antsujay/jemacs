@@ -219,6 +219,13 @@ export function canonicalizeKeyEvent(key: KeyEventLike): KeyEventLike {
 
   if (seq === "\t" || seq === "\x09") name = "tab"
 
+  // Terminals encode C-h as ASCII BS (0x08), while a real Backspace key should
+  // arrive as DEL (0x7f). Keep C-h reachable as the help prefix.
+  if ((seq === "\x08" || raw === "\x08") && name === "backspace") {
+    name = "h"
+    ctrl = true
+  }
+
   // Terminals report C-j as the bare key name "linefeed" with no ctrl modifier;
   // canonicalize so bindings written as "C-j" are reachable from the event side.
   if (name === "linefeed") {
