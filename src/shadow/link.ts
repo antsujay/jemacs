@@ -1,6 +1,6 @@
 import type { Editor } from "../kernel/editor"
 import { BufferModel } from "../kernel/buffer"
-import type { ShadowOp } from "./ops"
+import type { Chunk, ShadowOp } from "./ops"
 
 /** Which side of the A↔S pair this link instance lives on. Determines which op
  *  kinds `applyRemoteOp` will honor — Cmd is only ever processed by the authority. */
@@ -103,6 +103,68 @@ export class Coalescer<T = void> {
     this.waiters.clear()
     this.senders.clear()
     for (const list of all) for (const w of list) w.reject(err)
+  }
+}
+
+/**
+ * Reliability layer for the A→S `Chunk` stream.
+ *
+ * `Chunk` carries no seq/ack — A just fire-and-forgets slices in offset order
+ * after a `Want`. The reassembly in `shadow.ts` / `remote-runtime.ts` walks
+ * 0..eofAt and, on a gap, simply waits — so one dropped chunk wedges the buffer
+ * in `[⊘ syncing]` forever. This class is that walk plus the retransmit hook:
+ * `feed` returns the assembled text once contiguous, and when the eof chunk
+ * arrives with a gap still present (definite drop, not reorder) it fires
+ * `resend` — the caller re-issues the `Want`, A re-streams, and because slices
+ * key on `offset` the dups overwrite harmlessly. `nudge()` covers the
+ * dropped-eof case (no gap is ever observed) for the heartbeat / DST drain.
+ *
+ * One assembler per `Want` id; consumers keep `Map<id, ChunkAssembler>`.
+ */
+export class ChunkAssembler {
+  private readonly chunks = new Map<number, string>()
+  private eofAt?: number
+  private done = false
+  private resends = 0
+
+  constructor(private readonly resend: () => void, private readonly maxResend = 8) {}
+
+  /** Store one slice. Returns the full text once 0..eofAt is contiguous;
+   *  `undefined` while incomplete. Idempotent on `offset` (dups overwrite).
+   *  When the eof slice arrives but a gap remains, fires `resend` (once per
+   *  stream attempt, capped at `maxResend` so a dead link can't storm). */
+  feed(c: Chunk): string | undefined {
+    if (this.done) return undefined
+    this.chunks.set(c.offset, c.data)
+    if (c.eof) this.eofAt = c.offset
+    if (this.eofAt === undefined) return undefined
+    let text = "", at = 0
+    for (;;) {
+      const slice = this.chunks.get(at)
+      if (slice === undefined) {
+        // eof is the last slice A sends, so eof-with-gap on *this* chunk means a
+        // prior slice was lost (not merely reordered). Gate on c.eof so the
+        // re-streamed non-eof slices don't each re-trigger.
+        if (c.eof && this.resends < this.maxResend) { this.resends++; this.resend() }
+        return undefined
+      }
+      text += slice
+      if (at === this.eofAt) {
+        this.done = true
+        this.chunks.clear()
+        return text
+      }
+      at += slice.length
+    }
+  }
+
+  /** Heartbeat hook: re-issue the `Want` if assembly is still incomplete.
+   *  Covers the dropped-eof case (`feed` never sees a gap). Not subject to
+   *  `maxResend` — the heartbeat's own cadence is the rate limit. */
+  nudge(): boolean {
+    if (this.done) return false
+    this.resend()
+    return true
   }
 }
 

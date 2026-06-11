@@ -1,15 +1,12 @@
 import type { Editor } from "../kernel/editor"
 import type { BufferModel } from "../kernel/buffer"
-import { textScaleFactor } from "../core/text-scale"
 import type { HostCapabilities } from "./protocol"
-import { type WindowNode } from "../kernel/window"
-import { modeFeature } from "../modes/mode"
 import type { DisplayModel } from "./protocol"
 import { contentAreaLines, windowBodyLines, type ViewportSize } from "./viewport"
 import { setEditorDisplayContext } from "./scroll"
-import { paneWrapLayout } from "./display-wrap"
+import { paneWrapLayoutFor } from "./display-wrap"
 import { computeLineVisualRows } from "./visual-line-height"
-import { buildLogicalModel } from "./logical"
+import { buildLogicalModel, type LogicalPane, type LogicalWindowNode } from "./logical"
 import { layoutCharGrid, splitColBudget, splitLineBudget } from "./char-grid-layout"
 
 export type BuildDisplayOptions = {
@@ -24,75 +21,92 @@ export type BuildDisplayOptions = {
 export function buildDisplayModel(editor: Editor, options: BuildDisplayOptions): DisplayModel {
   const { viewport, lastMessage, hostLabel, hostCapabilities } = options
   setEditorDisplayContext(editor, viewport, hostCapabilities)
-  const selectedBudget = syncEditorWindowGeometry(editor, viewport)
-  const model = layoutCharGrid(
-    buildLogicalModel(editor, { lastMessage, hostLabel }),
-    viewport,
-    hostCapabilities,
-  )
+  const logical = buildLogicalModel(editor, { lastMessage, hostLabel })
+  const selected = syncEditorWindowGeometry(editor, logical, viewport)
+  const model = layoutCharGrid(logical, viewport, hostCapabilities)
   // Write the selected window's corrected `startLine` back to the editor.
   // `layoutCharGrid` derives the same value internally for rendering; this is
   // the persistence half so the next frame / scroll command sees it. Runs
   // *after* the logical build so `LogicalPane.startLine` matches the wrap
   // input the legacy path used for visual-row weighting.
-  if (selectedBudget) {
+  if (selected) {
     const visualRows = hostCapabilities?.perFaceFonts === true
-      ? selectedVisualRows(editor, selectedBudget)
+      ? selectedVisualRows(editor, selected.pane, selected.maxLines, selected.cols)
       : undefined
-    editor.syncSelectedWindowViewport(selectedBudget.maxLines, visualRows)
+    editor.syncSelectedWindowViewport(selected.maxLines, visualRows)
   }
   return model
 }
 
-type LeafBudget = { maxLines: number; cols?: number }
+type SelectedLeaf = { pane: LogicalPane; maxLines: number; cols?: number }
 
-/** Walk the window tree with the same row/col split as `layoutCharGrid` and
- *  publish each leaf's body geometry to `buffer.locals` (so terminal panes /
- *  `window-body-{rows,cols}` consumers see the new size, and the resize hook
- *  fires). Returns the selected leaf's budget for the post-layout viewport sync. */
-function syncEditorWindowGeometry(editor: Editor, viewport: ViewportSize): LeafBudget | null {
-  const completionText = editor.minibufferCompletionDisplay?.text
-  const completionLines = completionText ? Math.max(1, completionText.split("\n").length) : 0
-  const overlayRows = editor.minibuffer ? editor.activeBuffer.text.split("\n").length - 1 : 0
-  const areaLines = Math.max(2, contentAreaLines(viewport.rows) - completionLines - overlayRows)
-  let selected: LeafBudget | null = null
-  walk(editor.windowLayout, areaLines, viewport.cols)
+/** Walk the logical window tree with the same row/col split as `layoutCharGrid`
+ *  and stamp each leaf's body geometry onto its own `pane.locals` snapshot, so
+ *  every split sees the dimensions it will actually render with. The live
+ *  `buffer.locals` is updated once per buffer (selected window's geometry wins)
+ *  for `window-configuration-change-hook` consumers like terminal panes.
+ *  Returns the selected leaf for the post-layout viewport sync. */
+function syncEditorWindowGeometry(
+  editor: Editor,
+  logical: ReturnType<typeof buildLogicalModel>,
+  viewport: ViewportSize,
+): SelectedLeaf | null {
+  const completionLines = logical.completion?.text
+    ? Math.max(1, logical.completion.text.split("\n").length)
+    : 0
+  const areaLines = Math.max(2, contentAreaLines(viewport.rows) - completionLines - logical.overlayRows)
+  let selected: SelectedLeaf | null = null
+  const published = new Set<string>()
+  walk(logical.windows, areaLines, viewport.cols)
   return selected
 
-  function walk(node: WindowNode, lines: number, cols?: number): void {
+  function walk(node: LogicalWindowNode, lines: number, cols?: number): void {
     if (node.kind === "leaf") {
-      const buffer = editor.buffers.get(node.bufferId)
-      if (!buffer) return
+      const { pane } = node
       const maxLines = windowBodyLines(lines)
-      syncWindowBodyGeometry(editor, buffer, maxLines, cols)
-      if (node.id === editor.selectedWindowId) selected = { maxLines, cols }
+      const isSelected = node.id === logical.selectedWindowId
+      stampPaneGeometry(pane, maxLines, cols, viewport.cols)
+      // Per-buffer side effect: selected window's geometry takes precedence so
+      // a non-selected split walked later cannot overwrite it (t-audit2-fb76fc34).
+      if (isSelected || !published.has(pane.bufferId)) {
+        published.add(pane.bufferId)
+        const buffer = editor.buffers.get(pane.bufferId)
+        if (buffer) syncWindowBodyGeometry(editor, buffer, maxLines, cols ?? viewport.cols)
+      }
+      if (isSelected) selected = { pane, maxLines, cols }
       return
     }
-    const lb = splitLineBudget(lines, node.direction, node.firstRatio)
-    const cb = splitColBudget(cols, node.direction, node.firstRatio)
+    const lb = splitLineBudget(lines, node.direction, node.ratio)
+    const cb = splitColBudget(cols, node.direction, node.ratio)
     walk(node.first, lb.first, cb.first)
     walk(node.second, lb.second, cb.second)
   }
 }
 
-function selectedVisualRows(editor: Editor, budget: LeafBudget): number[] | undefined {
-  const leaf = editor.selectedWindowLeaf()
-  const buffer = leaf ? editor.buffers.get(leaf.bufferId) : undefined
-  if (!leaf || !buffer) return undefined
-  const showLineNumbers = buffer.kind !== "minibuffer" && editor.showLineNumbers(buffer)
-  const filt = modeFeature(buffer.mode, "displayFilter")?.(buffer)
-  const wrapLayout = paneWrapLayout(buffer, budget.cols, showLineNumbers, leaf.startLine, budget.maxLines)
-  return computeLineVisualRows(buffer.text, [...editor.fontLock(buffer)], editor.theme, buffer, textScaleFactor(buffer), {
+/** Write this leaf's body geometry into the per-pane locals snapshot so
+ *  downstream layout / serialization see per-window dimensions, independent of
+ *  the buffer-level publish (t-audit2-d032ccb4). */
+function stampPaneGeometry(pane: LogicalPane, rows: number, cols: number | undefined, fallbackCols?: number): void {
+  if (!pane.buffer) return
+  const locals = pane.locals as Map<string, unknown>
+  locals.set("window-body-rows", Math.max(1, rows))
+  locals.set("window-body-cols", Math.max(1, cols ?? fallbackCols ?? 80))
+}
+
+function selectedVisualRows(editor: Editor, pane: LogicalPane, maxLines: number, cols?: number): number[] | undefined {
+  if (!pane.buffer) return undefined
+  const wrapLayout = paneWrapLayoutFor(pane.displayText, pane.locals, cols, pane.showLineNumbers, pane.startLine, maxLines)
+  return computeLineVisualRows(pane.text, pane.fontLockSpans, editor.theme, pane.buffer, pane.textScale, {
     wrapCols: wrapLayout.wrapCols,
     gutterPrefixLen: wrapLayout.gutterPrefixLen,
     wordWrap: wrapLayout.wordWrap,
-    displayLines: (filt?.text ?? buffer.text).split("\n"),
+    displayLines: pane.displayText.split("\n"),
   })
 }
 
 function syncWindowBodyGeometry(editor: Editor, buffer: BufferModel, rows: number, cols?: number): void {
   const safeRows = Math.max(1, rows)
-  const safeCols = Math.max(1, cols ?? editor.lastViewport?.cols ?? 80)
+  const safeCols = Math.max(1, cols ?? 80)
   const oldRows = buffer.locals.get("window-body-rows")
   const oldCols = buffer.locals.get("window-body-cols")
   if (oldRows === safeRows && oldCols === safeCols) return

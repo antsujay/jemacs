@@ -84,6 +84,13 @@ export function predictCursor(cursor: Cursor, motion: Motion, lines: readonly st
   const maxRow = Math.max(0, lines.length - 1)
   const line = (i: number) => lines[i] ?? ""
   const len = (i: number) => line(i).length
+  // up/down keep `colOffset` but the destination line may have a surrogate pair
+  // straddling that column; snap left so the caret never sits between halves.
+  const clamp = (i: number, col: number) => {
+    let c = Math.min(col, len(i))
+    if (isLowSurrogate(line(i).charCodeAt(c))) c--
+    return c
+  }
   switch (motion) {
     case "left":
       if (colOffset > 0) {
@@ -97,11 +104,11 @@ export function predictCursor(cursor: Cursor, motion: Motion, lines: readonly st
       break
     case "up":
       if (row > 0) row--
-      colOffset = Math.min(colOffset, len(row))
+      colOffset = clamp(row, colOffset)
       break
     case "down":
       if (row < maxRow) row++
-      colOffset = Math.min(colOffset, len(row))
+      colOffset = clamp(row, colOffset)
       break
     case "home":
       colOffset = 0

@@ -8,6 +8,7 @@ import { diagnosticsForBuffer } from "../lsp/diagnostics"
 import { positionToPoint } from "../lsp/positions"
 import { modeFeature, type TextSpan } from "../modes/mode"
 import { applyTheme, type Theme } from "./theme"
+import { FACE_REMAP_KEY } from "./face-resolve"
 import type { ThemedText } from "./themed-text"
 import { TERMINAL_SURFACE_LOCAL, type TerminalSurfaceModel } from "./terminal-surface"
 
@@ -203,9 +204,7 @@ function buildLogicalPane(editor: Editor, leaf: WindowLeaf): LogicalPane {
   }
   const filt = safeDisplayFilter(buffer)
   const displayOffsets = filt ? evalDisplayOffsets(filt.map, point, buffer.mark, spans) : undefined
-  // Snapshot: downstream must not see post-build mutations to buffer.locals,
-  // and the model must JSON-round-trip without dragging the kernel along.
-  const locals = new Map(buffer.locals)
+  const locals = snapshotLocals(buffer.locals)
   const bufferSnapshot = { locals } satisfies FaceRemapSource as unknown as BufferModel
   const surface = locals.get(TERMINAL_SURFACE_LOCAL) as TerminalSurfaceModel | undefined
   const dirty = buffer.dirty ? "*" : ""
@@ -272,9 +271,22 @@ function evalDisplayOffsets(
   return [...raw].sort((a, b) => a - b).map(n => [n, map(n)] as const)
 }
 
+/** Snapshot `buffer.locals` so post-build kernel mutations don't leak into the
+ *  display model. The face-remap entry is itself a `Map` that
+ *  `faceRemapAddRelative` mutates in place, so it needs its own copy — a
+ *  shallow `new Map(locals)` would still alias it (t-audit2-7eecc353). */
+function snapshotLocals(src: ReadonlyMap<string, unknown>): Map<string, unknown> {
+  const out = new Map(src)
+  const remaps = out.get(FACE_REMAP_KEY)
+  if (remaps instanceof Map) out.set(FACE_REMAP_KEY, new Map(remaps))
+  return out
+}
+
 /** Reconstruct a `displayMap` from the pre-evaluated table. Closes over the
- *  table only — never the buffer or the mode's original closure. */
-function offsetTableMap(table: ReadonlyArray<readonly [number, number]>): (n: number) => number {
+ *  table only — never the buffer or the mode's original closure. Exported so a
+ *  host that JSON-round-trips `displayOffsets` can rebuild the function on its
+ *  side (`displayMap` itself is dropped by JSON). */
+export function offsetTableMap(table: ReadonlyArray<readonly [number, number]>): (n: number) => number {
   const lut = new Map(table)
   return n => lut.get(n) ?? n
 }
