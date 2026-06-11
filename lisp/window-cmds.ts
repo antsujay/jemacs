@@ -30,7 +30,10 @@ export function displayBufferInChildFrame(
 }
 
 export function displayBuffer(editor: Editor, bufferOrName: string, alist: DisplayBufferActionAlist = {}) {
-  if (alist.action === "display-buffer-in-child-frame") return displayBufferInChildFrame(editor, bufferOrName, alist)
+  const action = alist.action
+  if (action === "display-buffer-in-child-frame") return displayBufferInChildFrame(editor, bufferOrName, alist)
+  // Exhaustiveness guard: adding a DisplayBufferActionFunction without dispatching it fails tsc here.
+  action satisfies undefined
   return editor.displayBufferInOtherWindow(bufferOrName, { select: alist.select ?? false })
 }
 

@@ -1091,43 +1091,82 @@ function changeLogUserName(): string {
 function reverseDiffDirection(buffer: BufferModel): void {
   const files = parseDiffBuffer(buffer)
   const lines = lineInfo(buffer).map(l => l.text)
-  // Tag each line with its hunk style so context/normal markers aren't mangled
-  // by the unified rules.
-  const style = new Array<DiffHunkStyle | null>(lines.length).fill(null)
+  const out = [...lines]
+  const inHunk = new Array<boolean>(lines.length).fill(false)
   for (const file of files) {
-    const fileStyle = file.hunks[0]?.style ?? null
-    for (let i = file.startLine; i <= file.endLine; i++) style[i] ??= fileStyle
-    for (const h of file.hunks) for (let i = h.startLine; i <= h.endLine; i++) style[i] = h.style
+    for (const h of file.hunks) {
+      // Context/normal hunks have an old half *then* a new half; reversing them
+      // means physically swapping the halves, which a per-line pass can't do.
+      const body = h.style === "context" ? reverseContextHunk(lines, h)
+        : h.style === "normal" ? reverseNormalHunk(lines, h)
+        : lines.slice(h.startLine, h.endLine + 1).map(reverseUnifiedLine)
+      for (let i = 0; i < body.length; i++) {
+        out[h.startLine + i] = body[i]!
+        inHunk[h.startLine + i] = true
+      }
+    }
+    const fileStyle = file.hunks[0]?.style ?? "unified"
+    for (let i = file.startLine; i <= file.endLine; i++) {
+      if (!inHunk[i]) out[i] = reverseHeaderLine(lines[i]!, fileStyle)
+    }
+    if (fileStyle === "context") swapContextFileHeader(out, lines, file)
   }
-  buffer.setText(lines.map((t, i) => reverseDiffLine(t, style[i] ?? null)).join("\n"))
+  buffer.setText(out.join("\n"))
 }
 
-function reverseDiffLine(text: string, style: DiffHunkStyle | null): string {
+function reverseContextHunk(lines: string[], h: DiffHunk): string[] {
+  const body = lines.slice(h.startLine, h.endLine + 1)
+  const star = body.findIndex(t => /^\*\*\* \d+(?:,\d+)? \*\*\*\*$/.test(t))
+  const dash = body.findIndex(t => /^--- \d+(?:,\d+)? ----$/.test(t))
+  if (star < 0 || dash < 0 || dash < star) return body
+  const oldRange = /^\*\*\* (\d+(?:,\d+)?) \*\*\*\*$/.exec(body[star]!)![1]!
+  const newRange = /^--- (\d+(?:,\d+)?) ----$/.exec(body[dash]!)![1]!
+  const flip = (t: string) => t.startsWith("+ ") ? "- " + t.slice(2) : t.startsWith("- ") ? "+ " + t.slice(2) : t
+  return [
+    ...body.slice(0, star),
+    `*** ${newRange} ****`,
+    ...body.slice(dash + 1).map(flip),
+    `--- ${oldRange} ----`,
+    ...body.slice(star + 1, dash).map(flip),
+  ]
+}
+
+function reverseNormalHunk(lines: string[], h: DiffHunk): string[] {
+  const body = lines.slice(h.startLine + 1, h.endLine + 1)
+  const m = /^(\d+(?:,\d+)?)([acd])(\d+(?:,\d+)?)$/.exec(lines[h.startLine]!)
+  if (!m) return lines.slice(h.startLine, h.endLine + 1)
+  const op = m[2] === "a" ? "d" : m[2] === "d" ? "a" : "c"
+  const oldHalf = body.filter(t => t.startsWith("< ")).map(t => "> " + t.slice(2))
+  const newHalf = body.filter(t => t.startsWith("> ")).map(t => "< " + t.slice(2))
+  const sep = op === "c" ? ["---"] : []
+  return [`${m[3]}${op}${m[1]}`, ...newHalf, ...sep, ...oldHalf]
+}
+
+/** Context-diff file header is `*** old\n--- new`; reversed is `*** new\n--- old`. */
+function swapContextFileHeader(out: string[], lines: string[], file: DiffFile): void {
+  const headerEnd = file.hunks[0]?.startLine ?? file.endLine + 1
+  for (let i = file.startLine; i + 1 < headerEnd; i++) {
+    if (lines[i]!.startsWith("*** ") && lines[i + 1]!.startsWith("--- ")) {
+      out[i] = "*** " + lines[i + 1]!.slice(4)
+      out[i + 1] = "--- " + lines[i]!.slice(4)
+      return
+    }
+  }
+}
+
+function reverseHeaderLine(text: string, style: DiffHunkStyle): string {
   const git = /^diff --git a\/(.+) b\/(.+)$/.exec(text)
   if (git) return `diff --git a/${git[2]} b/${git[1]}`
   if (text.startsWith("new file mode ")) return text.replace(/^new/, "deleted")
   if (text.startsWith("deleted file mode ")) return text.replace(/^deleted/, "new")
-  if (style === "context") {
-    if (/^\*{15}/.test(text)) return text
-    const o = /^\*\*\* (\d+(?:,\d+)?) \*\*\*\*$/.exec(text)
-    if (o) return `--- ${o[1]} ----`
-    const n = /^--- (\d+(?:,\d+)?) ----$/.exec(text)
-    if (n) return `*** ${n[1]} ****`
-    if (text.startsWith("*** ")) return "--- " + text.slice(4)
-    if (text.startsWith("--- ")) return "*** " + text.slice(4)
-    if (text.startsWith("+ ")) return "- " + text.slice(2)
-    if (text.startsWith("- ")) return "+ " + text.slice(2)
-    return text
+  if (style === "unified") {
+    if (text.startsWith("--- ")) return "+++ " + text.slice(4)
+    if (text.startsWith("+++ ")) return "--- " + text.slice(4)
   }
-  if (style === "normal") {
-    const h = /^(\d+(?:,\d+)?)([acd])(\d+(?:,\d+)?)$/.exec(text)
-    if (h) return `${h[3]}${h[2] === "a" ? "d" : h[2] === "d" ? "a" : "c"}${h[1]}`
-    if (text.startsWith("< ")) return "> " + text.slice(2)
-    if (text.startsWith("> ")) return "< " + text.slice(2)
-    return text
-  }
-  if (text.startsWith("--- ")) return "+++ " + text.slice(4)
-  if (text.startsWith("+++ ")) return "--- " + text.slice(4)
+  return text
+}
+
+function reverseUnifiedLine(text: string): string {
   const u = /^@@\s+-(\d+(?:,\d+)?)\s+\+(\d+(?:,\d+)?)\s+@@(.*)$/.exec(text)
   if (u) return `@@ -${u[2]} +${u[1]} @@${u[3]}`
   if (text.startsWith("+")) return "-" + text.slice(1)

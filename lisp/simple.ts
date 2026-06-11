@@ -101,6 +101,7 @@ export function install(editor: Editor, ctx?: PluginContext): void {
 
   editor.command("goto-line", async ({ buffer, editor, args, prefixArgument }) => {
     const value = prefixArgument ?? args[0] ?? await editor.prompt("Goto line: ", "", "goto-line")
+    if (value == null || value === "") return
     const line = Math.max(1, Number(value) || 1)
     const lines = buffer.text.split("\n")
     const offset = lines.slice(0, line - 1).reduce((offset, text) => offset + text.length + 1, 0)
@@ -210,14 +211,19 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     pushKill(buffer.deleteRange(start, buffer.point), lastCommandWasKill(), dir < 0)
   }
 
+  // pbcopy/pbpaste are macOS-only; ENOENT is the expected non-mac path and
+  // degrades silently. Anything else is a real failure and must surface.
+  const isENOENT = (err: unknown) => err != null && typeof err === "object" && "code" in err && err.code === "ENOENT"
+
   const copyToClipboard = async (text: string): Promise<boolean> => {
     try {
       const pbcopy = spawnProcess({ cmd: ["pbcopy"], stdin: "pipe" })
       pbcopy.stdin?.write(text)
       pbcopy.stdin?.end()
       return await pbcopy.exited === 0
-    } catch {
-      return false
+    } catch (err) {
+      if (isENOENT(err)) return false
+      throw err
     }
   }
 
@@ -246,8 +252,9 @@ export function install(editor: Editor, ctx?: PluginContext): void {
         offset += chunk.length
       }
       return new TextDecoder().decode(bytes)
-    } catch {
-      return null
+    } catch (err) {
+      if (isENOENT(err)) return null
+      throw err
     }
   }
 
@@ -361,10 +368,7 @@ export function install(editor: Editor, ctx?: PluginContext): void {
       editor.message("Repetition argument has to be non-negative")
       return
     }
-    if (count === 0) {
-      buffer.moveToLineStart()
-      return
-    }
+    if (count === 0) return
     buffer.insert("\n".repeat(count))
   }, "Insert a newline at point.")
 
@@ -420,9 +424,15 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     if (!await editor.completeAtPoint(buffer)) editor.indentLine(buffer)
   }, "Complete the symbol at point, or indent the current line.")
 
-  editor.command("undo", ({ buffer }) => buffer.undo(), "Undo the last text edit.")
-  editor.command("undo-redo", ({ buffer }) => buffer.redo(), "Redo the last undone text edit.")
-  editor.command("jemacs-redo", ({ buffer }) => buffer.redo(), "Jemacs extension alias for undo-redo.")
+  editor.command("undo", ({ buffer, prefixArgument }) => {
+    for (let i = 0; i < (prefixArgument ?? 1); i++) buffer.undo()
+  }, "Undo the last text edit.")
+  editor.command("undo-redo", ({ buffer, prefixArgument }) => {
+    for (let i = 0; i < (prefixArgument ?? 1); i++) buffer.redo()
+  }, "Redo the last undone text edit.")
+  editor.command("jemacs-redo", ({ buffer, prefixArgument }) => {
+    for (let i = 0; i < (prefixArgument ?? 1); i++) buffer.redo()
+  }, "Jemacs extension alias for undo-redo.")
 
   editor.command("kill-line", ({ buffer, editor, prefixArgument }) => {
     const append = lastCommandWasKill()
@@ -641,7 +651,9 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     if (!from) return
     const to = args[1] ?? await editor.prompt(`Replace ${from} with: `, "", "replace")
     if (to == null) return
-    const region = buffer.mark == null || buffer.mark === buffer.point ? { start: 0, end: buffer.text.length } : { start: Math.min(buffer.mark, buffer.point), end: Math.max(buffer.mark, buffer.point) }
+    const region = buffer.markActive && buffer.mark != null && buffer.mark !== buffer.point
+      ? { start: Math.min(buffer.mark, buffer.point), end: Math.max(buffer.mark, buffer.point) }
+      : { start: buffer.point, end: buffer.text.length }
     const replaced = buffer.text.slice(region.start, region.end).split(from).join(to)
     buffer.replaceRange(region.start, region.end, replaced)
   }, "Replace a string in the region or current buffer.")
@@ -717,8 +729,10 @@ export function install(editor: Editor, ctx?: PluginContext): void {
   editor.key("M->", "end-of-buffer")
   editor.key("C-M-a", "beginning-of-defun")
   editor.key("C-M-e", "end-of-defun")
-  for (const key of ["home", "kp-home", "C-home", "begin"]) editor.key(key, "beginning-of-buffer")
-  for (const key of ["end", "kp-end", "C-end"]) editor.key(key, "end-of-buffer")
+  for (const key of ["home", "kp-home", "begin"]) editor.key(key, "move-beginning-of-line")
+  for (const key of ["end", "kp-end"]) editor.key(key, "move-end-of-line")
+  editor.key("C-home", "beginning-of-buffer")
+  editor.key("C-end", "end-of-buffer")
   for (const key of ["prior", "kp-prior", "pageup"]) editor.key(key, "scroll-down-command")
   for (const key of ["next", "kp-next", "pagedown"]) editor.key(key, "scroll-up-command")
   editor.key("M-g g", "goto-line")
@@ -793,12 +807,6 @@ function recenterEndOfBuffer(editor: Editor): void {
   const fromBottom = 3
   const start = Math.max(0, cursorLine - (bodyBudget - fromBottom - 1))
   editor.setSelectedWindowStartLine(start)
-}
-
-function repeat(prefixArgument: number | null, fwd: () => void, bwd?: () => void): void {
-  const n = prefixArgument ?? 1
-  const fn = n < 0 ? (bwd ?? fwd) : fwd
-  for (let i = 0; i < Math.abs(n); i++) fn()
 }
 
 function deleteChars(buffer: BufferModel, count: number): string | null {
