@@ -2,8 +2,8 @@ import type { Editor } from "../kernel/editor"
 import { BufferModel } from "../kernel/buffer"
 import { getPlatformRuntime, setPlatformRuntime, type PlatformRuntime } from "../platform/runtime"
 import { applyRemoteOp, type ShadowLink } from "./link"
-import type { FsLike } from "./manifest"
-import { advancePast, transformPast, type Cmd, type Point, type Seq, type ShadowOp, type Splice } from "./ops"
+import { buildManifest, dirHash, dirname, type FsLike, type ManifestEntry } from "./manifest"
+import { advancePast, transformPast, type Cmd, type ManifestDelta, type Point, type Seq, type ShadowOp, type Splice } from "./ops"
 import { chunkText, diffText, FileCas, sha256, type Cas } from "./cas"
 import { createAuthorityFs, type AuthorityFs, type FsWatcher, type RemoteRuntime } from "./remote-runtime"
 
@@ -39,6 +39,14 @@ type SeqOp = Splice | Point | Cmd
 /** A shipped splice plus the undo-tree seq it left the buffer at. */
 type SentSplice = Splice & { bufSeq: number }
 
+/** Per-buffer cap on `ShadowState.sent`. Ack alone can't safely prune (a
+ *  reordered rebase needs entries the ack would drop — t-f360d582), so memory
+ *  is bounded by evicting the oldest entry once the cap is hit. The evicted
+ *  entry's bufSeq folds into `baseBufSeq`, which is correct as long as no
+ *  rebase arrives with `baseSeq` older than the cap-ago op — comfortably true
+ *  for ordered transports and the DST adversary's small reorder window. */
+export const MAX_SENT = 256
+
 // ── State stashed in editor.locals ──────────────────────────────────────────
 
 export type ShadowState = {
@@ -49,8 +57,9 @@ export type ShadowState = {
   nextSeq: Seq
   /** Ops sent to A, not yet ack'd. Each list is also mirrored to buffer.locals["shadow-pending"] for display. */
   pending: Map<string, Splice[]>
-  /** Every shipped splice with the buf.seq it left S at. Pruned by rebase, not
-   *  ack — an ack reordered ahead of a rebase mustn't lose the rewind target. */
+  /** Every shipped splice with the buf.seq it left S at. Survives ack (a rebase
+   *  reordered behind its ack still needs the rewind target — t-f360d582);
+   *  capped at `MAX_SENT` on push and replaced wholesale on rebase. */
   sent: Map<string, SentSplice[]>
   /** buf.seq at the synced base (wire-seq ≤ last rebase's baseSeq). */
   baseBufSeq: Map<string, number>
@@ -147,6 +156,7 @@ export function attachShadow(editor: Editor, link: ShadowLink, opts?: AttachOpts
       setPending(editor, state, buf.id, list)
       const sent = state.sent.get(buf.id) ?? []
       sent.push({ ...op, bufSeq: buf.seq })
+      if (sent.length > MAX_SENT) state.baseBufSeq.set(buf.id, sent.shift()!.bufSeq)
       state.sent.set(buf.id, sent)
       link.send(op)
     }
@@ -183,6 +193,8 @@ async function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, 
       for (const [id, list] of state.pending) {
         setPending(editor, state, id, list.filter(p => p.seq > op.upTo))
       }
+      // `sent` is NOT pruned here — see MAX_SENT for why ack-time pruning is
+      // unsafe under reorder and how memory is bounded instead.
       break
     }
     case "rebase": {
@@ -308,6 +320,87 @@ async function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, 
 
 // ── Authority side (A) ──────────────────────────────────────────────────────
 
+const S_IFDIR = 0o040000
+
+/** Subscribe `watcher` and ship a `ManifestDelta` per fs change. Replaces
+ *  `AuthorityFs.watch`: events that fire while a rehash is in flight are queued
+ *  (not dropped), and each event re-reads only the changed path then bubbles
+ *  `dirHash` up its ancestor chain — O(depth), not O(tree). */
+function watchAuthorityFs(link: ShadowLink, fs: FsLike, root: string, watcher: FsWatcher): () => void {
+  const byPath = new Map<string, ManifestEntry>()
+  /** dir → immediate-child paths, for O(children) dirHash recompute. */
+  const kids = new Map<string, Set<string>>()
+  const queue: string[] = []
+  const queued = new Set<string>()
+  let busy = true // gate events until the seed walk has populated byPath
+
+  const addKid = (p: string) => {
+    const d = dirname(p)
+    if (d === p) return
+    let s = kids.get(d); if (!s) kids.set(d, s = new Set())
+    s.add(p)
+  }
+  const childEntries = (dir: string): ManifestEntry[] =>
+    [...(kids.get(dir) ?? [])].map(p => byPath.get(p)).filter((e): e is ManifestEntry => !!e)
+
+  const rehash = async (path: string): Promise<ManifestDelta["changes"]> => {
+    const changes: ManifestDelta["changes"] = []
+    const prev = byPath.get(path)
+    let st: { mode: number; size: number; mtime: number } | undefined
+    try { st = await fs.stat(path) } catch { /* ENOENT → delete */ }
+    if (!st) {
+      if (!prev) return changes
+      const drop = (p: string) => {
+        const e = byPath.get(p); if (!e) return
+        changes.push({ path: p, old: e.sha })
+        byPath.delete(p)
+        for (const c of [...(kids.get(p) ?? [])]) drop(c)
+        kids.delete(p)
+      }
+      drop(path)
+      kids.get(dirname(path))?.delete(path)
+    } else {
+      const isDir = (st.mode & S_IFDIR) !== 0
+      const sha = isDir ? dirHash(childEntries(path)) : sha256(await fs.readFile(path))
+      const e: ManifestEntry = { path, sha, mode: st.mode, size: st.size, mtime: st.mtime }
+      byPath.set(path, e); addKid(path)
+      if (prev?.sha === sha && prev.mtime === e.mtime && prev.size === e.size && prev.mode === e.mode) return changes
+      changes.push({ path, old: prev?.sha, new: e })
+    }
+    // Bubble dirHash up; an unchanged ancestor sha means everything above is unchanged too.
+    for (let d = dirname(path); ; d = dirname(d)) {
+      const de = byPath.get(d); if (!de) break
+      const sha = dirHash(childEntries(d))
+      if (de.sha === sha) break
+      const ne: ManifestEntry = { ...de, sha }
+      byPath.set(d, ne)
+      changes.push({ path: d, old: de.sha, new: ne })
+      if (d === dirname(d)) break
+    }
+    return changes
+  }
+
+  const pump = async () => {
+    while (queue.length) {
+      const path = queue.shift()!; queued.delete(path)
+      const changes = await rehash(path)
+      if (changes.length) link.send({ kind: "manifest-delta", changes })
+    }
+    busy = false
+  }
+
+  void buildManifest(fs, root).then(m => {
+    for (const e of m) { byPath.set(e.path, e); addKid(e.path) }
+    void pump()
+  })
+
+  return watcher(({ path }) => {
+    if (queued.has(path)) return
+    queued.add(path); queue.push(path)
+    if (!busy) { busy = true; void pump() }
+  })
+}
+
 export function attachAuthority(editor: Editor, link: ShadowLink, opts?: AttachOpts): () => void {
   const state: AuthorityState = {
     link, cas: opts?.cas ?? new FileCas(), recvSeq: 0, held: new Map(), lastSeq: new Map(), external: new Map(),
@@ -318,7 +411,7 @@ export function attachAuthority(editor: Editor, link: ShadowLink, opts?: AttachO
   const restore: Array<() => void> = []
   if (opts?.fs) {
     state.fs = createAuthorityFs(link, opts.fs, opts.fsRoot)
-    if (opts.watcher) restore.push(state.fs.watch(opts.watcher))
+    if (opts.watcher) restore.push(watchAuthorityFs(link, opts.fs, opts.fsRoot ?? "/", opts.watcher))
   }
   const hookAuthorityBuffer = (buf: BufferModel) => {
     const prev = buf.onSplice

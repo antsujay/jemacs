@@ -16,6 +16,96 @@ export interface ShadowLink {
   close(): void
 }
 
+/** Rejection thrown into every pending `Coalescer` waiter when the link drops,
+ *  so callers see an error instead of a Promise that never settles. */
+export class LinkClosed extends Error {
+  constructor(peerId?: string) {
+    super(peerId ? `shadow link '${peerId}' closed` : "shadow link closed")
+    this.name = "LinkClosed"
+  }
+}
+
+type Waiter<T> = { resolve: (v: T) => void; reject: (e: unknown) => void }
+
+/**
+ * Request-coalescing waiter map with a close valve.
+ *
+ * This is the `dirWaiters`/`wantWaiters` pattern from the remote runtime — N
+ * concurrent callers ask for the same key, send the wire request once, fan the
+ * reply out to all — pulled here so it can be tied to the link's lifetime. The
+ * hand-rolled maps held bare `resolve` callbacks, so a `link.close()` (or a
+ * dropped `Chunk` that left a gap in the reassembly) meant `readFileText` /
+ * `stat` / `readdir` hung forever with no way to surface an error.
+ *
+ * `request(key, send)` calls `send` only for the first waiter on `key`.
+ * `resolve`/`reject` settle every waiter for one key. `resend(key)` re-fires
+ * the stored `send` for a still-pending key — the retransmit hook for the
+ * chunk stream, which has no seq/ack of its own (a stalled reassembly re-issues
+ * the `Want` and A re-streams; chunk application is idempotent on offset).
+ * `close()` rejects everything with `LinkClosed` and latches: later `request`s
+ * reject immediately.
+ */
+export class Coalescer<T = void> {
+  private readonly waiters = new Map<string, Waiter<T>[]>()
+  private readonly senders = new Map<string, () => void>()
+  private dead?: Error
+
+  /** Coalesced request: `send` fires only when `key` has no in-flight waiter. */
+  request(key: string, send?: () => void): Promise<T> {
+    if (this.dead) return Promise.reject(this.dead)
+    let list = this.waiters.get(key)
+    const first = !list
+    if (!list) this.waiters.set(key, list = [])
+    return new Promise<T>((resolve, reject) => {
+      list.push({ resolve, reject })
+      if (first && send) {
+        this.senders.set(key, send)
+        try { send() } catch (e) { this.reject(key, e) }
+      }
+    })
+  }
+
+  has(key: string): boolean {
+    return this.waiters.has(key)
+  }
+
+  /** Re-fire the original `send` for a still-pending key. No-op once settled. */
+  resend(key: string): boolean {
+    if (this.dead) return false
+    const s = this.senders.get(key)
+    if (!s || !this.waiters.has(key)) return false
+    try { s() } catch (e) { this.reject(key, e); return false }
+    return true
+  }
+
+  resolve(key: string, value: T): number {
+    return this.settle(key, w => w.resolve(value))
+  }
+
+  reject(key: string, err: unknown): number {
+    return this.settle(key, w => w.reject(err))
+  }
+
+  private settle(key: string, f: (w: Waiter<T>) => void): number {
+    const list = this.waiters.get(key)
+    if (!list) return 0
+    this.waiters.delete(key)
+    this.senders.delete(key)
+    for (const w of list) f(w)
+    return list.length
+  }
+
+  /** Reject every pending waiter and refuse further requests. Idempotent. */
+  close(err: Error = new LinkClosed()): void {
+    if (this.dead) return
+    this.dead = err
+    const all = [...this.waiters.values()]
+    this.waiters.clear()
+    this.senders.clear()
+    for (const list of all) for (const w of list) w.reject(err)
+  }
+}
+
 /**
  * Single entry point for ops arriving over a link. Everything inbound funnels
  * here so the direction/trust gates (DESIGN.md §Ops) live in one place.

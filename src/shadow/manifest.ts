@@ -38,13 +38,17 @@ function join(dir: string, name: string): string {
 
 // ── dirHash ─────────────────────────────────────────────────────────────────
 
-/** Merkle hash of a directory's immediate children. Git tree-object shape:
- *  hash over `mode SP name NUL sha LF` per child, sorted by name. Only
- *  name/sha/mode participate — mtime/size changes alone don't propagate. */
+/** Merkle hash of a directory's immediate children, sorted by name.
+ *  mtime/size are included so metadata-only changes (touch, truncate) still
+ *  bubble up through diffManifest and reach S's dired view. */
 export function dirHash(children: readonly ManifestEntry[]): string {
-  const sorted = [...children].sort((a, b) => (basename(a.path) < basename(b.path) ? -1 : 1))
+  const sorted = [...children].sort((a, b) => {
+    const an = basename(a.path), bn = basename(b.path)
+    return an < bn ? -1 : an > bn ? 1 : 0
+  })
   let buf = ""
-  for (const c of sorted) buf += `${c.mode.toString(8)} ${basename(c.path)}\0${c.sha}\n`
+  for (const c of sorted)
+    buf += `${c.mode.toString(8)} ${basename(c.path)}\0${c.sha} ${c.size} ${c.mtime}\n`
   return sha256(buf)
 }
 
@@ -108,10 +112,13 @@ export function diffManifest(oldM: Manifest, newM: Manifest): ManifestDelta {
   const b = index(newM)
   const changes: ManifestDelta["changes"] = []
 
+  const same = (x: ManifestEntry, y: ManifestEntry) =>
+    x.sha === y.sha && x.mtime === y.mtime && x.size === y.size && x.mode === y.mode
+
   const visit = (path: string): void => {
     const ea = a.byPath.get(path)
     const eb = b.byPath.get(path)
-    if (ea && eb && ea.sha === eb.sha) return // identical subtree — prune
+    if (ea && eb && same(ea, eb)) return // identical subtree — prune
     if (ea && !eb) { emitRemoved(path); return }
     if (!ea && eb) { emitAdded(path); return }
     // both present, sha differs
@@ -154,6 +161,9 @@ export class ManifestCache {
    *  full listing"; absence means unknown. */
   private dirs = new Map<string, Map<string, ManifestEntry>>()
 
+  /** Bound on cached directory listings; oldest-inserted evicted first. */
+  constructor(private readonly maxDirs = 4096) {}
+
   /** Look up `path`. See `Lookup` for the three-way result. */
   lookup(path: string): Lookup {
     const dir = dirname(path)
@@ -178,6 +188,12 @@ export class ManifestCache {
     const listing = new Map<string, ManifestEntry>()
     for (const e of tree.entries) listing.set(basename(e.path), e)
     this.dirs.set(tree.dir, listing)
+    // Cap: evict oldest-inserted listings (Map preserves insertion order).
+    while (this.dirs.size > this.maxDirs) {
+      const oldest = this.dirs.keys().next().value
+      if (oldest === undefined) break
+      this.dirs.delete(oldest)
+    }
   }
 
   /** Apply A's incremental changes. Deltas for directories S hasn't fetched
@@ -186,12 +202,22 @@ export class ManifestCache {
     for (const c of delta.changes) {
       const dir = dirname(c.path)
       const listing = this.dirs.get(dir)
-      if (!listing) continue
-      const name = basename(c.path)
-      if (c.new) listing.set(name, c.new)
-      else listing.delete(name)
-      // If a known directory was itself deleted, drop its listing too.
-      if (!c.new && this.dirs.has(c.path)) this.dirs.delete(c.path)
+      if (listing) {
+        const name = basename(c.path)
+        if (c.new) listing.set(name, c.new)
+        else listing.delete(name)
+      }
+      // On delete, evict the path's own listing *and every cached descendant*,
+      // independent of whether the parent was loaded — otherwise grandchild
+      // listings leak forever once their ancestor's entry is gone.
+      if (!c.new) this.evictSubtree(c.path)
+    }
+  }
+
+  private evictSubtree(root: string): void {
+    const prefix = root === "/" ? "/" : root + "/"
+    for (const key of [...this.dirs.keys()]) {
+      if (key === root || key.startsWith(prefix)) this.dirs.delete(key)
     }
   }
 
