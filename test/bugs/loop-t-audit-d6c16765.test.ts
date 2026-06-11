@@ -15,6 +15,7 @@ import { addHook, getHooks } from "../../src/kernel/hooks"
 // then ran N before-advices each firing N hook handlers — N² before-save runs.
 test("save-hooks: N reloads via PluginContext do not compound to N² before-save runs", async () => {
   const editor = makeEditor()
+  const baseline = getHooks("before-save-hook").length
   let ctx: PluginContext | undefined
   for (let i = 0; i < 3; i++) {
     ctx?.dispose()
@@ -23,8 +24,8 @@ test("save-hooks: N reloads via PluginContext do not compound to N² before-save
   }
 
   // Hook side: ctx.hook records a removeHook disposer, so only the last
-  // install's handler should remain.
-  expect(getHooks("before-save-hook").length).toBe(1)
+  // install's handler should remain (on top of any built-in hooks like diff's).
+  expect(getHooks("before-save-hook").length).toBe(baseline + 1)
 
   // Advice side: a probe hook fires once per runHook("before-save-hook"),
   // i.e. once per live save-buffer advice. With three stacked advices the
