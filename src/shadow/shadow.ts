@@ -66,6 +66,10 @@ export type ShadowState = {
   /** Chunk reassembly: bufferId → {offset → slice, eofAt}. Assembled once a
    *  contiguous run from 0 reaches eofAt; tolerant of reorder + dup. */
   partial: Map<string, { chunks: Map<number, string>; eofAt?: number }>
+  /** Buffer id A asked S to display. Stashed so a `switch-to-buffer` Cmd that
+   *  races ahead of its `buffer-ref` (async CAS lookup) still lands once the
+   *  buffer materializes. */
+  wantCurrent?: string
 }
 
 export type AuthorityState = {
@@ -241,6 +245,7 @@ async function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, 
       applyRemoteOp(editor, link, op)
       const buf = editor.buffers.get(op.id)
       if (buf) hookBuffer(buf)
+      if (buf && state.wantCurrent === buf.id) editor.switchToBuffer(buf.id)
       break
     }
     case "buffer-ref": {
@@ -252,12 +257,13 @@ async function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, 
       const hit = state.cas.lookupAsync ? await state.cas.lookupAsync(op.sha) : state.cas.lookup(op.sha)
       let buf = editor.buffers.get(op.id)
       if (!buf) {
-        buf = editor.addBuffer(new BufferModel({ id: op.id, name: op.path ?? op.id, path: op.path, text: hit ?? "", mode: op.mode }))
+        buf = editor.addBuffer(new BufferModel({ id: op.id, name: op.name, path: op.path, text: hit ?? "", mode: op.mode }))
         hookBuffer(buf)
       } else if (hit !== undefined && buf.text !== hit) {
         withoutEmit(buf, () => buf!.replaceRange(0, buf!.text.length, hit))
       }
       buf.link = link
+      if (state.wantCurrent === buf.id) editor.switchToBuffer(buf.id)
       if (hit !== undefined) {
         buf.locals.set("shadow-cached-sha", op.sha)
         buf.locals.delete("shadow-sync")
@@ -310,6 +316,14 @@ async function onShadowOp(editor: Editor, link: ShadowLink, state: ShadowState, 
       applyRemoteOp(editor, link, op)
       break
     case "command":
+      // A→S `switch-to-buffer`: land S on the buffer A opened from argv (so a
+      // fresh shadow doesn't sit on *scratch* while A is showing the file).
+      // All other Cmds remain S→A only — A is the side that runs them.
+      if (op.name === "switch-to-buffer" && typeof op.args[0] === "string") {
+        state.wantCurrent = op.args[0]
+        if (editor.buffers.has(op.args[0])) editor.switchToBuffer(op.args[0])
+      }
+      break
     case "have":
     case "want":
       // S→A only; never honored on S.
@@ -443,13 +457,19 @@ export function attachAuthority(editor: Editor, link: ShadowLink, opts?: AttachO
 
 /** A-side: announce `bufferId` to S as a `BufferRef` (sha, no text). S decides
  *  hit/stale/miss against its CAS and replies Have or Want. Call this on
- *  buffer-add (find-file, get-buffer-create) for buffers S should mirror. */
+ *  buffer-add (find-file, get-buffer-create) for buffers S should mirror.
+ *  Skips scratch/messages/minibuffer — S's own Editor() already has those. */
 export function announceBuffer(editor: Editor, bufferId: string): void {
   const state = authorityState(editor)
   const buf = editor.buffers.get(bufferId)
   if (!state || !buf) return
+  if (buf.name === "*scratch*" || buf.name === "*messages*" || buf.kind === "minibuffer") return
   const sha = state.cas.write(buf.text)
-  state.link.send({ kind: "buffer-ref", id: buf.id, path: buf.path, sha, mode: buf.mode })
+  state.link.send({ kind: "buffer-ref", id: buf.id, name: buf.name, path: buf.path, sha, mode: buf.mode })
+  // Tell S which buffer A is looking at so the shadow lands there on connect.
+  if (bufferId === editor.currentBufferId) {
+    state.link.send({ kind: "command", name: "switch-to-buffer", args: [bufferId], seq: 0 })
+  }
 }
 
 /** Arm/reset the debounce timer that calls `flushExternal` once S has been

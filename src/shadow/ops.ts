@@ -15,8 +15,9 @@ export type Rebase = { kind: "rebase"; bufferId: string; baseSeq: Seq; ops: Spli
 export type Lsp = { kind: "lsp"; bufferId: string; diagnostics?: unknown[]; hover?: string; completion?: unknown[] }
 
 // Content-addressed buffer sync (DESIGN.md §Content-addressed). A→S: BufferRef, Chunk. S→A: Have, Want.
-/** Like `Buffer` but ships sha instead of text — S decides hit/stale/miss. */
-export type BufferRef = { kind: "buffer-ref"; id: string; path?: string; sha: string; mode: string }
+/** Like `Buffer` but ships sha instead of text — S decides hit/stale/miss.
+ *  `name` is the basename (what C-x b matches on); `path` is the full visit path. */
+export type BufferRef = { kind: "buffer-ref"; id: string; name: string; path?: string; sha: string; mode: string }
 /** S→A: I have content with this sha (may differ from BufferRef.sha → stale). */
 export type Have = { kind: "have"; id: string; sha: string }
 /** S→A: cache miss, stream me the text. */

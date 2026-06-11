@@ -206,6 +206,7 @@ export function mountShadowEditor(options: ShadowMountOptions = {}): { editor: E
     try { installDefaultConfig(editor) }
     catch (err) { console.warn("[shadow] default config partially loaded:", err) }
   }
+  ;(globalThis as { __jemacs?: unknown }).__jemacs = { editor, webLayout, buildLogicalModel }
 
   // ── render pipeline (declared before `link` so onStateChange can call it) ──
   const targets = options.targets ?? defaultTargets()
@@ -245,6 +246,13 @@ export function mountShadowEditor(options: ShadowMountOptions = {}): { editor: E
   const manifest = new ManifestCache()
   const runtime = guardWrites(createRemoteRuntime(link, manifest, cas), link)
   attachShadow(editor, link, { cas, runtime })
+  // find-file/dired read `process.cwd()` directly; the host shim returns "/".
+  // Redirect the shim through the runtime so they see A's project root once
+  // latched, and seed one manifest-req so the latch lands before C-x C-f.
+  // `proc.browser` is set only by the host's process shim — never on real Node.
+  const proc = (globalThis as { process?: { cwd?: () => string; browser?: boolean } }).process
+  if (proc?.browser) proc.cwd = () => runtime.cwd()
+  void runtime.readdir(runtime.cwd()).catch(() => {})
 
   // Surface link state in every buffer's modeline.
   activeLink = link

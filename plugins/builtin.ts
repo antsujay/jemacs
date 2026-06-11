@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { Editor } from "../src/kernel/editor"
+import { installDefaultModes } from "../src/modes/default-modes"
 import { Evaluator, type InstallFn } from "../src/runtime/evaluator"
 
 /**
@@ -57,6 +58,9 @@ export async function installBuiltinPlugins(
   editor: Editor,
   evaluator: Evaluator = new Evaluator(editor),
 ): Promise<void> {
+  // wdired (and any plugin that defineKey()s into a base-mode keymap) needs the
+  // default modes registered first; don't depend on the caller having done it.
+  installDefaultModes()
   for (const [name, load] of builtins) {
     try {
       const mod = await load()

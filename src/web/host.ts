@@ -175,11 +175,18 @@ export class WebHost implements UiHost {
 
   getViewport(): ViewportSize { return { rows: 48, cols: 160 } }
 
-  present(_model: DisplayModel): void {
+  /** t-audit2-df2a71a8: the incoming `DisplayModel` is char-grid (wrapped rows
+   *  + █-glyph cursor) — serializing it would lose variable-pitch heights and
+   *  the positioned `cursor` field that `webLayout` emits. Until `UiHost`
+   *  delivers `LogicalModel` we re-derive it here; `bindJemacsHost.present()`
+   *  is synchronous so the editor read is the same tick, and we take
+   *  `hostLabel` from `model` to keep the two paths tied. The wasted work is
+   *  the upstream `layoutCharGrid` call, not this rebuild. */
+  present(model: DisplayModel): void {
     if (!this.editor || this.shadow) return
     const logical = buildLogicalModel(this.editor, {
       lastMessage: this.lastMessage,
-      hostLabel: this.label,
+      hostLabel: model.hostLabel,
     })
     this.lastModel = webLayout(logical, this.getViewport())
     this.broadcast(this.lastModel)
@@ -239,7 +246,12 @@ export class WebHost implements UiHost {
   }
 
   private async loadHtml(): Promise<string> {
-    const inject = `<script>window.__JEMACS_TOKEN__=${JSON.stringify(this.token)}</script>`
+    // Shim `process` BEFORE the module loads — Bun's browser polyfills cover
+    // `node:*` modules but not the bare `process` global that path/os/etc read.
+    const procShim = `<script>globalThis.process??={env:{},platform:"browser",`
+      + `cwd:()=>"/",nextTick:f=>queueMicrotask(f),version:"",versions:{},`
+      + `stdout:{isTTY:false},stderr:{isTTY:false},argv:[],browser:true}</script>`
+    const inject = procShim + `<script>window.__JEMACS_TOKEN__=${JSON.stringify(this.token)}</script>`
     if (this.shadow) {
       // Mirrors `src/electron/renderer.html`: same mount-point ids the DOM
       // renderer and shadow-entry probe for, plus the stylesheet that drives

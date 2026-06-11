@@ -540,3 +540,20 @@
 {"id": "t-audit2-db6e88b4", "status": "done", "ts": 1781203747870, "detail": "merged into 75500c99/2c04feca in drain-4"}
 {"id": "t-audit2-e1ad6157", "status": "done", "ts": 1781203747870, "detail": "merged into 75500c99/2c04feca in drain-4"}
 {"id": "t-audit2-8f74067b", "status": "done", "ts": 1781203747870, "detail": "merged into 75500c99/2c04feca in drain-4"}
+{"id": "t-qa-b66d506f", "ts": 1781204984660, "kind": "bug", "priority": "p0", "owns": "src/shadow/shadow.ts + src/shadow/ops.ts", "status": "open", "title": "shadow: announceBuffer name=path; C-x b basename creates empty buffer", "detail": "BufferRef should carry {name, path, mode}; S addBuffer with basename name + full path. Skip *scratch*/*messages*/minibuffer (S has its own). After fix, C-x b in --web --shadow finds the announced buffer.", "by": "qa-live"}
+{"id": "t-qa-1c24ff83", "ts": 1781204984660, "kind": "feature", "priority": "p1", "owns": "src/web/shadow-entry.ts + src/shadow/shadow.ts", "status": "open", "title": "shadow: A should auto-switchTo the file argv buffer on S", "detail": "After connect, A sends a {kind:command,name:switch-to-buffer,args:[id]} so S lands on the same buffer A opened (file argv). Currently S starts on *scratch*.", "by": "qa-live"}
+{"id": "t-qa-9dc2de4e", "ts": 1781204984660, "kind": "bug", "priority": "p0", "owns": "src/web/host.ts", "status": "open", "title": "web --shadow: process global shim must precede module load", "detail": "DONE in QA \u2014 host.ts loadHtml() injects globalThis.process before editor.js. Add a test/web/shadow-live.test.ts that asserts .window-body has content for a markdown file.", "by": "qa-live"}
+{"id": "t-qa-8cec2269", "ts": 1781204984660, "kind": "bug", "priority": "p1", "owns": "src/shadow/remote-runtime.ts + src/web/shadow-entry.ts", "status": "open", "title": "web --shadow: find-file/dired cwd is /", "detail": "A sends fsRoot in manifest-tree; S sets it as remote-runtime cwd so find-file initial path is the project root not /.", "by": "qa-live"}
+{"id": "t-qa-132e297e", "ts": 1781204984660, "kind": "bug", "priority": "p1", "owns": "plugins/builtin.ts", "status": "open", "title": "builtin.ts: wdired before dired \u2192 defineKey dired-map fails", "detail": "load-order: dired (or installDiredMode) must precede wdired.", "by": "qa-live"}
+{"id": "t-qa-9dc2de4e", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-b66d506f", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-1c24ff83", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-8cec2269", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-132e297e", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-5bcebec4", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-98ebbccd", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-84d7e59e", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-d6617590", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-cc94b2de", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-6e32638a", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-fa55cccf", "status": "done", "ts": 1781205521899}
