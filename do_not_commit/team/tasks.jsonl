@@ -545,3 +545,15 @@
 {"id": "t-qa-9dc2de4e", "ts": 1781204984660, "kind": "bug", "priority": "p0", "owns": "src/web/host.ts", "status": "open", "title": "web --shadow: process global shim must precede module load", "detail": "DONE in QA \u2014 host.ts loadHtml() injects globalThis.process before editor.js. Add a test/web/shadow-live.test.ts that asserts .window-body has content for a markdown file.", "by": "qa-live"}
 {"id": "t-qa-8cec2269", "ts": 1781204984660, "kind": "bug", "priority": "p1", "owns": "src/shadow/remote-runtime.ts + src/web/shadow-entry.ts", "status": "open", "title": "web --shadow: find-file/dired cwd is /", "detail": "A sends fsRoot in manifest-tree; S sets it as remote-runtime cwd so find-file initial path is the project root not /.", "by": "qa-live"}
 {"id": "t-qa-132e297e", "ts": 1781204984660, "kind": "bug", "priority": "p1", "owns": "plugins/builtin.ts", "status": "open", "title": "builtin.ts: wdired before dired \u2192 defineKey dired-map fails", "detail": "load-order: dired (or installDiredMode) must precede wdired.", "by": "qa-live"}
+{"id": "t-qa-9dc2de4e", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-b66d506f", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-1c24ff83", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-8cec2269", "status": "done", "ts": 1781205521899}
+{"id": "t-qa-132e297e", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-5bcebec4", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-98ebbccd", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-84d7e59e", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-d6617590", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-cc94b2de", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-6e32638a", "status": "done", "ts": 1781205521899}
+{"id": "t-audit2-fa55cccf", "status": "done", "ts": 1781205521899}

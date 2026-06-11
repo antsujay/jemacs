@@ -57,6 +57,8 @@ export function createRemoteRuntime(
   /** path → {seq, prior}: writes S has applied to `manifest` but A hasn't
    *  confirmed via manifest-delta/tree. `prior` is the snapshot to roll back to. */
   const optimistic = new Map<string, { seq: Seq; prior: Lookup }>()
+  /** A's project root, latched from `ManifestTree.root`. `opts.root` pins it. */
+  let root = opts.root ?? "/"
 
   let seq: () => Seq = (() => { let n = 0; return () => ++n })()
   const sendCmd = (name: string, args: unknown[]): Seq => {
@@ -157,6 +159,7 @@ export function createRemoteRuntime(
     onOp(op) {
       switch (op.kind) {
         case "manifest-tree":
+          if (op.root && opts.root === undefined) root = op.root
           manifest.applyTree(op)
           children.set(op.dir, new Set(op.entries.map(e => basename(e.path))))
           // A's listing is authoritative — any optimistic write in this dir is
@@ -243,9 +246,9 @@ export function createRemoteRuntime(
     // CAS keys on. `watch` is a no-op — fs change notification arrives as
     // ManifestDelta over the link, not via a local watcher.
     hash(text) { return sha256(text) },
-    cwd() { return opts.root ?? "/" },
+    cwd() { return root },
     env(name) { return opts.env?.[name] },
-    homedir() { return opts.home ?? opts.root ?? "/" },
+    homedir() { return opts.home ?? root },
     watch(_path, _onChange): WatchHandle { return { close: () => {} } },
   }
 }
@@ -293,7 +296,7 @@ export function createAuthorityFs(link: ShadowLink, fs: FsLike, root = "/"): Aut
       const sha = isDir(st.mode) ? "" : sha256(await fs.readFile(path))
       entries.push({ path, sha, mode: st.mode, size: st.size, mtime: st.mtime })
     }
-    return { kind: "manifest-tree", root: "", dir, entries }
+    return { kind: "manifest-tree", root: jailRoot, dir, entries }
   }
 
   return {
@@ -301,7 +304,7 @@ export function createAuthorityFs(link: ShadowLink, fs: FsLike, root = "/"): Aut
       switch (op.kind) {
         case "manifest-req": {
           const safe = underRoot(op.dir)
-          if (!safe) { link.send({ kind: "manifest-tree", root: "", dir: op.dir, entries: [] }); return true }
+          if (!safe) { link.send({ kind: "manifest-tree", root: jailRoot, dir: op.dir, entries: [] }); return true }
           void listDir(safe).then(tree => link.send(tree))
           return true
         }

@@ -175,11 +175,18 @@ export class WebHost implements UiHost {
 
   getViewport(): ViewportSize { return { rows: 48, cols: 160 } }
 
-  present(_model: DisplayModel): void {
+  /** t-audit2-df2a71a8: the incoming `DisplayModel` is char-grid (wrapped rows
+   *  + █-glyph cursor) — serializing it would lose variable-pitch heights and
+   *  the positioned `cursor` field that `webLayout` emits. Until `UiHost`
+   *  delivers `LogicalModel` we re-derive it here; `bindJemacsHost.present()`
+   *  is synchronous so the editor read is the same tick, and we take
+   *  `hostLabel` from `model` to keep the two paths tied. The wasted work is
+   *  the upstream `layoutCharGrid` call, not this rebuild. */
+  present(model: DisplayModel): void {
     if (!this.editor || this.shadow) return
     const logical = buildLogicalModel(this.editor, {
       lastMessage: this.lastMessage,
-      hostLabel: this.label,
+      hostLabel: model.hostLabel,
     })
     this.lastModel = webLayout(logical, this.getViewport())
     this.broadcast(this.lastModel)

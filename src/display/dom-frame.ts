@@ -107,9 +107,11 @@ export function renderCaret(
   if (fg) caret.style.backgroundColor = fg
   body.appendChild(caret)
   const place = () => {
-    // Re-render may have replaced `body`; bail rather than measure a detached
-    // node (rects are 0×0 and scrollIntoView would scroll the wrong viewport).
-    if (body.isConnected === false) return
+    // `body` is reused across renders, so a stale rAF can fire with `body`
+    // still connected but this caret already removed (predictive caret swap,
+    // or `replaceChildren` in the diff path). The caret is a child of `body`,
+    // so guarding on it also covers the body-detached case.
+    if (!caret.isConnected) return
     const bodyRect = body.getBoundingClientRect()
     const rowRect = rowEl.getBoundingClientRect()
     let left = rowRect.left
