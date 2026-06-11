@@ -201,12 +201,15 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
     editor.message(`Keyboard macro defined (${editor.lastKbdMacro.length} events)`)
   }, "Finish defining a keyboard macro.")
 
-  editor.command("call-last-kbd-macro", async ({ editor }) => {
+  editor.command("call-last-kbd-macro", async ({ editor, prefixArgument }) => {
     if (!editor.lastKbdMacro.length) {
       editor.message("No keyboard macro defined")
       return
     }
-    for (const command of editor.lastKbdMacro) await editor.run(command)
+    const count = prefixArgument ?? 1
+    for (let i = 0; i < count; i++) {
+      for (const command of editor.lastKbdMacro) await editor.run(command)
+    }
     editor.message("Executed keyboard macro")
   }, "Call the last keyboard macro.")
 
@@ -298,13 +301,13 @@ export function install(editor: Editor, ctx: PluginContext = createPluginContext
   }, "Set buffer text scale to LEVEL steps (0 = default).")
 
   editor.command("text-scale-increase", ({ editor, buffer, args, prefixArgument }) => {
-    const inc = prefixArgument ?? Number(args[0])
+    const inc = prefixArgument ?? (args.length ? Number(args[0]) : 1)
     if (!Number.isFinite(inc)) return
     textScaleIncrease(editor, buffer, inc)
   }, "Increase buffer text scale by INC steps (0 resets).")
 
   editor.command("text-scale-decrease", ({ editor, buffer, args, prefixArgument }) => {
-    const dec = prefixArgument ?? Number(args[0])
+    const dec = prefixArgument ?? (args.length ? Number(args[0]) : 1)
     if (!Number.isFinite(dec)) return
     textScaleIncrease(editor, buffer, -dec)
   }, "Decrease buffer text scale by DEC steps.")

@@ -142,16 +142,14 @@ export function install(editor: Editor, ctx?: PluginContext): void {
     buffer.markActive = true
   }, "Set mark at end and point at beginning of buffer.")
 
-  const beginningOfDefun = ({ buffer, editor }: CommandContext) => {
-    const move = modeFeature(buffer.mode, "beginningOfDefun")
-    if (move) return move(buffer)
-    editor.message("No defun navigation for this mode")
+  const defunMotion = (back: boolean) => ({ buffer, editor, prefixArgument }: CommandContext) => {
+    const n = prefixArgument ?? 1
+    const move = modeFeature(buffer.mode, n < 0 === back ? "endOfDefun" : "beginningOfDefun")
+    if (!move) return editor.message("No defun navigation for this mode")
+    for (let i = 0; i < Math.max(1, Math.abs(n)); i++) move(buffer)
   }
-  const endOfDefun = ({ buffer, editor }: CommandContext) => {
-    const move = modeFeature(buffer.mode, "endOfDefun")
-    if (move) return move(buffer)
-    editor.message("No defun navigation for this mode")
-  }
+  const beginningOfDefun = defunMotion(true)
+  const endOfDefun = defunMotion(false)
   editor.command("beginning-of-defun", beginningOfDefun, "Move to the beginning of the current defun.")
   editor.command("end-of-defun", endOfDefun, "Move to the end of the current defun.")
   editor.command("jemacs-python-beginning-of-defun", beginningOfDefun, "Jemacs extension alias for beginning-of-defun in Python buffers.")

@@ -41,9 +41,10 @@ export type LogicalPane = {
    *  renderer maps (point, mark, span boundaries). Plain data so the model
    *  survives JSON; absent when no display filter is active. */
   displayOffsets?: ReadonlyArray<readonly [raw: number, display: number]>
-  /** Maps a `text` offset to the corresponding `displayText` offset. Derived
-   *  from `displayOffsets` (closes over the table only, not the buffer). Unset
-   *  when no display filter is active (treat as identity). */
+  /** @deprecated Functions are dropped by JSON; call {@link paneDisplayMap}
+   *  host-side instead (it derives the closure from `displayOffsets`). Kept
+   *  populated only until char-grid-layout / web-layout migrate
+   *  (t-audit2-f8e12ae6). */
   displayMap?: (n: number) => number
   /** Font-lock + LSP + overlay-source + isearch spans, buffer-absolute. Region
    *  is *not* included here — derive it from `point`/`mark`. */
@@ -215,7 +216,7 @@ function buildLogicalPane(editor: Editor, leaf: WindowLeaf): LogicalPane {
     text: buffer.text,
     displayText: filt?.text ?? buffer.text,
     displayOffsets,
-    displayMap: displayOffsets ? offsetTableMap(displayOffsets) : undefined,
+    displayMap: paneDisplayMap({ displayOffsets }),
     spans,
     fontLockSpans,
     point,
@@ -289,6 +290,16 @@ function snapshotLocals(src: ReadonlyMap<string, unknown>): Map<string, unknown>
 export function offsetTableMap(table: ReadonlyArray<readonly [number, number]>): (n: number) => number {
   const lut = new Map(table)
   return n => lut.get(n) ?? n
+}
+
+/** Host-side `text → displayText` offset map for a pane. The closure is built
+ *  here, from the serializable `displayOffsets` descriptor — never carried on
+ *  the pane and never the mode's `displayFilter` closure (t-audit2-f8e12ae6).
+ *  Returns `undefined` (treat as identity) when no display filter is active. */
+export function paneDisplayMap(
+  pane: { readonly displayOffsets?: ReadonlyArray<readonly [number, number]> },
+): ((n: number) => number) | undefined {
+  return pane.displayOffsets ? offsetTableMap(pane.displayOffsets) : undefined
 }
 
 function modelineFor(
