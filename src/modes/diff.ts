@@ -1454,7 +1454,10 @@ async function resolveDiffFileCandidates(buffer: BufferModel, files: string[]): 
 }
 
 /** resolve(dir, file) but refuse to return a path that escapes `dir` — a
- *  malicious patch can supply `../` segments in its --- / +++ headers. */
+ *  malicious patch can supply `../` segments in its --- / +++ headers.
+ *  Symlink-permeable (lexical check, no realpath): if `dir` already contains
+ *  a symlink pointing outside, applying a diff through it is the same trust
+ *  as editing through it in dired. Same model as `AuthorityFs.underRoot`. */
 function containedResolve(dir: string, file: string): string | null {
   const base = resolve(dir)
   const path = resolve(base, file)
