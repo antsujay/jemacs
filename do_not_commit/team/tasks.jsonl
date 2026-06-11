@@ -557,3 +557,22 @@
 {"id": "t-audit2-cc94b2de", "status": "done", "ts": 1781205521899}
 {"id": "t-audit2-6e32638a", "status": "done", "ts": 1781205521899}
 {"id": "t-audit2-fa55cccf", "status": "done", "ts": 1781205521899}
+{"id": "t-dog-0f8740bd", "ts": 1781206520679, "kind": "bug", "priority": "p0", "owns": "src/kernel/editor.ts + src/platform/runtime.ts", "status": "open", "title": "shadow: editor.ts imports stat/unlink from node:fs directly \u2014 find-file/dired silently fail in browser", "detail": "editor.ts:1 imports {stat,unlink} from node:fs/promises (stubbed in browser \u2192 throw). visitPath/openFile/openDirectory must go through platformRuntime.stat/unlink. Also audit lisp/ + modes/ for any remaining direct node:fs import. This is the architect PlatformRuntime fix \u2014 was deferred to p2 but is p0 for --web --shadow.", "by": "dogfood-tokio"}
+{"id": "t-dog-b7878447", "ts": 1781206520679, "kind": "bug", "priority": "p1", "owns": "src/shadow/shadow.ts", "status": "open", "title": "shadow: announced buffer arrives dirty=true (replaceRange in chunk reassembly)", "detail": "README.md/guide.md show * dirty marker on arrival. Chunk reassembly should use setText(text, false) or replaceRange with snapshot:false + clear dirty after.", "by": "dogfood-tokio"}
+{"id": "t-dog-bbc9c1fd", "ts": 1781206520679, "kind": "bug", "priority": "p2", "owns": "src/shadow/shadow.ts", "status": "open", "title": "shadow: announced buffer point at EOF not 0", "detail": "After switch-to-buffer, point is at line 261 (end) not start. Chunk reassembly leaves point at end of inserted text.", "by": "dogfood-tokio"}
+{"id": "t-dog-2d8dc2e0", "ts": 1781206520679, "kind": "test", "priority": "p1", "owns": "test/shadow/perf-manifest.test.ts", "status": "open", "title": "shadow dogfood: porffor 57k files \u2014 manifest perf test", "detail": "Stress test: 57k-file tree, time buildManifest + first readdir + first find-file. Should be <2s for the manifest, instant for cached readdir.", "by": "dogfood-tokio"}
+{"id": "t-audit2-9b87128c", "status": "done", "ts": 1781206520679, "detail": "stale \u2014 fixed in drain-1..4"}
+{"id": "t-audit2-3b02a351", "status": "done", "ts": 1781206520679, "detail": "stale \u2014 fixed in drain-1..4"}
+{"id": "t-audit2-725881ec", "status": "done", "ts": 1781206520679, "detail": "stale \u2014 fixed in drain-1..4"}
+{"id": "t-audit2-93305fba", "status": "done", "ts": 1781206520679, "detail": "stale \u2014 fixed in drain-1..4"}
+{"id": "t-audit2-e34d1fb9", "status": "done", "ts": 1781206520679, "detail": "stale \u2014 fixed in drain-1..4"}
+{"id": "t-dog-0f8740bd", "status": "done", "ts": 1781206883711}
+{"id": "t-dog-b7878447", "status": "done", "ts": 1781206883711}
+{"id": "t-dog-2d8dc2e0", "status": "done", "ts": 1781206883711}
+{"id": "t-audit2-df2a71a8", "status": "done", "ts": 1781206883711}
+{"id": "t-audit2-3b6d6a8d", "status": "done", "ts": 1781206883711}
+{"id": "t-audit2-51cb8529", "status": "done", "ts": 1781206883711}
+{"id": "t-audit2-801c1d63", "status": "done", "ts": 1781206883711}
+{"id": "t-dog-3bf39228", "ts": 1781206883711, "kind": "bug", "priority": "p1", "owns": "src/modes/dired.ts + src/kernel/completion.ts + src/kernel/buffer.ts", "status": "open", "title": "dired.ts/completion.ts/buffer.ts direct node:fs imports \u2014 dired+ff-completion fail in browser", "detail": "Route through platformRuntime (readdir/stat/mkdir/cp/rename/rm). Add to PlatformRuntime as needed.", "by": "dogfood-tokio"}
+{"id": "t-dog-b5271e13", "ts": 1781207320857, "kind": "bug", "priority": "p1", "owns": "src/main.ts", "status": "open", "title": "main.ts: --fsRoot flag missing; default to projectRoot(argv[file]) not cwd", "detail": "--web --shadow with file outside cwd \u2192 find-file silent empty (jail rejects). Add --fsRoot flag; default to projectRoot of first file argv (or its dirname).", "by": "dogfood-tokio"}
+{"id": "t-dog-e23a6e7b", "ts": 1781207320857, "kind": "bug", "priority": "p1", "owns": "src/shadow/remote-runtime.ts", "status": "open", "title": "remote-runtime.readFileText returns \"\" on miss \u2014 should throw ENOENT", "detail": "stat returns null (path outside jail / not in manifest) \u2192 readFileText returns \"\" \u2192 buffer silently empty. Throw so user sees the error in echo area.", "by": "dogfood-tokio"}

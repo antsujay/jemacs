@@ -7,18 +7,24 @@ export type Driver = {
   key(key: string, mods?: { ctrl?: boolean; meta?: boolean; shift?: boolean; alt?: boolean }): Promise<void>
   type(text: string): Promise<void>
   screenshot(path: string): Promise<void>
+  /** Page console + uncaught exceptions, in arrival order. Format: `"[type] text"`. */
+  consoleLog: string[]
   close(): Promise<void>
 }
 
 const CHROMIUM = process.env.CHROMIUM_PATH
   ?? "/nix/store/68h63fg3qyv62lkvmqpkdk8g8qnldzhp-chromium-147.0.7727.137/bin/chromium"
 
-export async function launch(url: string, opts: { debugPort?: number } = {}): Promise<Driver> {
+export async function launch(url: string, opts: { debugPort?: number; userDataDir?: string } = {}): Promise<Driver> {
   const port = opts.debugPort ?? (19222 + Math.floor(Math.random() * 1000))
   const child: ChildProcess = spawn(CHROMIUM, [
     "--headless", "--no-sandbox", "--disable-gpu",
     `--remote-debugging-port=${port}`, "--remote-allow-origins=*",
-    "--window-size=1280,800", url,
+    "--window-size=1280,800",
+    ...(opts.userDataDir ? [`--user-data-dir=${opts.userDataDir}`] : []),
+    // Open about:blank and navigate via CDP after Runtime.enable so the
+    // consoleAPICalled subscription is live before the first page script runs.
+    "about:blank",
   ], { stdio: ["ignore", "ignore", "pipe"] })
 
   // Wait for the devtools endpoint.
@@ -36,14 +42,24 @@ export async function launch(url: string, opts: { debugPort?: number } = {}): Pr
   await new Promise<void>((res, rej) => { ws.onopen = () => res(); ws.onerror = e => rej(e) })
   let seq = 0
   const pending = new Map<number, (r: unknown) => void>()
+  const consoleLog: string[] = []
   ws.onmessage = e => {
     const m = JSON.parse(String(e.data))
-    if (m.id != null) { pending.get(m.id)?.(m.result); pending.delete(m.id) }
+    if (m.id != null) { pending.get(m.id)?.(m.result); pending.delete(m.id); return }
+    if (m.method === "Runtime.consoleAPICalled") {
+      const text = (m.params.args ?? [])
+        .map((a: { value?: unknown; description?: string }) => String(a.value ?? a.description ?? "")).join(" ")
+      consoleLog.push(`[${m.params.type}] ${text}`)
+    } else if (m.method === "Runtime.exceptionThrown") {
+      const ex = m.params.exceptionDetails
+      consoleLog.push(`[exception] ${ex.text} ${ex.exception?.description ?? ""}`.trim())
+    }
   }
   const send = <T>(method: string, params: Record<string, unknown> = {}): Promise<T> =>
     new Promise(r => { const id = ++seq; pending.set(id, v => r(v as T)); ws.send(JSON.stringify({ id, method, params })) })
 
   await send("Runtime.enable")
+  await send("Page.navigate", { url })
   // Wait for the app's first WS model to land.
   for (let i = 0; i < 30; i++) {
     const r = await send<{result:{value:boolean}}>("Runtime.evaluate", { expression: "!!document.querySelector('.window-modeline')" })
@@ -79,6 +95,7 @@ export async function launch(url: string, opts: { debugPort?: number } = {}): Pr
   }
 
   return {
+    consoleLog,
     async eval<T>(expr: string): Promise<T> {
       const r = await send<{result:{value:T}}>("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })
       return r.result.value
@@ -89,6 +106,6 @@ export async function launch(url: string, opts: { debugPort?: number } = {}): Pr
       const r = await send<{data:string}>("Page.captureScreenshot", { format: "png" })
       await Bun.write(path, Buffer.from(r.data, "base64"))
     },
-    async close() { ws.close(); child.kill() },
+    async close() { try { ws.close() } catch {}; child.kill() },
   }
 }

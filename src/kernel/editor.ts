@@ -1,4 +1,3 @@
-import { stat, unlink } from "node:fs/promises"
 import { basename, dirname, resolve, sep } from "node:path"
 import { BufferModel } from "./buffer"
 import { CommandRegistry, type CommandFn } from "./command"
@@ -43,7 +42,7 @@ import {
 import type { RegisterContents } from "./register"
 import { modeHookName, runHooks } from "./hooks"
 import type { LspManager } from "../lsp/manager"
-import { fileExists, readFileText, writeFileText } from "../platform/runtime"
+import { fileExists, isDirectory, readFileText, stat, unlink, writeFileText } from "../platform/runtime"
 import { invokeWithAdvice } from "../runtime/advice"
 import { readInteractiveArgs } from "../runtime/interactive"
 import { canonicalMapName, registerKeyBinding } from "../runtime/key-registry"
@@ -543,7 +542,8 @@ export class Editor {
 
   async openFile(path: string): Promise<BufferModel> {
     const full = resolve(path)
-    if ((await stat(full).catch(() => null))?.isDirectory()) return this.openDirectory(full)
+    const st = await stat(full)
+    if (st && isDirectory(st)) return this.openDirectory(full)
     return this.visitPath(full, BufferModel.fromFile)
   }
 
@@ -1067,8 +1067,8 @@ export class Editor {
       this.message(`No auto-save file ${target}`)
       return false
     }
-    const [autoStat, fileStat] = await Promise.all([stat(target), stat(buffer.path).catch(() => null)])
-    if (fileStat && autoStat.mtimeMs <= fileStat.mtimeMs) {
+    const [autoStat, fileStat] = await Promise.all([stat(target), stat(buffer.path)])
+    if (autoStat && fileStat && autoStat.mtime <= fileStat.mtime) {
       this.message("Auto-save file is not newer; not recovering")
       return false
     }

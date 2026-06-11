@@ -1,14 +1,23 @@
 /**
- * Browser shim for `node:crypto`: re-export Bun's browser polyfill (which has
- * `createHash`, `randomBytes`) and fill in `timingSafeEqual`, which the
- * polyfill lacks. Only `serveShadow` (server-side) calls `timingSafeEqual`;
- * the browser shadow never reaches it, so the impl here is correctness-only.
- *
- * The build plugin redirects every `node:crypto` import here *except* the one
- * on the next line, so the re-export resolves to the real polyfill.
+ * Browser shim for `node:crypto`: re-export Bun's browser polyfill and fill
+ * in what it lacks (`createHash`, `timingSafeEqual`). The build plugin
+ * redirects every `node:crypto` import here *except* the one on the next
+ * line, so the re-export resolves to the real polyfill.
  */
 // @ts-ignore — resolved to Bun's browser polyfill by the build plugin
 export * from "node:crypto"
+
+import { sha256Hex } from "./sha256"
+
+/** Bun's browser polyfill turns out NOT to ship `createHash` — supply a sync
+ *  sha256-only one for the CAS path. */
+export function createHash(algo: string): { update(s: string): { digest(enc: "hex"): string } } {
+  if (algo !== "sha256") throw new Error(`crypto-shim: createHash only supports sha256 (got ${algo})`)
+  let acc = ""
+  return {
+    update(s: string) { acc += s; return { digest: () => sha256Hex(acc) } },
+  }
+}
 
 export function timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean {
   const ab = new Uint8Array(a.buffer, a.byteOffset, a.byteLength)
