@@ -3,6 +3,7 @@ import { bindJemacsHost } from "../src/run"
 import { Editor } from "../src/kernel/editor"
 import type { DisplayModel, InputHandler, UiHost } from "../src/display/protocol"
 import type { ViewportSize } from "../src/display/viewport"
+import { findWindowLeaf } from "../src/kernel/window"
 
 class StubHost implements UiHost {
   readonly label = "stub"
@@ -33,4 +34,19 @@ test("bindJemacsHost presents and routes paste input", async () => {
   expect(host.models.length).toBe(1)
   await onInput({ type: "paste", text: "hi" })
   expect(editor.currentBuffer.text).toBe("hi")
+})
+
+test("bindJemacsHost routes wheel input to window scrolling", async () => {
+  const editor = new Editor()
+  editor.scratch("wheel.txt", Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join("\n"), "text")
+  const host = new StubHost()
+  const { present, onInput } = bindJemacsHost(editor, host)
+  present()
+
+  const windowId = editor.selectedWindowId
+  await onInput({ type: "wheel", windowId, lines: 3 })
+  expect(findWindowLeaf(editor.windowLayout, windowId)!.startLine).toBe(3)
+
+  await onInput({ type: "wheel", windowId, lines: -2 })
+  expect(findWindowLeaf(editor.windowLayout, windowId)!.startLine).toBe(1)
 })

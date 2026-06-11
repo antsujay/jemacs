@@ -1,5 +1,5 @@
 import type { SerializedDisplayModel } from "../display/serialize"
-import { presentDomFrame } from "../display/dom-frame"
+import { DOM_FRAME_ROW_PX, presentDomFrame } from "../display/dom-frame"
 import { domKeyFromKeyboardEvent, isDomModifierOnlyKey } from "./dom-key"
 import { XtermPaneRegistry } from "./xterm-panes"
 
@@ -9,6 +9,7 @@ const minibufferCompletionsEl = document.getElementById("jemacs-minibuffer-compl
 const minibufferEl = document.getElementById("jemacs-minibuffer")!
 const echoEl = document.getElementById("jemacs-echo")!
 const xtermPanes = new XtermPaneRegistry()
+const maxWheelLines = 10
 
 declare global {
   interface Window {
@@ -45,6 +46,28 @@ document.addEventListener("paste", event => {
   event.preventDefault()
   window.jemacs.sendInput({ type: "paste", text })
 })
+
+document.addEventListener("wheel", event => {
+  if (event.defaultPrevented) return
+  const pane = event.target instanceof Element
+    ? event.target.closest<HTMLElement>(".window-pane")
+    : null
+  const windowId = pane?.dataset.windowId
+  if (!windowId) return
+  event.preventDefault()
+  window.jemacs.sendInput({ type: "wheel", windowId, lines: wheelEventLines(event) })
+}, { passive: false })
+
+function wheelEventLines(event: WheelEvent): number {
+  const raw = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+    ? event.deltaY
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+      ? event.deltaY * maxWheelLines
+      : event.deltaY / DOM_FRAME_ROW_PX
+  const direction = Math.sign(raw) || 1
+  const lines = Math.max(1, Math.ceil(Math.abs(raw)))
+  return direction * Math.min(maxWheelLines, lines)
+}
 
 try {
   window.jemacs.onTerminalData(payload => xtermPanes.write(payload))

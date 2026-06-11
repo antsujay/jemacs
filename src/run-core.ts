@@ -4,6 +4,7 @@ import { buildDisplayModel } from "./display/build-display-model"
 import { pointFromWindowClick } from "./display/click-to-point"
 import { findPaneInModel } from "./display/find-pane"
 import type { DisplayModel, InputHandler, UiHost } from "./display/protocol"
+import { scrollDownCommand, scrollUpCommand } from "./display/scroll"
 
 export type JemacsHostBinding = {
   present: () => void
@@ -53,6 +54,16 @@ export function bindJemacsHost(editor: Editor, host: UiHost): JemacsHostBinding 
         if (pane && buffer) {
           const point = pointFromWindowClick(buffer.text, pane.clickState, input.row, input.col, pane.bodyLineBudget)
           editor.clickWindow(input.windowId, point)
+        }
+      } else if (input.type === "wheel") {
+        const leaf = findWindowLeaf(editor.windowLayout, input.windowId)
+        if (leaf) {
+          editor.selectWindow(input.windowId)
+          const requestedLines = Number.isFinite(input.lines) ? Math.trunc(input.lines) : 1
+          const lines = Math.max(1, Math.abs(requestedLines))
+          if (requestedLines > 0) scrollUpCommand(editor, lines)
+          else scrollDownCommand(editor, lines)
+          await editor.changed("wheel-scroll")
         }
       }
     } catch (error) {

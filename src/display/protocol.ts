@@ -90,6 +90,7 @@ export type NormalizedInput =
   | { type: "key"; key: KeyEventLike }
   | { type: "paste"; text: string }
   | { type: "mouse"; windowId: string; row: number; col: number; button?: number }
+  | { type: "wheel"; windowId: string; lines: number }
 
 export type InputHandler = (input: NormalizedInput) => void | Promise<void>
 export type ResizeHandler = (viewport: ViewportSize) => void
