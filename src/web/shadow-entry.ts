@@ -206,6 +206,7 @@ export function mountShadowEditor(options: ShadowMountOptions = {}): { editor: E
     try { installDefaultConfig(editor) }
     catch (err) { console.warn("[shadow] default config partially loaded:", err) }
   }
+  ;(globalThis as { __jemacs?: unknown }).__jemacs = { editor, webLayout, buildLogicalModel }
 
   // ── render pipeline (declared before `link` so onStateChange can call it) ──
   const targets = options.targets ?? defaultTargets()

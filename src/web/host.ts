@@ -239,7 +239,12 @@ export class WebHost implements UiHost {
   }
 
   private async loadHtml(): Promise<string> {
-    const inject = `<script>window.__JEMACS_TOKEN__=${JSON.stringify(this.token)}</script>`
+    // Shim `process` BEFORE the module loads — Bun's browser polyfills cover
+    // `node:*` modules but not the bare `process` global that path/os/etc read.
+    const procShim = `<script>globalThis.process??={env:{},platform:"browser",`
+      + `cwd:()=>"/",nextTick:f=>queueMicrotask(f),version:"",versions:{},`
+      + `stdout:{isTTY:false},stderr:{isTTY:false},argv:[],browser:true}</script>`
+    const inject = procShim + `<script>window.__JEMACS_TOKEN__=${JSON.stringify(this.token)}</script>`
     if (this.shadow) {
       // Mirrors `src/electron/renderer.html`: same mount-point ids the DOM
       // renderer and shadow-entry probe for, plus the stylesheet that drives
