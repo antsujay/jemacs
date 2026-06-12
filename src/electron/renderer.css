@@ -1,5 +1,29 @@
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; font-size: 14px; background: #1e1e1e; color: #d4d4d4; }
+/* Bundled fonts first, system stacks as fallback. Generic last so we never
+ * fall through to the UA default (Times New Roman). */
+@font-face {
+  font-family: "JemacsMono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JemacsMono";
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JemacsSans";
+  src: url("/fonts/Inter-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+:root {
+  --jemacs-mono: "JemacsMono", ui-monospace, "Fira Code", "Cascadia Code", Menlo, Consolas, monospace;
+  --jemacs-sans: "JemacsSans", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+html, body { margin: 0; height: 100%; font-size: 14px; font-family: var(--jemacs-mono); background: #1e1e1e; color: #d4d4d4; }
 #jemacs-root { display: flex; flex-direction: column; height: 100%; background: #1e1e1e; color: #d4d4d4; }
 #jemacs-title { padding: 4px 8px; border-bottom: 1px solid #252526; flex-shrink: 0; }
 #jemacs-windows { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }

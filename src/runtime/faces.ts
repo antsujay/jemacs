@@ -25,8 +25,10 @@ export const FACE_REMAP_KEY = "jemacs-face-remap"
 /** Font stacks for the Emacs `variable-pitch` / `fixed-pitch` base faces.
  *  Prose modes remap `default` → variable-pitch and keep code spans on
  *  fixed-pitch so monospace alignment survives a proportional body. */
-export const VARIABLE_PITCH_FAMILY = 'system-ui, -apple-system, "Segoe UI", sans-serif'
-export const FIXED_PITCH_FAMILY = 'ui-monospace, "Fira Code", Menlo, monospace'
+// Bundled webfont first (served by WebHost at /fonts/), then system stacks,
+// then generic — so a missing font file degrades to "different mono", not serif.
+export const VARIABLE_PITCH_FAMILY = '"JemacsSans", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif'
+export const FIXED_PITCH_FAMILY = '"JemacsMono", ui-monospace, "Fira Code", "Cascadia Code", Menlo, Consolas, monospace'
 
 export function mergeFaceStyles(base: FaceStyle | undefined, overlay: FaceStyle | undefined): FaceStyle | undefined {
   if (!overlay) return base

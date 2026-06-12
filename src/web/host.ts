@@ -197,7 +197,7 @@ export class WebHost implements UiHost {
 
   // ——— HTTP ———
 
-  private handleFetch(req: Request, server: Server<SocketState>): Response | undefined {
+  private async handleFetch(req: Request, server: Server<SocketState>): Promise<Response | undefined> {
     if (!this.hostAllowed(req)) return new Response("forbidden", { status: 403 })
     const url = new URL(req.url)
     if (url.pathname === "/ws") {
@@ -222,6 +222,20 @@ export class WebHost implements UiHost {
       return new Response(Bun.file(join(this.distDir, route.file)), {
         headers: { "Content-Type": route.type },
       })
+    }
+    // Bundled fonts (renderer.css @font-face → /fonts/*.woff2). Basename only —
+    // no traversal into the source tree.
+    if (url.pathname.startsWith("/fonts/")) {
+      const name = url.pathname.slice("/fonts/".length)
+      if (/^[A-Za-z0-9._-]+\.woff2$/.test(name)) {
+        const f = Bun.file(join(fontsDir(), name))
+        if (await f.exists()) {
+          return new Response(f, {
+            headers: { "Content-Type": "font/woff2", "Cache-Control": "public, max-age=31536000, immutable" },
+          })
+        }
+      }
+      return new Response("not found", { status: 404 })
     }
     return new Response("not found", { status: 404 })
   }
@@ -353,4 +367,10 @@ function rendererCssPath(): string {
   const home = process.env.JEMACS_HOME
   if (home) return join(home, "src", "electron", "renderer.css")
   return join(import.meta.dirname, "..", "electron", "renderer.css")
+}
+
+function fontsDir(): string {
+  const home = process.env.JEMACS_HOME
+  if (home) return join(home, "src", "web", "fonts")
+  return join(import.meta.dirname, "fonts")
 }
