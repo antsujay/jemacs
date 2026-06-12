@@ -16,3 +16,4 @@ examples/*/Cargo.lock
 # Dogfood/persist state.
 .jemacs/
 \#*\#
+src/web/fonts/*.woff2
