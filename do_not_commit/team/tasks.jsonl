@@ -585,3 +585,10 @@
 {"id": "t-dog-e23a6e7b", "status": "done", "ts": 1781235523749}
 {"id": "t-dog-bbc9c1fd", "status": "done", "ts": 1781235523749}
 {"id": "t-font-0b89136c", "ts": 1781235567141, "kind": "bug", "priority": "p1", "owns": "src/runtime/faces.ts", "status": "open", "title": "setFaceAttribute family without generic fallback \u2192 serif on systems without that font", "detail": "When setFaceAttribute(name, \"family\", value) gets a value with no generic family suffix (monospace/sans-serif/serif), append \", monospace\" for fixed-pitch contexts (default face) or \", sans-serif\" for variable-pitch. Log a one-time message. Pinning test: setFaceAttribute(\"default\",\"family\",\"Fira Code\") then resolveFace(\"default\") family ends in monospace.", "by": "sujay-dogfood"}
+{"id": "t-flake-18140eac", "ts": 1781235866472, "kind": "test", "priority": "p1", "owns": "test/bugs/ + src/web/shadow-entry.ts", "status": "open", "title": "loop-t-audit2-flaky-reconnect: \"close \u2192 schedules reconnect\" order-dependent ~5%", "detail": "Passes solo, fails ~5% in full suite. Likely a leftover ReconnectingLink timer or WebSocket from prior test.", "by": "coordinator"}
+{"id": "t-font-4c5466d4", "status": "done", "ts": 1781236507160}
+{"id": "t-font-dc69b8c5", "status": "done", "ts": 1781236507160}
+{"id": "t-font-b4e9a632", "status": "done", "ts": 1781236507160}
+{"id": "t-font-0b89136c", "status": "done", "ts": 1781236507160}
+{"id": "t-flake-18140eac", "status": "done", "ts": 1781236507160}
+{"id": "t-font-7f86743b", "status": "done", "ts": 1781236507160}
